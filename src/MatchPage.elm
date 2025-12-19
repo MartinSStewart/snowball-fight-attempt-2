@@ -3495,23 +3495,40 @@ audio loaded matchPage =
                 Ok cache ->
                     case Timeline.getStateAt gameUpdate (timeToFrameId loaded match) cache match.timeline of
                         Ok ( _, state ) ->
-                            SeqDict.values state.players
-                                |> List.filterMap .lastCollision
-                                |> SeqSet.fromList
-                                |> SeqSet.toList
-                                |> List.map
-                                    (\frameId ->
-                                        let
-                                            collisionTime : Time.Posix
-                                            collisionTime =
-                                                Quantity.multiplyBy (Id.toInt frameId |> toFloat) Match.frameDuration
-                                                    |> Duration.addTo (Match.unwrapServerTime match.startTime)
-                                                    |> (\a -> Duration.subtractFrom a (pingOffset loaded))
-                                                    |> (\a -> Duration.subtractFrom a loaded.debugTimeOffset)
-                                        in
-                                        Audio.audio loaded.sounds.blip collisionTime
-                                    )
-                                |> Audio.group
+                            let
+                                frameToTime : Id FrameId -> Time.Posix
+                                frameToTime frameId =
+                                    Quantity.multiplyBy (Id.toInt frameId |> toFloat) Match.frameDuration
+                                        |> Duration.addTo (Match.unwrapServerTime match.startTime)
+                                        |> (\a -> Duration.subtractFrom a (pingOffset loaded))
+                                        |> (\a -> Duration.subtractFrom a loaded.debugTimeOffset)
+
+                                collisionSounds =
+                                    SeqDict.values state.players
+                                        |> List.filterMap .lastCollision
+                                        |> SeqSet.fromList
+                                        |> SeqSet.toList
+                                        |> List.map (\frameId -> Audio.audio loaded.sounds.blip (frameToTime frameId))
+
+                                chargeSounds =
+                                    SeqDict.values state.players
+                                        |> List.filterMap (.clickStart >> Maybe.map .time)
+                                        |> SeqSet.fromList
+                                        |> SeqSet.toList
+                                        |> List.map
+                                            (\frameId ->
+                                                let
+                                                    sound =
+                                                        if modBy 2 (Id.toInt frameId) == 0 then
+                                                            loaded.sounds.charge
+
+                                                        else
+                                                            loaded.sounds.charge2
+                                                in
+                                                Audio.audio sound (frameToTime frameId)
+                                            )
+                            in
+                            collisionSounds ++ chargeSounds |> Audio.group
 
                         Err _ ->
                             Audio.silence
