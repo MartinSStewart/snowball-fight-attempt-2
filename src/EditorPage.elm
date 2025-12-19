@@ -1,0 +1,1500 @@
+module EditorPage exposing
+    ( Config
+    , Model
+    , Msg
+    , ToBackend(..)
+    , ToFrontend(..)
+    , animationFrame
+    , init
+    , update
+    , updateFromBackend
+    , view
+    )
+
+import Axis2d
+import Axis3d
+import Camera3d exposing (Camera3d)
+import CubicSpline2d
+import Direction2d
+import Effect.Browser.Dom as Dom
+import Effect.Command as Command exposing (Command, FrontendOnly)
+import Effect.WebGL as WebGL exposing (Entity, Mesh)
+import FontRender exposing (FontVertex)
+import Geometry
+import Geometry.Types exposing (Rectangle2d)
+import Html.Events.Extra.Mouse exposing (Event)
+import Html.Events.Extra.Wheel
+import Id exposing (Id)
+import Keyboard
+import KeyboardExtra as Keyboard
+import Length exposing (Length, Meters)
+import LineSegment2d
+import List.Extra as List
+import List.Nonempty
+import Match exposing (WorldCoordinate)
+import MatchPage exposing (Mouse, ScreenCoordinate, Vertex, WorldPixel)
+import Math.Matrix4 as Mat4 exposing (Mat4)
+import Math.Vector2
+import Math.Vector3 as Vec3
+import MyUi
+import Pixels exposing (Pixels)
+import Point2d exposing (Point2d)
+import Point3d
+import Ports
+import QuadraticSpline2d exposing (QuadraticSpline2d)
+import Quantity exposing (Quantity(..), Rate)
+import Rectangle2d
+import SeqDict exposing (SeqDict)
+import SeqSet exposing (SeqSet)
+import Serialize
+import Shape exposing (Layer, LayerId, PathSegment)
+import Size exposing (Size)
+import Ui
+import Ui.Anim
+import Ui.Events
+import Ui.Font
+import Ui.Input
+import Ui.Layout
+import Ui.Prose
+import Vector2d exposing (Vector2d)
+import WebGL.Matrices
+import WebGL.Settings
+
+
+type Msg
+    = MouseDown Event
+    | MouseUp Event
+    | MouseMoved Event
+    | MouseLeft Event
+    | MouseWheel Html.Events.Extra.Wheel.Event
+    | PressedLayer (Id LayerId)
+    | PressedAddLayer
+    | PressedDuplicate
+    | PressedRemoveLayer (Id LayerId)
+    | TypedColor { red : Int, green : Int, blue : Int }
+    | PressedSave
+    | TypedLoadFromClipboard String
+    | PressedMoveLayerUp (Id LayerId)
+    | PressedMoveLayerDown (Id LayerId)
+    | PressedMirrorX
+
+
+type alias Model =
+    { mousePosition : Maybe (Point2d Pixels ScreenCoordinate)
+    , mousePositionPrevious : Maybe (Point2d Pixels ScreenCoordinate)
+    , mouseDownAt : Maybe (Point2d Meters WorldCoordinate)
+    , wheelDownAt : Maybe (Point2d Meters WorldCoordinate)
+    , cameraPosition : Point2d Meters WorldCoordinate
+    , editorState : EditorState
+    , undoHistory : List EditorState
+    , redoHistory : List EditorState
+    , viewportHeight : Length
+    , meshCache : SeqDict (Id LayerId) { pathMesh : Mesh Vertex, pathFillMesh : Mesh FontVertex }
+    , placingPoint : Maybe { index : NodeId, position : Point2d Meters WorldCoordinate }
+    }
+
+
+type alias EditorState =
+    { layers : SeqDict (Id LayerId) Layer
+    , currentLayer : Id LayerId
+    , selectedNodes : SeqSet NodeId
+    }
+
+
+type alias NodeId =
+    { pathIndex : Int, nodeIndex : Int }
+
+
+initLayer : Layer
+initLayer =
+    { paths =
+        [ [ { position = Point2d.origin
+            , handlePrevious = Vector2d.meters 0 -100
+            , handleNext = Vector2d.meters 0 100
+            }
+          , { position = Point2d.meters 200 0
+            , handlePrevious = Vector2d.meters 0 100
+            , handleNext = Vector2d.meters 0 -100
+            }
+          ]
+        ]
+    , red = 255
+    , green = 0
+    , blue = 100
+    }
+
+
+type ToBackend
+    = NoOpToBackend
+
+
+type ToFrontend
+    = NoOpToFrontend
+
+
+type alias Config a =
+    { a
+        | devicePixelRatio : Quantity Float (Rate WorldPixel Pixels)
+        , windowSize : Size
+        , currentKeys : List Keyboard.Key
+        , previousKeys : List Keyboard.Key
+    }
+
+
+init : Model
+init =
+    { mousePosition = Nothing
+    , mousePositionPrevious = Nothing
+    , mouseDownAt = Nothing
+    , wheelDownAt = Nothing
+    , cameraPosition = Point2d.origin
+    , undoHistory = []
+    , editorState = initEditorState
+    , redoHistory = []
+    , viewportHeight = Length.meters 2000
+    , meshCache = SeqDict.empty
+    , placingPoint = Nothing
+    }
+
+
+initEditorState =
+    { layers = SeqDict.fromList [ ( Id.fromInt 0, initLayer ) ]
+    , currentLayer = Id.fromInt 0
+    , selectedNodes = SeqSet.empty
+    }
+
+
+getLayer : EditorState -> ( Id LayerId, Layer )
+getLayer editorState =
+    case SeqDict.get editorState.currentLayer editorState.layers of
+        Just layer ->
+            ( editorState.currentLayer, layer )
+
+        Nothing ->
+            SeqDict.toList editorState.layers |> List.head |> Maybe.withDefault ( Id.fromInt 0, initLayer )
+
+
+setLayer : Layer -> EditorState -> EditorState
+setLayer layer editorState =
+    if SeqDict.member editorState.currentLayer editorState.layers then
+        { editorState | layers = SeqDict.update editorState.currentLayer (\_ -> Just layer) editorState.layers }
+
+    else
+        case SeqDict.toList editorState.layers of
+            ( id, _ ) :: rest ->
+                { editorState | layers = ( id, layer ) :: rest |> SeqDict.fromList }
+
+            [] ->
+                { editorState | layers = [ ( Id.fromInt 0, layer ) ] |> SeqDict.fromList }
+
+
+nearestPathIndex : Config a -> Point2d Meters WorldCoordinate -> Bool -> SeqSet NodeId -> Layer -> NodeId
+nearestPathIndex config point isSelectedLayer selection layer =
+    List.indexedMap
+        (\pathIndex path ->
+            pathToQuadraticSplines config Nothing isSelectedLayer selection pathIndex path
+                |> List.indexedMap
+                    (\index2 splines ->
+                        List.map
+                            (\spline ->
+                                ( { pathIndex = pathIndex, nodeIndex = index2 }, Geometry.findNearestPoint point spline |> .dist )
+                            )
+                            splines
+                    )
+        )
+        layer.paths
+        |> List.concat
+        |> List.concat
+        |> Quantity.minimumBy Tuple.second
+        |> Maybe.map Tuple.first
+        |> Maybe.withDefault { pathIndex = 0, nodeIndex = 0 }
+
+
+startPathSegment : Config a -> Point2d Meters WorldCoordinate -> Model -> Model
+startPathSegment config point model =
+    let
+        ( _, layer ) =
+            getLayer model.editorState
+
+        index : NodeId
+        index =
+            nearestPathIndex config point True model.editorState.selectedNodes layer
+    in
+    { model | placingPoint = Just { index = { index | nodeIndex = index.nodeIndex + 1 }, position = point } }
+
+
+fullPaths : Config a -> Layer -> Bool -> Model -> List (List PathSegment)
+fullPaths config layer isCurrentLayer model =
+    List.indexedMap
+        (\pathIndex path ->
+            case ( model.placingPoint, isCurrentLayer ) of
+                ( Just { index, position }, True ) ->
+                    if index.pathIndex == pathIndex then
+                        let
+                            mouseWorld : Vector2d Meters WorldCoordinate
+                            mouseWorld =
+                                case ( model.mouseDownAt, model.mousePosition ) of
+                                    ( Just mouseDownAt, Just mousePosition ) ->
+                                        Vector2d.from (MatchPage.screenToWorld config.windowSize model.cameraPosition model.viewportHeight mousePosition) mouseDownAt
+
+                                    _ ->
+                                        Vector2d.zero
+                        in
+                        List.take index.nodeIndex path
+                            ++ [ { position = position
+                                 , handleNext = mouseWorld
+                                 , handlePrevious = Vector2d.reverse mouseWorld
+                                 }
+                               ]
+                            ++ List.drop index.nodeIndex path
+
+                    else
+                        path
+
+                _ ->
+                    path
+        )
+        layer.paths
+
+
+finishPathSegment : Point2d Meters WorldCoordinate -> Model -> Model
+finishPathSegment point model =
+    let
+        ( _, layer ) =
+            getLayer model.editorState
+    in
+    case model.placingPoint of
+        Nothing ->
+            model
+
+        Just { index, position } ->
+            addEditorState
+                (setLayer
+                    { layer
+                        | paths =
+                            List.updateAt
+                                index.pathIndex
+                                (\path ->
+                                    List.take index.nodeIndex path
+                                        ++ [ { position = position
+                                             , handlePrevious = Vector2d.from position point
+                                             , handleNext = Vector2d.from point position
+                                             }
+                                           ]
+                                        ++ List.drop index.nodeIndex path
+                                )
+                                layer.paths
+                    }
+                    model.editorState
+                )
+                { model | placingPoint = Nothing }
+
+
+addEditorState : EditorState -> Model -> Model
+addEditorState newEditorState model =
+    { model
+        | editorState = newEditorState
+        , undoHistory = model.editorState :: model.undoHistory |> List.take 50
+        , redoHistory = []
+    }
+
+
+replaceEditorState : EditorState -> Model -> Model
+replaceEditorState newEditorState model =
+    { model | editorState = newEditorState }
+
+
+uiScale : { a | viewportHeight : Quantity Float Meters } -> Float
+uiScale model =
+    Quantity.ratio model.viewportHeight (Length.meters 800)
+
+
+updateMesh : Config a -> Model -> Model -> Model
+updateMesh config previousModel model =
+    { model
+        | meshCache =
+            SeqDict.map
+                (\layerId layer ->
+                    let
+                        isCurrentLayer =
+                            layerId == model.editorState.currentLayer
+
+                        maybeDragging =
+                            if isCurrentLayer then
+                                isDragging config model
+
+                            else
+                                Nothing
+                    in
+                    case
+                        ( SeqDict.get layerId model.meshCache
+                        , (model.editorState == previousModel.editorState)
+                            && not
+                                (Keyboard.keyPressed config Keyboard.Control
+                                    || Keyboard.keyPressed config Keyboard.Meta
+                                    || Keyboard.keyReleased config Keyboard.Control
+                                    || Keyboard.keyReleased config Keyboard.Meta
+                                )
+                            && (model.mousePosition == previousModel.mousePosition || (maybeDragging == Nothing && model.placingPoint == Nothing && not isCurrentLayer))
+                            && (model.viewportHeight == previousModel.viewportHeight || not isCurrentLayer)
+                        )
+                    of
+                        ( Just cache, True ) ->
+                            cache
+
+                        _ ->
+                            let
+                                fullPaths_ =
+                                    fullPaths config layer isCurrentLayer model
+
+                                maybeMouseWorldPosition : Maybe (Point2d Meters WorldCoordinate)
+                                maybeMouseWorldPosition =
+                                    case model.mousePosition of
+                                        Just mousePosition ->
+                                            MatchPage.screenToWorld config.windowSize model.cameraPosition model.viewportHeight mousePosition |> Just
+
+                                        Nothing ->
+                                            Nothing
+
+                                splines : List (List (QuadraticSpline2d Meters WorldCoordinate))
+                                splines =
+                                    List.indexedMap
+                                        (\pathIndex path ->
+                                            pathToQuadraticSplines
+                                                config
+                                                maybeDragging
+                                                isCurrentLayer
+                                                model.editorState.selectedNodes
+                                                pathIndex
+                                                path
+                                                |> List.concat
+                                        )
+                                        fullPaths_
+                            in
+                            { pathFillMesh =
+                                List.map
+                                    (\splines_ ->
+                                        List.map
+                                            (\spline ->
+                                                { position = QuadraticSpline2d.startPoint spline
+                                                , controlPoint = QuadraticSpline2d.secondControlPoint spline
+                                                }
+                                            )
+                                            splines_
+                                    )
+                                    splines
+                                    |> Shape.shapeToMesh_
+                            , pathMesh =
+                                List.indexedMap
+                                    (\pathIndex path ->
+                                        List.indexedMap
+                                            (\nodeIndex segment ->
+                                                drawSegment
+                                                    config
+                                                    maybeMouseWorldPosition
+                                                    maybeDragging
+                                                    splines
+                                                    isCurrentLayer
+                                                    model
+                                                    { pathIndex = pathIndex, nodeIndex = nodeIndex }
+                                                    segment
+                                            )
+                                            path
+                                    )
+                                    fullPaths_
+                                    |> List.concat
+                                    |> List.concat
+                                    |> WebGL.triangles
+                            }
+                )
+                model.editorState.layers
+    }
+
+
+drawSegment :
+    Config a
+    -> Maybe (Point2d Meters WorldCoordinate)
+    -> Maybe Dragging
+    -> List (List (QuadraticSpline2d Meters WorldCoordinate))
+    -> Bool
+    -> Model
+    -> NodeId
+    -> PathSegment
+    -> List ( Vertex, Vertex, Vertex )
+drawSegment config maybeMouseWorldPosition maybeDragging splines isCurrentLayer model index segment =
+    let
+        uiScale_ =
+            uiScale model
+
+        color =
+            if isCurrentLayer && SeqSet.member index model.editorState.selectedNodes then
+                Vec3.vec3 0 0.8 0.1
+
+            else
+                Vec3.vec3 0 0 0
+
+        segment2 =
+            dragSegment
+                config
+                index
+                maybeDragging
+                isCurrentLayer
+                model.editorState.selectedNodes
+                segment
+
+        handlePrevious =
+            Point2d.translateBy segment2.handlePrevious segment2.position
+
+        handleNext =
+            Point2d.translateBy segment2.handleNext segment2.position
+
+        size =
+            3 * uiScale_
+
+        drawSquare p =
+            let
+                { x, y } =
+                    Point2d.toMeters p
+            in
+            [ ( { position = Vec3.vec3 (x - size) (y - size) 0
+                , color = color
+                }
+              , { position = Vec3.vec3 (x + size) (y - size) 0
+                , color = color
+                }
+              , { position = Vec3.vec3 (x + size) (y + size) 0
+                , color = color
+                }
+              )
+            , ( { position = Vec3.vec3 (x - size) (y - size) 0
+                , color = color
+                }
+              , { position = Vec3.vec3 (x + size) (y + size) 0
+                , color = color
+                }
+              , { position = Vec3.vec3 (x - size) (y + size) 0
+                , color = color
+                }
+              )
+            ]
+    in
+    drawSquare segment2.position
+        ++ drawSquare handlePrevious
+        ++ drawSquare handleNext
+        ++ (case ( maybeMouseWorldPosition, maybeDragging, ( isCurrentLayer, model.placingPoint ) ) of
+                ( Just mouseWorldPosition, Nothing, ( True, Nothing ) ) ->
+                    case
+                        List.concatMap
+                            (List.map (Geometry.findNearestPoint mouseWorldPosition))
+                            splines
+                            |> Quantity.minimumBy .dist
+                    of
+                        Just { pos } ->
+                            drawSquare pos
+
+                        Nothing ->
+                            []
+
+                _ ->
+                    []
+           )
+        ++ MatchPage.lineMesh
+            (Length.meters uiScale_)
+            color
+            (LineSegment2d.from
+                segment2.position
+                (Point2d.translateBy segment2.handleNext segment2.position)
+            )
+        ++ MatchPage.lineMesh
+            (Length.meters uiScale_)
+            color
+            (LineSegment2d.from
+                segment2.position
+                (Point2d.translateBy segment2.handlePrevious segment2.position)
+            )
+
+
+dragSegment : Config a -> NodeId -> Maybe Dragging -> Bool -> SeqSet NodeId -> PathSegment -> PathSegment
+dragSegment config index maybeDragging isCurrentLayer selection pathSegment =
+    let
+        ctrlDown =
+            Keyboard.keyDown config Keyboard.Control || Keyboard.keyDown config Keyboard.Meta
+    in
+    case maybeDragging of
+        Just dragging ->
+            if isCurrentLayer && SeqSet.member index selection then
+                case dragging.dragType of
+                    CenterPoint ->
+                        { pathSegment
+                            | position = Point2d.translateBy dragging.offset pathSegment.position
+                        }
+
+                    NextHandle ->
+                        let
+                            handleNext =
+                                Vector2d.plus dragging.offset pathSegment.handleNext
+                        in
+                        { pathSegment
+                            | handleNext = handleNext
+                            , handlePrevious =
+                                if ctrlDown then
+                                    Vector2d.reverse handleNext
+
+                                else
+                                    pathSegment.handlePrevious
+                        }
+
+                    PreviousHandle ->
+                        let
+                            handlePrevious =
+                                Vector2d.plus dragging.offset pathSegment.handlePrevious
+                        in
+                        { pathSegment
+                            | handlePrevious = handlePrevious
+                            , handleNext =
+                                if ctrlDown then
+                                    Vector2d.reverse handlePrevious
+
+                                else
+                                    pathSegment.handleNext
+                        }
+
+            else
+                pathSegment
+
+        Nothing ->
+            pathSegment
+
+
+pathToQuadraticSplines :
+    Config a
+    -> Maybe Dragging
+    -> Bool
+    -> SeqSet NodeId
+    -> Int
+    -> List PathSegment
+    -> List (List (QuadraticSpline2d Meters WorldCoordinate))
+pathToQuadraticSplines config maybeDragging isSelectedLayer selection pathIndex path =
+    case path of
+        first :: rest ->
+            let
+                pathLength =
+                    List.length path
+            in
+            List.foldl
+                (\segment state ->
+                    let
+                        segment2 =
+                            dragSegment config
+                                { pathIndex = state.index.pathIndex
+                                , nodeIndex = modBy pathLength state.index.nodeIndex
+                                }
+                                maybeDragging
+                                isSelectedLayer
+                                selection
+                                segment
+                    in
+                    { index =
+                        { pathIndex = state.index.pathIndex
+                        , nodeIndex = state.index.nodeIndex + 1
+                        }
+                    , previousPoint = segment2
+                    , curves =
+                        state.curves
+                            ++ [ Geometry.cubicSplineToQuadratic
+                                    (Length.meters 1)
+                                    (CubicSpline2d.fromControlPoints
+                                        state.previousPoint.position
+                                        (Point2d.translateBy
+                                            state.previousPoint.handleNext
+                                            state.previousPoint.position
+                                        )
+                                        (Point2d.translateBy
+                                            segment2.handlePrevious
+                                            segment2.position
+                                        )
+                                        segment2.position
+                                    )
+                                    |> List.Nonempty.toList
+                               ]
+                    }
+                )
+                { index = { pathIndex = pathIndex, nodeIndex = 1 }
+                , previousPoint =
+                    dragSegment
+                        config
+                        { pathIndex = pathIndex, nodeIndex = 0 }
+                        maybeDragging
+                        isSelectedLayer
+                        selection
+                        first
+                , curves = []
+                }
+                (rest ++ [ first ])
+                |> .curves
+
+        [] ->
+            []
+
+
+animationFrame : Config a -> Model -> ( Model, Command FrontendOnly ToBackend Msg )
+animationFrame config model =
+    let
+        ( _, layer ) =
+            getLayer editorState
+
+        editorState =
+            model.editorState
+    in
+    ( if Keyboard.pressedUndo config then
+        case model.undoHistory of
+            head :: rest ->
+                { model
+                    | undoHistory = rest
+                    , editorState = head
+                    , redoHistory = editorState :: model.redoHistory
+                }
+
+            [] ->
+                model
+
+      else if Keyboard.pressedRedo config then
+        case model.redoHistory of
+            head :: rest ->
+                { model
+                    | redoHistory = rest
+                    , editorState = head
+                    , undoHistory = editorState :: model.undoHistory
+                }
+
+            [] ->
+                model
+
+      else if Keyboard.keyPressed config Keyboard.Delete then
+        if SeqSet.isEmpty editorState.selectedNodes then
+            model
+
+        else
+            case model.placingPoint of
+                Just _ ->
+                    { model | placingPoint = Nothing }
+
+                Nothing ->
+                    addEditorState
+                        (setLayer
+                            { layer
+                                | paths =
+                                    List.indexedMap
+                                        (\pathIndex path ->
+                                            List.indexedMap Tuple.pair path
+                                                |> List.filterMap
+                                                    (\( nodeIndex, point ) ->
+                                                        if
+                                                            SeqSet.member
+                                                                { pathIndex = pathIndex, nodeIndex = nodeIndex }
+                                                                editorState.selectedNodes
+                                                        then
+                                                            Nothing
+
+                                                        else
+                                                            Just point
+                                                    )
+                                        )
+                                        layer.paths
+                            }
+                            { editorState | selectedNodes = SeqSet.empty }
+                        )
+                        model
+
+      else
+        model
+    , Command.none
+    )
+        |> Tuple.mapFirst (updateMesh config model)
+
+
+type DragType
+    = CenterPoint
+    | NextHandle
+    | PreviousHandle
+
+
+type alias Dragging =
+    { offset : Vector2d Meters WorldCoordinate, dragType : DragType, index : NodeId }
+
+
+isDragging : Config a -> Model -> Maybe Dragging
+isDragging config model =
+    case ( model.mouseDownAt, model.mousePosition ) of
+        ( Just mouseDownAt, Just mousePosition ) ->
+            let
+                ( _, layer ) =
+                    getLayer model.editorState
+
+                uiScale_ =
+                    uiScale model
+            in
+            List.indexedMap
+                (\pathIndex path ->
+                    List.indexedMap
+                        (\nodeIndex segment ->
+                            let
+                                centerDistance =
+                                    Vector2d.from mouseDownAt segment.position |> Vector2d.length
+
+                                nextDistance =
+                                    Vector2d.from
+                                        mouseDownAt
+                                        (Point2d.translateBy segment.handleNext segment.position)
+                                        |> Vector2d.length
+
+                                previousDistance =
+                                    Vector2d.from
+                                        mouseDownAt
+                                        (Point2d.translateBy segment.handlePrevious segment.position)
+                                        |> Vector2d.length
+
+                                offset =
+                                    Vector2d.from
+                                        mouseDownAt
+                                        (MatchPage.screenToWorld config.windowSize model.cameraPosition model.viewportHeight mousePosition)
+                            in
+                            [ if centerDistance |> Quantity.lessThan (Length.meters (7 * uiScale_)) then
+                                { distance = centerDistance
+                                , offset = offset
+                                , dragType = CenterPoint
+                                , index = { pathIndex = pathIndex, nodeIndex = nodeIndex }
+                                }
+                                    |> Just
+
+                              else
+                                Nothing
+                            , if nextDistance |> Quantity.lessThan (Length.meters (10 * uiScale_)) then
+                                { distance = nextDistance
+                                , offset = offset
+                                , dragType = NextHandle
+                                , index = { pathIndex = pathIndex, nodeIndex = nodeIndex }
+                                }
+                                    |> Just
+
+                              else
+                                Nothing
+                            , if previousDistance |> Quantity.lessThan (Length.meters (10 * uiScale_)) then
+                                { distance = previousDistance
+                                , offset = offset
+                                , dragType = PreviousHandle
+                                , index = { pathIndex = pathIndex, nodeIndex = nodeIndex }
+                                }
+                                    |> Just
+
+                              else
+                                Nothing
+                            ]
+                                |> List.filterMap identity
+                        )
+                        path
+                )
+                layer.paths
+                |> List.concat
+                |> List.concat
+                |> Quantity.minimumBy .distance
+                |> Maybe.map (\a -> { offset = a.offset, dragType = a.dragType, index = a.index })
+
+        _ ->
+            Nothing
+
+
+handleMouseDown config model event =
+    let
+        ( x, y ) =
+            event.pagePos
+
+        screenPosition : Point2d Pixels ScreenCoordinate
+        screenPosition =
+            Point2d.pixels x y
+
+        worldPosition =
+            MatchPage.screenToWorld config.windowSize model.cameraPosition model.viewportHeight screenPosition
+    in
+    case event.button of
+        Html.Events.Extra.Mouse.MainButton ->
+            if x < layersViewWidth then
+                model
+
+            else
+                { model
+                    | mousePosition = Just screenPosition
+                    , mouseDownAt = Just worldPosition
+                }
+                    |> (\model2 ->
+                            case isDragging config model2 of
+                                Just dragging ->
+                                    let
+                                        editorState =
+                                            model2.editorState
+                                    in
+                                    replaceEditorState
+                                        { editorState
+                                            | selectedNodes =
+                                                if Keyboard.keyDown config Keyboard.Shift then
+                                                    if SeqSet.member dragging.index editorState.selectedNodes then
+                                                        SeqSet.remove dragging.index editorState.selectedNodes
+
+                                                    else
+                                                        SeqSet.insert dragging.index editorState.selectedNodes
+
+                                                else
+                                                    SeqSet.singleton dragging.index
+                                        }
+                                        model2
+
+                                Nothing ->
+                                    startPathSegment config worldPosition model2
+                       )
+
+        Html.Events.Extra.Mouse.MiddleButton ->
+            { model | mousePosition = Just screenPosition, wheelDownAt = Just worldPosition }
+
+        _ ->
+            model
+
+
+update : Config a -> Msg -> Model -> ( Model, Command FrontendOnly ToBackend Msg )
+update config msg model =
+    (case msg of
+        MouseDown event ->
+            ( handleMouseDown config model event, Command.none )
+
+        MouseUp event ->
+            let
+                ( x, y ) =
+                    event.pagePos
+
+                screenPosition : Point2d Pixels ScreenCoordinate
+                screenPosition =
+                    Point2d.pixels x y
+
+                model2 =
+                    { model
+                        | mousePosition = Point2d.pixels x y |> Just
+                        , mouseDownAt = Nothing
+                    }
+            in
+            ( case event.button of
+                Html.Events.Extra.Mouse.MainButton ->
+                    case isDragging config model of
+                        Just dragging ->
+                            let
+                                ( _, layer ) =
+                                    getLayer model.editorState
+                            in
+                            addEditorState
+                                (setLayer
+                                    { layer
+                                        | paths =
+                                            List.indexedMap
+                                                (\pathIndex path ->
+                                                    List.indexedMap
+                                                        (\nodeIndex segment ->
+                                                            dragSegment
+                                                                config
+                                                                { pathIndex = pathIndex, nodeIndex = nodeIndex }
+                                                                (Just dragging)
+                                                                True
+                                                                model.editorState.selectedNodes
+                                                                segment
+                                                        )
+                                                        path
+                                                )
+                                                layer.paths
+                                    }
+                                    model.editorState
+                                )
+                                model2
+
+                        Nothing ->
+                            finishPathSegment (MatchPage.screenToWorld config.windowSize model.cameraPosition model.viewportHeight screenPosition) model2
+
+                Html.Events.Extra.Mouse.MiddleButton ->
+                    { model
+                        | mousePosition = Point2d.pixels x y |> Just
+                        , wheelDownAt = Nothing
+                    }
+
+                _ ->
+                    model
+            , Command.none
+            )
+
+        MouseMoved event ->
+            if event.button == Html.Events.Extra.Mouse.MainButton then
+                let
+                    ( x, y ) =
+                        event.pagePos
+                in
+                ( { model
+                    | mousePosition = Point2d.pixels x y |> Just
+                    , mousePositionPrevious = model.mousePosition
+                    , cameraPosition =
+                        case ( model.mousePosition, model.mousePositionPrevious, model.wheelDownAt ) of
+                            ( Just mousePosition, Just mousePositionPrevious, Just _ ) ->
+                                Point2d.translateBy
+                                    (Vector2d.from
+                                        (MatchPage.screenToWorld config.windowSize model.cameraPosition model.viewportHeight mousePosition)
+                                        (MatchPage.screenToWorld config.windowSize model.cameraPosition model.viewportHeight mousePositionPrevious)
+                                    )
+                                    model.cameraPosition
+
+                            _ ->
+                                model.cameraPosition
+                  }
+                , Command.none
+                )
+
+            else
+                ( model, Command.none )
+
+        MouseWheel event ->
+            ( { model
+                | viewportHeight =
+                    Quantity.multiplyBy
+                        (if event.deltaY > 0 then
+                            1.2
+
+                         else
+                            1 / 1.2
+                        )
+                        model.viewportHeight
+              }
+            , Command.none
+            )
+
+        PressedLayer layerId ->
+            let
+                editorState =
+                    model.editorState
+            in
+            ( replaceEditorState
+                { editorState | currentLayer = layerId, selectedNodes = SeqSet.empty }
+                model
+            , Command.none
+            )
+
+        PressedAddLayer ->
+            ( addLayer initLayer model, Command.none )
+
+        PressedRemoveLayer layerId ->
+            let
+                editorState =
+                    model.editorState
+            in
+            ( addEditorState { editorState | layers = SeqDict.remove layerId editorState.layers } model
+            , Command.none
+            )
+
+        TypedColor { red, green, blue } ->
+            let
+                ( _, layer ) =
+                    getLayer model.editorState
+            in
+            ( addEditorState
+                (setLayer { layer | red = red, green = green, blue = blue } model.editorState)
+                model
+            , Command.none
+            )
+
+        PressedSave ->
+            ( model
+            , Serialize.encodeToString Shape.codec { layers = model.editorState.layers }
+                |> Ports.writeToClipboard
+            )
+
+        PressedMoveLayerUp layerId ->
+            ( moveLayers True layerId model, Command.none )
+
+        PressedMoveLayerDown layerId ->
+            ( moveLayers False layerId model, Command.none )
+
+        PressedDuplicate ->
+            ( addLayer (getLayer model.editorState |> Tuple.second) model, Command.none )
+
+        MouseLeft _ ->
+            ( { model | mousePosition = Nothing }, Command.none )
+
+        TypedLoadFromClipboard text ->
+            ( case Serialize.decodeFromString Shape.codec text of
+                Ok ok ->
+                    addEditorState { initEditorState | layers = ok.layers } model
+
+                Err _ ->
+                    model
+            , Command.none
+            )
+
+        PressedMirrorX ->
+            let
+                ( _, layer ) =
+                    getLayer model.editorState
+
+                selectedPoints : List (Vector2d Meters WorldCoordinate)
+                selectedPoints =
+                    List.indexedMap
+                        (\pathIndex path ->
+                            List.indexedMap Tuple.pair path
+                                |> List.filterMap
+                                    (\( nodeIndex, segment ) ->
+                                        if
+                                            SeqSet.member
+                                                { pathIndex = pathIndex, nodeIndex = nodeIndex }
+                                                model.editorState.selectedNodes
+                                        then
+                                            Vector2d.from Point2d.origin segment.position |> Just
+
+                                        else
+                                            Nothing
+                                    )
+                        )
+                        layer.paths
+                        |> List.concat
+
+                centerPoint : Point2d Meters WorldCoordinate
+                centerPoint =
+                    selectedPoints
+                        |> Vector2d.sum
+                        |> Vector2d.scaleBy (1 / toFloat (List.length selectedPoints))
+                        |> (\v -> Point2d.translateBy v Point2d.origin)
+            in
+            ( addEditorState
+                (setLayer
+                    { layer
+                        | paths =
+                            List.indexedMap
+                                (\pathIndex path ->
+                                    List.indexedMap
+                                        (\nodeIndex segment ->
+                                            if
+                                                SeqSet.member
+                                                    { pathIndex = pathIndex, nodeIndex = nodeIndex }
+                                                    model.editorState.selectedNodes
+                                            then
+                                                let
+                                                    axis =
+                                                        Axis2d.withDirection Direction2d.y centerPoint
+                                                in
+                                                { position = Point2d.mirrorAcross axis segment.position
+                                                , handlePrevious = Vector2d.mirrorAcross axis segment.handlePrevious
+                                                , handleNext = Vector2d.mirrorAcross axis segment.handleNext
+                                                }
+
+                                            else
+                                                segment
+                                        )
+                                        path
+                                )
+                                layer.paths
+                    }
+                    model.editorState
+                )
+                model
+            , Command.none
+            )
+    )
+        |> Tuple.mapFirst (updateMesh config model)
+
+
+addLayer : Layer -> Model -> Model
+addLayer layer model =
+    let
+        editorState =
+            model.editorState
+
+        layerId =
+            SeqDict.keys model.editorState.layers
+                |> List.maximumBy Id.toInt
+                |> Maybe.withDefault (Id.fromInt 0)
+                |> Id.increment
+    in
+    addEditorState
+        { editorState
+            | layers = SeqDict.insert layerId layer editorState.layers
+            , currentLayer = layerId
+            , selectedNodes = SeqSet.empty
+        }
+        model
+
+
+moveLayers : Bool -> Id LayerId -> Model -> Model
+moveLayers moveUp layerId model =
+    let
+        editorState =
+            model.editorState
+    in
+    case SeqDict.toList editorState.layers |> List.findIndex (Tuple.first >> (==) layerId) of
+        Just index ->
+            addEditorState
+                { editorState
+                    | layers =
+                        SeqDict.toList editorState.layers
+                            |> List.swapAt
+                                index
+                                (if moveUp then
+                                    index - 1
+
+                                 else
+                                    index + 1
+                                )
+                            |> List.reverse
+                            |> SeqDict.fromList
+                }
+                model
+
+        Nothing ->
+            model
+
+
+updateFromBackend : ToFrontend -> Model -> ( Model, Command FrontendOnly ToBackend Msg )
+updateFromBackend msg model =
+    case msg of
+        NoOpToFrontend ->
+            ( model, Command.none )
+
+
+view : Config a -> Model -> Ui.Element Msg
+view config model =
+    Ui.el
+        [ Ui.height Ui.fill
+        , MatchPage.canvasView
+            config.windowSize
+            config.devicePixelRatio
+            (canvasView model)
+            |> Ui.behindContent
+        , Ui.htmlAttribute
+            (Html.Events.Extra.Mouse.onWithOptions
+                "mousedown"
+                { stopPropagation = False
+                , preventDefault = False
+                }
+                MouseDown
+            )
+        , Ui.id "editorCanvas"
+        , Ui.htmlAttribute (Html.Events.Extra.Mouse.onUp MouseUp)
+        , Ui.htmlAttribute (Html.Events.Extra.Mouse.onMove MouseMoved)
+        , Ui.htmlAttribute (Html.Events.Extra.Mouse.onLeave MouseLeft)
+        , Ui.htmlAttribute (Html.Events.Extra.Wheel.onWheel MouseWheel)
+        , toolView config model |> Ui.inFront
+        ]
+        Ui.none
+
+
+toolView : Config a -> Model -> Ui.Element Msg
+toolView config model =
+    let
+        ( _, layer ) =
+            getLayer model.editorState
+    in
+    Ui.column
+        [ Ui.width (Ui.px layersViewWidth)
+        , Ui.height Ui.fill
+        , Ui.background (Ui.rgb 255 255 255)
+        , Ui.border 1
+        , Ui.spacing 4
+        ]
+        [ layersView model.editorState.currentLayer model.editorState.layers
+
+        --, Ui.column
+        --    [ Ui.width Ui.shrink, Ui.spacing 4, Ui.padding 4 ]
+        --    [ Ui.Input.text
+        --        [ Ui.width Ui.shrink, Ui.padding 4 ]
+        --        { onChange =
+        --            \text ->
+        --                TypedColor
+        --                    { red = String.toInt text |> Maybe.withDefault layer.red
+        --                    , green = layer.green
+        --                    , blue = layer.blue
+        --                    }
+        --        , text = String.fromInt layer.red
+        --        , placeholder = Nothing
+        --        , label = Ui.Input.labelLeft [ Ui.width Ui.shrink ] (Ui.text "R")
+        --        }
+        --    , Ui.Input.text
+        --        [ Ui.width Ui.shrink, Ui.padding 4 ]
+        --        { onChange =
+        --            \text ->
+        --                TypedColor
+        --                    { red = layer.red
+        --                    , green = String.toInt text |> Maybe.withDefault layer.green
+        --                    , blue = layer.blue
+        --                    }
+        --        , text = String.fromInt layer.green
+        --        , placeholder = Nothing
+        --        , label = Ui.Input.labelLeft [ Ui.width Ui.shrink ] (Ui.text "G")
+        --        }
+        --    , Ui.Input.text
+        --        [ Ui.width Ui.shrink, Ui.padding 4 ]
+        --        { onChange =
+        --            \text ->
+        --                TypedColor
+        --                    { red = layer.red
+        --                    , green = layer.green
+        --                    , blue = String.toInt text |> Maybe.withDefault layer.blue
+        --                    }
+        --        , text = String.fromInt layer.blue
+        --        , placeholder = Nothing
+        --        , label = Ui.Input.labelLeft [ Ui.width Ui.shrink ] (Ui.text "B")
+        --        }
+        --    ]
+        , MyUi.button
+            (Dom.id "editorPage_mirrorX")
+            buttonAttributes
+            { onPress = PressedMirrorX, label = Ui.text "Mirror X" }
+        , MyUi.button
+            (Dom.id "editorPage_saveToClipboard")
+            buttonAttributes
+            { onPress = PressedSave, label = Ui.text "Save to clipboard" }
+        , Ui.Input.text
+            [ Ui.width Ui.shrink, Ui.padding 4 ]
+            { onChange = TypedLoadFromClipboard
+            , text = ""
+            , placeholder = Just "Load from clipboard"
+            , label = Ui.Input.labelHidden "Load from clipboard"
+            }
+        , case model.mousePosition of
+            Just mousePosition ->
+                let
+                    { x, y } =
+                        MatchPage.screenToWorld config.windowSize model.cameraPosition model.viewportHeight mousePosition |> Point2d.toMeters
+                in
+                String.fromInt (round x)
+                    ++ ","
+                    ++ String.fromInt (round y)
+                    |> Ui.text
+                    |> Ui.el [ Ui.width Ui.shrink, Ui.alignBottom ]
+
+            Nothing ->
+                Ui.none
+        ]
+
+
+buttonAttributes =
+    [ Ui.padding 8
+    , Ui.width Ui.fill
+    , Ui.border 1
+    ]
+
+
+layersView : Id LayerId -> SeqDict (Id LayerId) Layer -> Ui.Element Msg
+layersView currentLayer layers =
+    List.map
+        (\( layerId, _ ) ->
+            Ui.row
+                []
+                [ MyUi.button
+                    (Dom.id "editorPage_layer")
+                    ((if currentLayer == layerId then
+                        Ui.Font.bold
+
+                      else
+                        Ui.noAttr
+                     )
+                        :: buttonAttributes
+                    )
+                    { onPress = PressedLayer layerId
+                    , label = "Layer " ++ String.fromInt (Id.toInt layerId) |> Ui.text
+                    }
+                , MyUi.button
+                    (Dom.id "editorPage_moveLayerUp")
+                    [ Ui.padding 4
+                    , Ui.height Ui.fill
+                    , Ui.border 1
+                    , Ui.background (Ui.rgb 204 204 204)
+                    ]
+                    { onPress = PressedMoveLayerUp layerId
+                    , label = Ui.text "🡹"
+                    }
+                , MyUi.button
+                    (Dom.id "editorPage_moveLayerDown")
+                    [ Ui.padding 4
+                    , Ui.height Ui.fill
+                    , Ui.border 1
+                    , Ui.background (Ui.rgb 204 204 204)
+                    ]
+                    { onPress = PressedMoveLayerDown layerId
+                    , label = Ui.text "🡻"
+                    }
+                , MyUi.button
+                    (Dom.id "editorPage_removeLayer")
+                    [ Ui.padding 4
+                    , Ui.height Ui.fill
+                    , Ui.border 1
+                    , Ui.background (Ui.rgb 204 204 204)
+                    , Ui.Font.bold
+                    ]
+                    { onPress = PressedRemoveLayer layerId
+                    , label = Ui.text "X"
+                    }
+                ]
+        )
+        (SeqDict.toList layers)
+        ++ [ MyUi.button
+                (Dom.id "editorPage_addLayer")
+                buttonAttributes
+                { onPress = PressedAddLayer
+                , label = Ui.text "Add layer"
+                }
+           , MyUi.button
+                (Dom.id "editorPage_duplicate")
+                buttonAttributes
+                { onPress = PressedDuplicate
+                , label = Ui.text "Duplicate"
+                }
+           ]
+        |> Ui.column
+            [ Ui.border 1
+            ]
+
+
+layersViewWidth : number
+layersViewWidth =
+    190
+
+
+canvasView : Model -> Size -> List Entity
+canvasView model canvasSize =
+    let
+        viewMatrix : Mat4
+        viewMatrix =
+            WebGL.Matrices.viewProjectionMatrix
+                (MatchPage.camera model.cameraPosition model.viewportHeight)
+                { nearClipDepth = Length.meters 0.1
+                , farClipDepth = Length.meters 10
+                , aspectRatio =
+                    Quantity.ratio
+                        (Quantity.toFloatQuantity canvasSize.width)
+                        (Quantity.toFloatQuantity canvasSize.height)
+                }
+    in
+    [ MatchPage.backgroundGrid model.cameraPosition (1 / Length.inMeters model.viewportHeight) canvasSize ]
+        ++ List.concatMap
+            (\( layerId, layer ) ->
+                case SeqDict.get layerId model.meshCache of
+                    Just cache ->
+                        FontRender.drawLayer
+                            (Vec3.vec3
+                                (toFloat layer.red / 255)
+                                (toFloat layer.green / 255)
+                                (toFloat layer.blue / 255)
+                            )
+                            cache.pathFillMesh
+                            Mat4.identity
+                            viewMatrix
+                            ++ (if layerId == model.editorState.currentLayer then
+                                    [ WebGL.entityWith
+                                        [ WebGL.Settings.cullFace WebGL.Settings.back ]
+                                        MatchPage.vertexShader
+                                        MatchPage.fragmentShader
+                                        cache.pathMesh
+                                        { ucolor = Vec3.vec3 1 1 1
+                                        , view = viewMatrix
+                                        , model = Mat4.identity
+                                        }
+                                    ]
+
+                                else
+                                    []
+                               )
+
+                    Nothing ->
+                        []
+            )
+            (SeqDict.toList model.editorState.layers)
+
+
+
+--++ List.concatMap
+--    (\segment ->
+--        let
+--            position =
+--                Point2d.toMeters segment.position
+--
+--            handlePrevious =
+--                Point2d.translateBy segment.handlePrevious segment.position
+--                    |> Point2d.toMeters
+--
+--            handleNext =
+--                Point2d.translateBy segment.handleNext segment.position
+--                    |> Point2d.toMeters
+--
+--            size =
+--                6
+--        in
+--        [ WebGL.entityWith
+--            [ WebGL.Settings.cullFace WebGL.Settings.back ]
+--            MatchPage.vertexShader
+--            MatchPage.fragmentShader
+--            squareMesh
+--            { view = viewMatrix
+--            , model = Mat4.makeTranslate3 position.x position.y 0 |> Mat4.scale3 size size 1
+--            }
+--        , WebGL.entityWith
+--            [ WebGL.Settings.cullFace WebGL.Settings.back ]
+--            MatchPage.vertexShader
+--            MatchPage.fragmentShader
+--            squareMesh
+--            { view = viewMatrix
+--            , model =
+--                Mat4.makeTranslate3 handlePrevious.x handlePrevious.y 0
+--                    |> Mat4.scale3 size size 1
+--            }
+--        , WebGL.entityWith
+--            [ WebGL.Settings.cullFace WebGL.Settings.back ]
+--            MatchPage.vertexShader
+--            MatchPage.fragmentShader
+--            squareMesh
+--            { view = viewMatrix
+--            , model = Mat4.makeTranslate3 handleNext.x handleNext.y 0 |> Mat4.scale3 size size 1
+--            }
+--        , WebGL.entityWith
+--            [ WebGL.Settings.cullFace WebGL.Settings.back ]
+--            MatchPage.vertexShader
+--            MatchPage.fragmentShader
+--            (MatchPage.lineMesh
+--                (Length.meters 3)
+--                (Math.Vector3.vec3 0 0 0)
+--                (LineSegment2d.from
+--                    segment.position
+--                    (Point2d.translateBy segment.handlePrevious segment.position)
+--                )
+--                |> WebGL.triangles
+--            )
+--            { view = viewMatrix
+--            , model = Mat4.identity
+--            }
+--        , WebGL.entityWith
+--            [ WebGL.Settings.cullFace WebGL.Settings.back ]
+--            MatchPage.vertexShader
+--            MatchPage.fragmentShader
+--            (MatchPage.lineMesh
+--                (Length.meters 3)
+--                (Math.Vector3.vec3 0 0 0)
+--                (LineSegment2d.from
+--                    segment.position
+--                    (Point2d.translateBy segment.handleNext segment.position)
+--                )
+--                |> WebGL.triangles
+--            )
+--            { view = viewMatrix
+--            , model = Mat4.identity
+--            }
+--        ]
+--    )
+--    model.path
+--++ FontRender.drawLayer (Math.Vector4.vec4 1 0 0.5 1) mesh viewMatrix
+--++ [ WebGL.entityWith
+--        []
+--        FontRender.vertexShaderFont
+--        FontRender.fragmentShaderFont
+--        mesh
+--        { viewMatrix = viewMatrix
+--        , color = Math.Vector4.vec4 1 0 0.5 1
+--        }
+--   ]
