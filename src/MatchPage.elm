@@ -1580,8 +1580,21 @@ drawPlayer frameId userId matchData viewMatrix player =
                                     Nothing ->
                                         mat
                            )
+                ( px, py ) =
+                    Point2d.toTuple Length.inMeters player.position
             in
             [ WebGL.entityWith
+                [ WebGL.Settings.cullFace WebGL.Settings.back ]
+                vertexShader
+                fragmentShader
+                playerShadowMesh
+                { ucolor = Vec3.vec3 1 1 1
+                , view = viewMatrix
+                , model =
+                    Mat4.makeTranslate3 px py -0.1
+                        |> Mat4.scale3 playerRadius_ playerRadius_ playerRadius_
+                }
+            , WebGL.entityWith
                 [ WebGL.Settings.cullFace WebGL.Settings.back, WebGL.Settings.DepthTest.default ]
                 vertexShader
                 fragmentShader
@@ -2730,6 +2743,12 @@ snowballMesh =
 
 snowballShadowMesh : WebGL.Mesh Vertex
 snowballShadowMesh =
+    circleMesh 1 (Vec3.vec3 0.2 0.2 0.2)
+        |> WebGL.triangles
+
+
+playerShadowMesh : WebGL.Mesh Vertex
+playerShadowMesh =
     circleMesh 1 (Vec3.vec3 0.2 0.2 0.2)
         |> WebGL.triangles
 
