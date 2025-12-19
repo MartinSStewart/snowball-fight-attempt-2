@@ -1580,6 +1580,7 @@ drawPlayer frameId userId matchData viewMatrix player =
                                     Nothing ->
                                         mat
                            )
+
                 ( px, py ) =
                     Point2d.toTuple Length.inMeters player.position
             in
@@ -2749,7 +2750,7 @@ snowballShadowMesh =
 
 playerShadowMesh : WebGL.Mesh Vertex
 playerShadowMesh =
-    circleMesh 1 (Vec3.vec3 0.2 0.2 0.2)
+    circleMesh 1 (Vec3.vec3 0.9 0.9 0.9)
         |> WebGL.triangles
 
 
