@@ -1198,10 +1198,10 @@ drawParticles frameId viewMatrix particles =
                 timeElapsed =
                     frameTimeElapsed particle.spawnedAt frameId
 
-                { x, y } =
+                { x, y, z } =
                     particle.position
-                        |> Point2d.translateBy (Vector2d.for timeElapsed particle.velocity)
-                        |> Point2d.toMeters
+                        |> Point3d.translateBy (Vector2d.for timeElapsed particle.velocity |> vector2To3 Quantity.zero)
+                        |> Point3d.toMeters
 
                 t : Float
                 t =
@@ -1233,8 +1233,8 @@ drawParticles frameId viewMatrix particles =
 
                     { x, y } =
                         particle.position
-                            |> Point2d.translateBy (Vector2d.for timeElapsed particle.velocity)
-                            |> Point2d.toMeters
+                            |> Point3d.translateBy (Vector2d.for timeElapsed particle.velocity |> vector2To3 Quantity.zero)
+                            |> Point3d.toMeters
 
                     t : Float
                     t =
@@ -2117,6 +2117,11 @@ vector3To2 v =
     Vector2d.unsafe { x = x, y = y }
 
 
+vector2To3 : Quantity Float units -> Vector2d units coordinates -> Vector3d units coordinates
+vector2To3 z v =
+    Vector3d.xyz (Vector2d.xComponent v) (Vector2d.yComponent v) z
+
+
 point2To3 : Quantity Float u -> Point2d u c -> Point3d u c
 point2To3 z p =
     Point3d.xyz (Point2d.xCoordinate p) (Point2d.yCoordinate p) z
@@ -2125,7 +2130,7 @@ point2To3 z p =
 snowballParticles : Id FrameId -> Id FrameId -> Point3d Meters WorldCoordinate -> List Particle
 snowballParticles frameId thrownAt impactPosition =
     let
-        { x, y } =
+        { x, y, z } =
             Point3d.toMeters impactPosition
 
         count : number
@@ -2136,7 +2141,7 @@ snowballParticles frameId thrownAt impactPosition =
         particleGenerator index =
             Random.map3
                 (\size lifetime speed ->
-                    { position = Point2d.meters x y
+                    { position = impactPosition
                     , velocity =
                         Vector2d.withLength
                             (Speed.metersPerSecond speed)

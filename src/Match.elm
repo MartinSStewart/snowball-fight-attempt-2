@@ -116,7 +116,7 @@ type alias Snowball =
 
 
 type alias Particle =
-    { position : Point2d Meters WorldCoordinate
+    { position : Point3d Meters WorldCoordinate
     , velocity : Vector2d MetersPerSecond WorldCoordinate
     , size : Length
     , spawnedAt : Id FrameId
