@@ -5,12 +5,17 @@ import SeqDict exposing (SeqDict)
 
 
 type alias Sounds =
-    { collision : Audio.Source }
+    { collision : Audio.Source
+    , charge : Audio.Source
+    , charge2 : Audio.Source
+    }
 
 
 soundUrls : List String
 soundUrls =
-    [ "/blip.mp3" ]
+    [ "/blip.mp3"
+    , "/charge.mp3"
+    ]
 
 
 requestSounds : (String -> Result Audio.LoadError Audio.Source -> msg) -> AudioCmd msg
@@ -35,5 +40,8 @@ loadingFinished sounds =
                 _ ->
                     ( [], Nothing )
     in
-    loadSound ( soundUrls, Just Sounds )
+    ( soundUrls, Just Sounds )
+        |> loadSound
+        |> loadSound
+        |> loadSound
         |> Tuple.second
