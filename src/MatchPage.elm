@@ -1323,7 +1323,7 @@ canvasViewHelper model matchSetup canvasSize =
                                                 Length.inMeters snowballRadius
                                         in
                                         [ WebGL.entityWith
-                                            [ WebGL.Settings.cullFace WebGL.Settings.back ]
+                                            [ WebGL.Settings.cullFace WebGL.Settings.back, WebGL.Settings.DepthTest.default ]
                                             vertexShader
                                             fragmentShader
                                             snowballShadowMesh
@@ -1334,7 +1334,7 @@ canvasViewHelper model matchSetup canvasSize =
                                                     |> Mat4.scale3 snowballRadius_ snowballRadius_ snowballRadius_
                                             }
                                         , WebGL.entityWith
-                                            [ WebGL.Settings.cullFace WebGL.Settings.back ]
+                                            [ WebGL.Settings.cullFace WebGL.Settings.back, WebGL.Settings.DepthTest.default ]
                                             vertexShader
                                             fragmentShader
                                             snowballMesh
@@ -1585,7 +1585,7 @@ drawPlayer frameId userId matchData viewMatrix player =
                     Point2d.toTuple Length.inMeters player.position
             in
             [ WebGL.entityWith
-                [ WebGL.Settings.cullFace WebGL.Settings.back ]
+                [ WebGL.Settings.cullFace WebGL.Settings.back, WebGL.Settings.DepthTest.default ]
                 vertexShader
                 fragmentShader
                 playerShadowMesh
@@ -2032,13 +2032,22 @@ gameUpdate frameId inputs model =
                                     , isDead =
                                         case hitBySnowball of
                                             Just snowball ->
-                                                { time = frameId
-                                                , fallDirection =
-                                                    vector3To2 snowball.velocity
-                                                        |> Vector2d.direction
-                                                        |> Maybe.withDefault Direction2d.x
-                                                }
-                                                    |> Just
+                                                case SeqDict.get snowball.thrownBy model2.players of
+                                                    Just thrower ->
+                                                        if thrower.team == player.team then
+                                                            player.isDead
+
+                                                        else
+                                                            { time = frameId
+                                                            , fallDirection =
+                                                                vector3To2 snowball.velocity
+                                                                    |> Vector2d.direction
+                                                                    |> Maybe.withDefault Direction2d.x
+                                                            }
+                                                                |> Just
+
+                                                    Nothing ->
+                                                        player.isDead
 
                                             Nothing ->
                                                 player.isDead
@@ -2242,7 +2251,7 @@ playerHead =
 
 playerBody : Mesh Vertex
 playerBody =
-    sphereMesh (Vec3.vec3 0 0 0.7) (Vec3.vec3 1 1 1.5) (Vec3.vec3 1 1 1)
+    sphereMesh (Vec3.vec3 0 0 0.7) (Vec3.vec3 1 1 1.2) (Vec3.vec3 1 1 1)
 
 
 playerHand : Mesh Vertex
@@ -2254,10 +2263,10 @@ playerFeet : Mesh Vertex
 playerFeet =
     let
         leftFoot =
-            sphere (Vec3.vec3 0 0.35 -0.2) (Vec3.vec3 0.35 0.35 0.25) (Vec3.vec3 1 1 1) |> TriangularMesh.faceVertices
+            sphere (Vec3.vec3 0 0.35 -0.4) (Vec3.vec3 0.35 0.35 0.25) (Vec3.vec3 1 1 1) |> TriangularMesh.faceVertices
 
         rightFoot =
-            sphere (Vec3.vec3 0 -0.35 -0.2) (Vec3.vec3 0.35 0.35 0.25) (Vec3.vec3 1 1 1) |> TriangularMesh.faceVertices
+            sphere (Vec3.vec3 0 -0.35 -0.4) (Vec3.vec3 0.35 0.35 0.25) (Vec3.vec3 1 1 1) |> TriangularMesh.faceVertices
     in
     leftFoot ++ rightFoot |> WebGL.triangles
 
@@ -2764,8 +2773,8 @@ circleMesh size color =
 
 snowballMesh : WebGL.Mesh Vertex
 snowballMesh =
-    circleMesh 1 (Vec3.vec3 0 0 0)
-        ++ circleMesh 0.85 (Vec3.vec3 1 1 1)
+    circleMesh 0.85 (Vec3.vec3 1 1 1)
+        ++ circleMesh 1 (Vec3.vec3 0 0 0)
         |> WebGL.triangles
 
 
