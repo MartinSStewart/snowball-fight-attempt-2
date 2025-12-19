@@ -3500,7 +3500,7 @@ audio loaded matchPage =
                                                     |> (\a -> Duration.subtractFrom a (pingOffset loaded))
                                                     |> (\a -> Duration.subtractFrom a loaded.debugTimeOffset)
                                         in
-                                        Audio.audio loaded.sounds.collision collisionTime
+                                        Audio.audio loaded.sounds.blip collisionTime
                                     )
                                 |> Audio.group
 
