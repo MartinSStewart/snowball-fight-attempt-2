@@ -1636,6 +1636,21 @@ drawPlayer frameId userId matchData viewMatrix player =
                 , view = viewMatrix
                 , model = point2ToMatrix player.position |> matMul modelMatrix
                 }
+            , WebGL.entityWith
+                [ WebGL.Settings.cullFace WebGL.Settings.back, WebGL.Settings.DepthTest.default ]
+                vertexShader
+                fragmentShader
+                playerFeet
+                { ucolor =
+                    case player.team of
+                        BlueTeam ->
+                            Vec3.vec3 0 0 0.8
+
+                        RedTeam ->
+                            Vec3.vec3 0.8 0 0
+                , view = viewMatrix
+                , model = point2ToMatrix player.position |> matMul modelMatrix
+                }
             ]
                 ++ (case player.lastEmote of
                         Just lastEmote ->
@@ -2233,6 +2248,18 @@ playerBody =
 playerHand : Mesh Vertex
 playerHand =
     sphereMesh (Vec3.vec3 0 0 0.7) (Vec3.vec3 0.3 0.3 0.3) (Vec3.vec3 1 1 1)
+
+
+playerFeet : Mesh Vertex
+playerFeet =
+    let
+        leftFoot =
+            sphere (Vec3.vec3 0 0.35 -0.2) (Vec3.vec3 0.35 0.35 0.25) (Vec3.vec3 1 1 1) |> TriangularMesh.faceVertices
+
+        rightFoot =
+            sphere (Vec3.vec3 0 -0.35 -0.2) (Vec3.vec3 0.35 0.35 0.25) (Vec3.vec3 1 1 1) |> TriangularMesh.faceVertices
+    in
+    leftFoot ++ rightFoot |> WebGL.triangles
 
 
 playerEyes : Mesh Vertex
