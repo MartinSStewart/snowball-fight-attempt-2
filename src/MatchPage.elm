@@ -29,7 +29,7 @@ module MatchPage exposing
 import Acceleration exposing (Acceleration, MetersPerSecondSquared)
 import Angle exposing (Angle)
 import Array
-import Audio
+import Audio exposing (Audio)
 import Axis2d
 import Axis3d
 import Camera3d exposing (Camera3d)
@@ -3487,7 +3487,7 @@ getLocalState matchPage =
     NetworkModel.localState Match.matchSetupUpdate matchPage.networkModel
 
 
-audio : Config a -> Model -> Audio.Audio
+audio : Config a -> Model -> Audio
 audio loaded matchPage =
     case ( Match.matchActive (getLocalState matchPage), matchPage.matchData ) of
         ( Just match, MatchActiveLocal matchData ) ->
@@ -3507,30 +3507,39 @@ audio loaded matchPage =
                                         |> (\a -> Duration.subtractFrom a (pingOffset loaded))
                                         |> (\a -> Duration.subtractFrom a loaded.debugTimeOffset)
 
+                                collisionSounds : List Audio
                                 collisionSounds =
-                                    SeqDict.values state.players
-                                        |> List.filterMap .lastCollision
-                                        |> SeqSet.fromList
-                                        |> SeqSet.toList
-                                        |> List.map (\frameId -> Audio.audio loaded.sounds.blip (frameToTime frameId))
+                                    List.filterMap
+                                        (\player ->
+                                            case player.lastCollision of
+                                                Just frameId ->
+                                                    Audio.audio loaded.sounds.blip (frameToTime frameId) |> Just
 
+                                                Nothing ->
+                                                    Nothing
+                                        )
+                                        (SeqDict.values state.players)
+
+                                chargeSounds : List Audio
                                 chargeSounds =
-                                    SeqDict.values state.players
-                                        |> List.filterMap (.clickStart >> Maybe.map .time)
-                                        |> SeqSet.fromList
-                                        |> SeqSet.toList
-                                        |> List.map
-                                            (\frameId ->
-                                                let
-                                                    sound =
-                                                        if modBy 2 (Id.toInt frameId) == 0 then
-                                                            loaded.sounds.charge
+                                    List.filterMap
+                                        (\player ->
+                                            case player.clickStart of
+                                                Just clickStart ->
+                                                    let
+                                                        sound =
+                                                            if modBy 2 (Id.toInt clickStart.time) == 0 then
+                                                                loaded.sounds.charge
 
-                                                        else
-                                                            loaded.sounds.charge2
-                                                in
-                                                Audio.audio sound (frameToTime frameId)
-                                            )
+                                                            else
+                                                                loaded.sounds.charge2
+                                                    in
+                                                    Audio.audio sound (frameToTime clickStart.time) |> Just
+
+                                                Nothing ->
+                                                    Nothing
+                                        )
+                                        (SeqDict.values state.players)
 
                                 footstepInterval =
                                     12
