@@ -49,6 +49,7 @@ import SeqSet exposing (SeqSet)
 import Serialize
 import Shape exposing (Layer, LayerId, PathSegment)
 import Size exposing (Size)
+import Time
 import Ui
 import Ui.Anim
 import Ui.Events
@@ -138,6 +139,7 @@ type alias Config a =
         , windowSize : Size
         , currentKeys : List Keyboard.Key
         , previousKeys : List Keyboard.Key
+        , time : Time.Posix
     }
 
 
@@ -1164,6 +1166,7 @@ view config model =
     Ui.el
         [ Ui.height Ui.fill
         , MatchPage.canvasView
+            config.time
             config.windowSize
             config.devicePixelRatio
             (canvasView model)

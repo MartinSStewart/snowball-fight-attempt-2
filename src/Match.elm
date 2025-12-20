@@ -135,6 +135,7 @@ type alias Player =
     , clickStart : Maybe { position : Point2d Meters WorldCoordinate, time : Id FrameId }
     , isDead : Maybe { time : Id FrameId, fallDirection : Direction2d WorldCoordinate }
     , team : Team
+    , lastStep : { position : Point2d Meters WorldCoordinate, time : Id FrameId }
     }
 
 

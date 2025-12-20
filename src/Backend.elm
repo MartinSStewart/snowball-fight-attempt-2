@@ -182,7 +182,7 @@ updateMatchPageToBackend :
     -> ServerTime
     -> ( BackendModel, Command BackendOnly ToFrontend BackendMsg )
 updateMatchPageToBackend userId sessionId clientId msg model time =
-    case Debug.log "updateMatchPageToBackend" msg of
+    case msg of
         MatchPage.MatchRequest lobbyId eventId matchSetupMsg ->
             matchSetupRequest time lobbyId userId eventId clientId matchSetupMsg model
 

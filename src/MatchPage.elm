@@ -657,11 +657,15 @@ view config model =
                                     :: Ui.inFront (desyncWarning matchData.desyncedAtFrame)
                                     :: Ui.inFront
                                         (Ui.el
-                                            [ Ui.Events.onClick PressedLeaveMatch ]
-                                            (Ui.el [ Ui.width Ui.shrink, Ui.background (Ui.rgb 65025 65025 65025) ] (Ui.text "Leave match"))
+                                            [ Ui.width Ui.shrink
+                                            , Ui.background (Ui.rgb 65025 65025 65025)
+                                            , Ui.Input.button PressedLeaveMatch
+                                            ]
+                                            (Ui.text "Leave match")
                                         )
                                     :: Ui.behindContent
                                         (canvasView
+                                            config.time
                                             config.windowSize
                                             config.devicePixelRatio
                                             (canvasViewHelper config model)
@@ -1079,10 +1083,10 @@ findPixelPerfectSize windowSize (Quantity pixelRatio) =
     }
 
 
-canvasView : Size -> Quantity Float (Rate WorldPixel Pixels) -> (Size -> List WebGL.Entity) -> Ui.Element msg
-canvasView windowSize devicePixelRatio entities =
+canvasView : Time.Posix -> Size -> Quantity Float (Rate WorldPixel Pixels) -> (Size -> List WebGL.Entity) -> Ui.Element msg
+canvasView time windowSize devicePixelRatio entities =
     let
-        ( cssWindowWidth, cssWindowHeight ) =
+        ( Quantity cssWindowWidth, Quantity cssWindowHeight ) =
             canvasSize
 
         { canvasSize, actualCanvasSize } =
@@ -1092,11 +1096,55 @@ canvasView windowSize devicePixelRatio entities =
         [ WebGL.alpha True, WebGL.stencil 0, WebGL.depth 1 ]
         [ Html.Attributes.width (Pixels.inPixels actualCanvasSize.width)
         , Html.Attributes.height (Pixels.inPixels actualCanvasSize.height)
-        , Html.Attributes.style "width" (String.fromInt (Pixels.inPixels cssWindowWidth) ++ "px")
-        , Html.Attributes.style "height" (String.fromInt (Pixels.inPixels cssWindowHeight) ++ "px")
+        , Html.Attributes.style "width" (String.fromInt cssWindowWidth ++ "px")
+        , Html.Attributes.style "height" (String.fromInt cssWindowHeight ++ "px")
         ]
         (entities actualCanvasSize)
         |> Ui.html
+        |> Ui.el
+            [ Ui.inFront
+                (Ui.image
+                    [ cssWindowHeight |> Ui.px |> Ui.height
+                    , overlayRatio * toFloat cssWindowHeight |> round |> Ui.px |> Ui.width
+                    , Ui.centerX
+                    , MyUi.noPointerEvents
+                    ]
+                    { source = "/vignette.png", description = "", onLoad = Nothing }
+                )
+            , Ui.inFront
+                (Ui.image
+                    [ cssWindowHeight |> Ui.px |> Ui.height
+                    , overlayRatio * toFloat cssWindowHeight |> round |> Ui.px |> Ui.width
+                    , Ui.centerX
+                    , MyUi.noPointerEvents
+                    ]
+                    { source =
+                        case Time.posixToMillis time // 10 |> modBy 3 of
+                            0 ->
+                                "/video0.png"
+
+                            1 ->
+                                "/video1.png"
+
+                            _ ->
+                                "/video2.png"
+                    , description = ""
+                    , onLoad = Nothing
+                    }
+                )
+            ]
+
+
+overlayRatio =
+    overlayWidth / overlayHeight
+
+
+overlayWidth =
+    1200
+
+
+overlayHeight =
+    800
 
 
 camera : Point2d Meters WorldCoordinate -> Length -> Camera3d Meters WorldCoordinate
@@ -2051,6 +2099,15 @@ gameUpdate frameId inputs model =
 
                                             Nothing ->
                                                 player.isDead
+                                    , lastStep =
+                                        if
+                                            Point2d.distanceFrom player.lastStep.position player.position
+                                                |> Quantity.lessThan (Length.meters 0.6)
+                                        then
+                                            player.lastStep
+
+                                        else
+                                            { position = player.position, time = frameId }
                                 }
                                 model2.players
                         , snowballs =
@@ -2573,6 +2630,7 @@ updateVelocities frameId players =
                     , clickStart = a.clickStart
                     , isDead = a.isDead
                     , team = a.team
+                    , lastStep = a.lastStep
                     }
 
                 Nothing ->
@@ -2586,6 +2644,7 @@ updateVelocities frameId players =
                     , clickStart = a.clickStart
                     , isDead = a.isDead
                     , team = a.team
+                    , lastStep = a.lastStep
                     }
         )
         players
@@ -3075,6 +3134,7 @@ initPlayer team position =
     , clickStart = Nothing
     , isDead = Nothing
     , team = team
+    , lastStep = { position = position, time = Id.fromInt -999 }
     }
 
 
@@ -3541,60 +3601,24 @@ audio loaded matchPage =
                                         )
                                         (SeqDict.values state.players)
 
-                                footstepInterval =
-                                    12
-
-                                currentFrame =
-                                    Id.toInt currentFrameId
-
-                                footstepSound index =
-                                    case modBy 8 index of
-                                        0 ->
-                                            loaded.sounds.footstep1
-
-                                        1 ->
-                                            loaded.sounds.footstep2
-
-                                        2 ->
-                                            loaded.sounds.footstep3
-
-                                        3 ->
-                                            loaded.sounds.footstep4
-
-                                        4 ->
-                                            loaded.sounds.footstep5
-
-                                        5 ->
-                                            loaded.sounds.footstep6
-
-                                        6 ->
-                                            loaded.sounds.footstep7
-
-                                        _ ->
-                                            loaded.sounds.footstep8
-
+                                footstepSounds : List Audio
                                 footstepSounds =
-                                    SeqDict.toList state.players
-                                        |> List.filterMap
-                                            (\( userId, player ) ->
-                                                if player.targetPosition /= Nothing && player.isDead == Nothing then
-                                                    let
-                                                        playerOffset =
-                                                            Id.toInt userId * 7
-                                                    in
-                                                    if modBy footstepInterval (currentFrame + playerOffset) == 0 then
-                                                        Just
-                                                            (Audio.audio
-                                                                (footstepSound (currentFrame // footstepInterval + Id.toInt userId))
-                                                                (frameToTime currentFrameId)
-                                                            )
+                                    List.map
+                                        (\( userId, player ) ->
+                                            let
+                                                volume =
+                                                    if loaded.userId == userId then
+                                                        0.5
 
                                                     else
-                                                        Nothing
-
-                                                else
-                                                    Nothing
-                                            )
+                                                        0.2
+                                            in
+                                            Audio.audio
+                                                (footstepSound loaded userId player.lastStep.time)
+                                                (frameToTime player.lastStep.time)
+                                                |> Audio.scaleVolume volume
+                                        )
+                                        (SeqDict.toList state.players)
                             in
                             collisionSounds ++ chargeSounds ++ footstepSounds |> Audio.group
 
@@ -3606,3 +3630,31 @@ audio loaded matchPage =
 
         _ ->
             Audio.silence
+
+
+footstepSound : Config a -> Id UserId -> Id FrameId -> Audio.Source
+footstepSound loaded userId frameId =
+    case modBy 8 (Id.toInt frameId + Id.toInt userId * 7) of
+        0 ->
+            loaded.sounds.footstep1
+
+        1 ->
+            loaded.sounds.footstep2
+
+        2 ->
+            loaded.sounds.footstep3
+
+        3 ->
+            loaded.sounds.footstep4
+
+        4 ->
+            loaded.sounds.footstep5
+
+        5 ->
+            loaded.sounds.footstep6
+
+        6 ->
+            loaded.sounds.footstep7
+
+        _ ->
+            loaded.sounds.footstep8

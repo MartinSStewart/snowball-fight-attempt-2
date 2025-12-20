@@ -3,10 +3,12 @@ module MyUi exposing
     , button
     , displayType
     , ifMobile
+    , noPointerEvents
     , simpleButton
     )
 
 import Effect.Browser.Dom as Dom exposing (HtmlId)
+import Html.Attributes
 import Pixels
 import Quantity
 import Size exposing (Size)
@@ -55,3 +57,8 @@ ifMobile displayType_ a b =
 
         Desktop ->
             b
+
+
+noPointerEvents : Ui.Attribute msg
+noPointerEvents =
+    Ui.htmlAttribute (Html.Attributes.style "pointer-events" "none")
