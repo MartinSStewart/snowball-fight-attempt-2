@@ -1652,6 +1652,36 @@ drawPlayer frameId userId matchData viewMatrix player =
                 , view = viewMatrix
                 , model = point2ToMatrix player.position |> matMul modelMatrix
                 }
+            , WebGL.entityWith
+                [ WebGL.Settings.cullFace WebGL.Settings.back, WebGL.Settings.DepthTest.default ]
+                vertexShader
+                fragmentShader
+                playerHat
+                { ucolor =
+                    case player.team of
+                        BlueTeam ->
+                            Vec3.vec3 0 0 1
+
+                        RedTeam ->
+                            Vec3.vec3 1 0 0
+                , view = viewMatrix
+                , model = point2ToMatrix player.position |> matMul modelMatrix
+                }
+            , WebGL.entityWith
+                [ WebGL.Settings.cullFace WebGL.Settings.back, WebGL.Settings.DepthTest.default ]
+                vertexShader
+                fragmentShader
+                playerHatTuft
+                { ucolor =
+                    case player.team of
+                        BlueTeam ->
+                            Vec3.vec3 0.8 0.8 1
+
+                        RedTeam ->
+                            Vec3.vec3 1 0.8 0.8
+                , view = viewMatrix
+                , model = point2ToMatrix player.position |> matMul modelMatrix
+                }
             , drawHand True frameId player viewMatrix modelMatrix
             , drawHand False frameId player viewMatrix modelMatrix
             , WebGL.entityWith
@@ -2294,16 +2324,22 @@ sphere position scaleBy color =
 
 sphereMesh : Vec3 -> Vec3 -> Vec3 -> Mesh Vertex
 sphereMesh position scaleBy color =
-    let
-        sphere2 =
-            sphere position scaleBy color
-    in
-    TriangularMesh.faceVertices sphere2 |> WebGL.triangles
+    sphere position scaleBy color |> TriangularMesh.faceVertices |> WebGL.triangles
 
 
 playerHead : Mesh Vertex
 playerHead =
     sphereMesh (Vec3.vec3 0 0 1.5) (Vec3.vec3 0.9 0.9 0.9) (Vec3.vec3 1 1 1)
+
+
+playerHat : Mesh Vertex
+playerHat =
+    sphereMesh (Vec3.vec3 -0.2 0 1.9) (Vec3.vec3 0.8 0.8 0.8) (Vec3.vec3 1 1 1)
+
+
+playerHatTuft : Mesh Vertex
+playerHatTuft =
+    sphereMesh (Vec3.vec3 -0.6 0 2.7) (Vec3.vec3 0.3 0.3 0.3) (Vec3.vec3 1 1 1)
 
 
 playerBody : Mesh Vertex
