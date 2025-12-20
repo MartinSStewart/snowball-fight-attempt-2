@@ -3645,8 +3645,16 @@ audio loaded matchPage =
                                                 (frameToTime snowball.thrownAt)
                                         )
                                         state.snowballs
+
+                                countdownSounds : List Audio
+                                countdownSounds =
+                                    [ Audio.audio loaded.sounds.pop (frameToTime (Id.fromInt 60))
+                                    , Audio.audio loaded.sounds.railToggle (frameToTime (Id.fromInt 120))
+                                    , Audio.audio loaded.sounds.erase (frameToTime (Id.fromInt 180))
+                                    , Audio.audio loaded.sounds.meow (frameToTime (Id.fromInt 240))
+                                    ]
                             in
-                            collisionSounds ++ chargeSounds ++ footstepSounds ++ deadSounds ++ throwSounds |> Audio.group
+                            collisionSounds ++ chargeSounds ++ footstepSounds ++ deadSounds ++ throwSounds ++ countdownSounds |> Audio.group
 
                         Err _ ->
                             Audio.silence
