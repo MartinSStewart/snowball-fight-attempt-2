@@ -3619,8 +3619,24 @@ audio loaded matchPage =
                                                 |> Audio.scaleVolume volume
                                         )
                                         (SeqDict.toList state.players)
+
+                                deadSounds : List Audio
+                                deadSounds =
+                                    List.filterMap
+                                        (\( userId, player ) ->
+                                            case player.isDead of
+                                                Just isDead ->
+                                                    Audio.audio
+                                                        (deadSound loaded userId)
+                                                        (frameToTime isDead.time)
+                                                        |> Just
+
+                                                Nothing ->
+                                                    Nothing
+                                        )
+                                        (SeqDict.toList state.players)
                             in
-                            collisionSounds ++ chargeSounds ++ footstepSounds |> Audio.group
+                            collisionSounds ++ chargeSounds ++ footstepSounds ++ deadSounds |> Audio.group
 
                         Err _ ->
                             Audio.silence
@@ -3658,3 +3674,22 @@ footstepSound loaded userId frameId =
 
         _ ->
             loaded.sounds.footstep8
+
+
+deadSound : Config a -> Id UserId -> Audio.Source
+deadSound loaded userId =
+    case modBy 5 (Id.toInt userId) of
+        0 ->
+            loaded.sounds.dead1
+
+        1 ->
+            loaded.sounds.dead2
+
+        2 ->
+            loaded.sounds.dead3
+
+        3 ->
+            loaded.sounds.dead4
+
+        _ ->
+            loaded.sounds.dead5
