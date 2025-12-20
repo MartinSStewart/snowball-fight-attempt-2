@@ -3493,7 +3493,11 @@ audio loaded matchPage =
         ( Just match, MatchActiveLocal matchData ) ->
             case matchData.timelineCache of
                 Ok cache ->
-                    case Timeline.getStateAt gameUpdate (timeToFrameId loaded match) cache match.timeline of
+                    let
+                        currentFrameId =
+                            timeToFrameId loaded match
+                    in
+                    case Timeline.getStateAt gameUpdate currentFrameId cache match.timeline of
                         Ok ( _, state ) ->
                             let
                                 frameToTime : Id FrameId -> Time.Posix
@@ -3527,8 +3531,63 @@ audio loaded matchPage =
                                                 in
                                                 Audio.audio sound (frameToTime frameId)
                                             )
+
+                                footstepInterval =
+                                    12
+
+                                currentFrame =
+                                    Id.toInt currentFrameId
+
+                                footstepSound index =
+                                    case modBy 8 index of
+                                        0 ->
+                                            loaded.sounds.footstep1
+
+                                        1 ->
+                                            loaded.sounds.footstep2
+
+                                        2 ->
+                                            loaded.sounds.footstep3
+
+                                        3 ->
+                                            loaded.sounds.footstep4
+
+                                        4 ->
+                                            loaded.sounds.footstep5
+
+                                        5 ->
+                                            loaded.sounds.footstep6
+
+                                        6 ->
+                                            loaded.sounds.footstep7
+
+                                        _ ->
+                                            loaded.sounds.footstep8
+
+                                footstepSounds =
+                                    SeqDict.toList state.players
+                                        |> List.filterMap
+                                            (\( userId, player ) ->
+                                                if player.targetPosition /= Nothing && player.isDead == Nothing then
+                                                    let
+                                                        playerOffset =
+                                                            Id.toInt userId * 7
+                                                    in
+                                                    if modBy footstepInterval (currentFrame + playerOffset) == 0 then
+                                                        Just
+                                                            (Audio.audio
+                                                                (footstepSound (currentFrame // footstepInterval + Id.toInt userId))
+                                                                (frameToTime currentFrameId)
+                                                            )
+
+                                                    else
+                                                        Nothing
+
+                                                else
+                                                    Nothing
+                                            )
                             in
-                            collisionSounds ++ chargeSounds |> Audio.group
+                            collisionSounds ++ chargeSounds ++ footstepSounds |> Audio.group
 
                         Err _ ->
                             Audio.silence
