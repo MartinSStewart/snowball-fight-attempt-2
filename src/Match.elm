@@ -23,6 +23,7 @@ module Match exposing
     , botCount
     , clampTime
     , frameDuration
+    , framesPerSecond
     , init
     , isOwner
     , joinUser
@@ -485,7 +486,12 @@ setMatchName matchName (Match matchSetup) =
 
 frameDuration : Duration
 frameDuration =
-    Duration.seconds (1 / 60)
+    Duration.seconds (1 / framesPerSecond)
+
+
+framesPerSecond : number
+framesPerSecond =
+    60
 
 
 serverTimeToFrameId : ServerTime -> MatchActive -> Id FrameId

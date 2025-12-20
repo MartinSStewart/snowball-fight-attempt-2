@@ -2540,7 +2540,7 @@ throwCharge clickStartElapsed =
     let
         t : Float
         t =
-            Quantity.ratio (clickStartElapsed |> Quantity.minus clickMoveMaxDelay) chargeMaxDelay
+            Quantity.ratio (clickStartElapsed |> Quantity.minus clickMoveMaxDelay) chargeMaxDelay |> max 0
 
         offset =
             0.1
@@ -3684,13 +3684,37 @@ audio loaded matchPage =
 
                                 countdownSounds : List Audio
                                 countdownSounds =
-                                    [ Audio.audio loaded.sounds.pop (frameToTime (Id.fromInt 60))
-                                    , Audio.audio loaded.sounds.railToggle (frameToTime (Id.fromInt 120))
-                                    , Audio.audio loaded.sounds.erase (frameToTime (Id.fromInt 180))
-                                    , Audio.audio loaded.sounds.meow (frameToTime (Id.fromInt 240))
-                                    ]
+                                    let
+                                        sounds =
+                                            Random.step
+                                                (Random.shuffle
+                                                    [ loaded.sounds.pop
+                                                    , loaded.sounds.railToggle
+                                                    , loaded.sounds.erase
+                                                    , loaded.sounds.lightSwitch
+
+                                                    --, loaded.sounds.error
+                                                    ]
+                                                )
+                                                (Random.initialSeed (Time.posixToMillis (Match.unwrapServerTime match.startTime)))
+                                                |> Tuple.first
+                                                |> List.take 3
+                                    in
+                                    List.indexedMap
+                                        (\index sound ->
+                                            Audio.audio
+                                                sound
+                                                (frameToTime (Id.fromInt ((index + 1) * Match.framesPerSecond)))
+                                        )
+                                        (sounds ++ [ loaded.sounds.meow ])
                             in
-                            collisionSounds ++ chargeSounds ++ footstepSounds ++ deadSounds ++ throwSounds ++ countdownSounds |> Audio.group
+                            collisionSounds
+                                ++ chargeSounds
+                                ++ footstepSounds
+                                ++ deadSounds
+                                ++ throwSounds
+                                ++ countdownSounds
+                                |> Audio.group
 
                         Err _ ->
                             Audio.silence
