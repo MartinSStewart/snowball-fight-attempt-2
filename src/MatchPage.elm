@@ -3635,8 +3635,18 @@ audio loaded matchPage =
                                                     Nothing
                                         )
                                         (SeqDict.toList state.players)
+
+                                throwSounds : List Audio
+                                throwSounds =
+                                    List.map
+                                        (\snowball ->
+                                            Audio.audio
+                                                (throwSound loaded snowball.thrownAt)
+                                                (frameToTime snowball.thrownAt)
+                                        )
+                                        state.snowballs
                             in
-                            collisionSounds ++ chargeSounds ++ footstepSounds ++ deadSounds |> Audio.group
+                            collisionSounds ++ chargeSounds ++ footstepSounds ++ deadSounds ++ throwSounds |> Audio.group
 
                         Err _ ->
                             Audio.silence
@@ -3693,3 +3703,12 @@ deadSound loaded userId =
 
         _ ->
             loaded.sounds.dead5
+
+
+throwSound : Config a -> Id FrameId -> Audio.Source
+throwSound loaded frameId =
+    if modBy 2 (Id.toInt frameId) == 0 then
+        loaded.sounds.throw1
+
+    else
+        loaded.sounds.throw2
