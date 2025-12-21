@@ -1197,7 +1197,7 @@ backgroundGrid cameraPosition zoom canvasSize =
         squareMesh
         { view = Geometry.Interop.LinearAlgebra.Point2d.toVec2 cameraPosition
         , viewZoom = canvasHeight * zoom
-        , windowSize = Math.Vector2.vec2 canvasWidth canvasHeight
+        , windowSize = Vec2.vec2 canvasWidth canvasHeight
         }
 
 
@@ -2814,10 +2814,10 @@ handleCollision frameId playerA playerB =
 squareMesh : WebGL.Mesh { position : Vec2 }
 squareMesh =
     WebGL.triangleFan
-        [ { position = Math.Vector2.vec2 -1 -1 }
-        , { position = Math.Vector2.vec2 1 -1 }
-        , { position = Math.Vector2.vec2 1 1 }
-        , { position = Math.Vector2.vec2 -1 1 }
+        [ { position = Vec2.vec2 -1 -1 }
+        , { position = Vec2.vec2 1 -1 }
+        , { position = Vec2.vec2 1 1 }
+        , { position = Vec2.vec2 -1 1 }
         ]
 
 
