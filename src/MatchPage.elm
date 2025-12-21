@@ -587,7 +587,8 @@ updateFromBackend msg matchSetup =
                             case Timeline.getStateAt gameUpdate frameId timelineCache matchActive.timeline of
                                 Ok ( _, ok ) ->
                                     ( matchSetup
-                                    , Effect.Lamdera.sendToBackend (CurrentCache matchId frameId { ok | footsteps = [] })
+                                    , CurrentCache matchId frameId { ok | footsteps = [], mergedFootsteps = [] }
+                                        |> Effect.Lamdera.sendToBackend
                                     )
 
                                 Err _ ->
@@ -1359,13 +1360,26 @@ canvasViewHelper model matchSetup canvasSize =
                                             [ WebGL.Settings.cullFace WebGL.Settings.back, WebGL.Settings.DepthTest.default ]
                                             vertexShader
                                             fragmentShader
-                                            footstepMesh2
+                                            footstepMesh2.mesh
                                             { ucolor = Vec3.vec3 1 1 1
                                             , view = viewMatrix
                                             , model = Mat4.identity
                                             }
                                     )
                                     state.footsteps
+                                ++ List.map
+                                    (\footstepMesh2 ->
+                                        WebGL.entityWith
+                                            [ WebGL.Settings.cullFace WebGL.Settings.back, WebGL.Settings.DepthTest.default ]
+                                            vertexShader
+                                            fragmentShader
+                                            footstepMesh2
+                                            { ucolor = Vec3.vec3 1 1 1
+                                            , view = viewMatrix
+                                            , model = Mat4.identity
+                                            }
+                                    )
+                                    state.mergedFootsteps
                                 ++ List.concatMap
                                     (\snowball ->
                                         let
@@ -2001,10 +2015,51 @@ gameUpdate frameId inputs model =
                                 model2.snowballs
                                 |> Tuple.mapSecond List.reverse
 
-                        takesStep : Bool
-                        takesStep =
-                            Point2d.distanceFrom player.lastStep.position player.position
-                                |> Quantity.greaterThan (Length.meters 0.6)
+                        ( lastStep, footsteps, mergedFootsteps ) =
+                            if
+                                Point2d.distanceFrom player.lastStep.position player.position
+                                    |> Quantity.greaterThan (Length.meters 0.6)
+                            then
+                                let
+                                    newFootstep : List ( Vertex, Vertex, Vertex )
+                                    newFootstep =
+                                        footstepMesh player.position player.rotation player.lastStep.stepCount
+
+                                    merge =
+                                        List.length model2.footsteps > 20
+                                in
+                                ( { position = player.position
+                                  , time = frameId
+                                  , stepCount = player.lastStep.stepCount + 1
+                                  }
+                                , if merge then
+                                    []
+
+                                  else
+                                    { position = player.position
+                                    , rotation = player.rotation
+                                    , stepCount = player.lastStep.stepCount
+                                    , mesh = WebGL.triangles newFootstep
+                                    }
+                                        :: model2.footsteps
+                                , if merge then
+                                    WebGL.triangles
+                                        (newFootstep
+                                            ++ List.concatMap
+                                                (\footstep ->
+                                                    footstepMesh footstep.position footstep.rotation footstep.stepCount
+                                                )
+                                                model2.footsteps
+                                        )
+                                        :: model2.mergedFootsteps
+                                        |> List.take 100
+
+                                  else
+                                    model2.mergedFootsteps
+                                )
+
+                            else
+                                ( player.lastStep, model2.footsteps, model2.mergedFootsteps )
                     in
                     { model2
                         | players =
@@ -2139,15 +2194,7 @@ gameUpdate frameId inputs model =
 
                                             Nothing ->
                                                 player.isDead
-                                    , lastStep =
-                                        if takesStep then
-                                            { position = player.position
-                                            , time = frameId
-                                            , stepCount = player.lastStep.stepCount + 1
-                                            }
-
-                                        else
-                                            player.lastStep
+                                    , lastStep = lastStep
                                 }
                                 model2.players
                         , snowballs =
@@ -2190,12 +2237,8 @@ gameUpdate frameId inputs model =
 
                                 Nothing ->
                                     model2.particles
-                        , footsteps =
-                            if takesStep then
-                                footstepMesh player.position player.rotation player.lastStep.stepCount :: model2.footsteps
-
-                            else
-                                model2.footsteps
+                        , footsteps = footsteps
+                        , mergedFootsteps = mergedFootsteps
                     }
                 )
                 model
@@ -2247,6 +2290,7 @@ gameUpdate frameId inputs model =
             model3.particles
             ++ newParticles
     , footsteps = model3.footsteps
+    , mergedFootsteps = model3.mergedFootsteps
     }
 
 
@@ -2939,7 +2983,7 @@ ovalMesh position scale radiansRotation color =
             )
 
 
-footstepMesh : Point2d Meters WorldCoordinate -> Direction2d WorldCoordinate -> Int -> WebGL.Mesh Vertex
+footstepMesh : Point2d Meters WorldCoordinate -> Direction2d WorldCoordinate -> Int -> List ( Vertex, Vertex, Vertex )
 footstepMesh position direction stepCount =
     let
         topMesh =
@@ -2977,7 +3021,7 @@ footstepMesh position direction stepCount =
                 (Direction2d.toAngle direction |> Angle.inRadians)
                 (Vec3.vec3 0.8 0.8 0.8)
     in
-    topMesh ++ bottomMesh |> WebGL.triangles
+    topMesh ++ bottomMesh
 
 
 snowballMesh : WebGL.Mesh Vertex
@@ -3261,6 +3305,7 @@ initMatch startTime users =
     , snowballs = []
     , particles = []
     , footsteps = []
+    , mergedFootsteps = []
     }
 
 

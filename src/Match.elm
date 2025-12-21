@@ -108,7 +108,14 @@ type alias MatchState =
     { players : SeqDict (Id UserId) Player
     , snowballs : List Snowball
     , particles : List Particle
-    , footsteps : List (Mesh Vertex)
+    , footsteps :
+        List
+            { position : Point2d Meters WorldCoordinate
+            , rotation : Direction2d WorldCoordinate
+            , stepCount : Int
+            , mesh : Mesh Vertex
+            }
+    , mergedFootsteps : List (Mesh Vertex)
     }
 
 
