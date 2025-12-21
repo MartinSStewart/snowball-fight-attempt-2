@@ -116,6 +116,8 @@ type alias MatchState =
             , mesh : Mesh Vertex
             }
     , mergedFootsteps : List (Mesh Vertex)
+    , score : { redTeam : Int, blueTeam : Int }
+    , roundEndTime : Maybe { winningTeam : Team, time : Id FrameId }
     }
 
 

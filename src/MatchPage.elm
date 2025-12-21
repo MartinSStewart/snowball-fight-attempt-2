@@ -648,6 +648,7 @@ view config model =
                                     :: Ui.htmlAttribute (Html.Events.Extra.Pointer.onLeave PointerLeave)
                                     :: Ui.id "canvas"
                                     :: Ui.inFront (desyncWarning matchData.desyncedAtFrame)
+                                    :: Ui.inFront (scoreDisplay matchState)
                                     :: Ui.inFront
                                         (Ui.el
                                             [ Ui.width Ui.shrink
@@ -2302,22 +2303,149 @@ gameUpdate frameId inputs model =
                 ( [], [] )
                 model3.snowballs
     in
-    { players =
-        SeqDict.map
-            (\id player ->
-                SeqDict.remove id updatedVelocities_
-                    |> SeqDict.values
-                    |> List.foldl (\a b -> handleCollision frameId b a |> Tuple.first) player
-            )
-            updatedVelocities_
-    , snowballs = List.reverse survivingSnowballs
+    let
+        updatedPlayers =
+            SeqDict.map
+                (\id player ->
+                    SeqDict.remove id updatedVelocities_
+                        |> SeqDict.values
+                        |> List.foldl (\a b -> handleCollision frameId b a |> Tuple.first) player
+                )
+                updatedVelocities_
+
+        -- Check if only one team remains alive
+        alivePlayers =
+            SeqDict.values updatedPlayers
+                |> List.filter (\player -> player.isDead == Nothing)
+
+        aliveRedTeam =
+            List.filter (\player -> player.team == RedTeam) alivePlayers
+
+        aliveBlueTeam =
+            List.filter (\player -> player.team == BlueTeam) alivePlayers
+
+        -- Determine if a team has won this round
+        maybeWinningTeam =
+            case ( aliveRedTeam, aliveBlueTeam ) of
+                ( [], _ :: _ ) ->
+                    Just BlueTeam
+
+                ( _ :: _, [] ) ->
+                    Just RedTeam
+
+                _ ->
+                    Nothing
+
+        -- Set roundEndTime if a team just won
+        newRoundEndTime =
+            case model3.roundEndTime of
+                Just _ ->
+                    model3.roundEndTime
+
+                Nothing ->
+                    case maybeWinningTeam of
+                        Just team ->
+                            Just { winningTeam = team, time = frameId }
+
+                        Nothing ->
+                            Nothing
+
+        -- Check if 5 seconds have passed since round ended
+        roundResetDuration =
+            Duration.seconds 5
+
+        shouldResetRound =
+            case newRoundEndTime of
+                Just endTime ->
+                    frameTimeElapsed endTime.time frameId |> Quantity.greaterThanOrEqualTo roundResetDuration
+
+                Nothing ->
+                    False
+
+        -- Update score and reset players if round should reset
+        roundResult =
+            if shouldResetRound then
+                case newRoundEndTime of
+                    Just endTime ->
+                        let
+                            newScore =
+                                case endTime.winningTeam of
+                                    RedTeam ->
+                                        { redTeam = model3.score.redTeam + 1, blueTeam = model3.score.blueTeam }
+
+                                    BlueTeam ->
+                                        { redTeam = model3.score.redTeam, blueTeam = model3.score.blueTeam + 1 }
+
+                            -- Reset all players to alive and back to spawn positions
+                            resetPlayers =
+                                SeqDict.map
+                                    (\_ player ->
+                                        let
+                                            spawnPos =
+                                                case player.team of
+                                                    RedTeam ->
+                                                        Point2d.meters -12 -10
+
+                                                    BlueTeam ->
+                                                        Point2d.meters 12 10
+
+                                            facingDirection =
+                                                case player.team of
+                                                    RedTeam ->
+                                                        Direction2d.fromAngle (Angle.degrees 45)
+
+                                                    BlueTeam ->
+                                                        Direction2d.fromAngle (Angle.degrees 225)
+                                        in
+                                        { player
+                                            | isDead = Nothing
+                                            , position = spawnPos
+                                            , targetPosition = Nothing
+                                            , velocity = Vector2d.zero
+                                            , rotation = facingDirection
+                                            , clickStart = Nothing
+                                            , lastStep = { position = spawnPos, time = frameId, stepCount = 0 }
+                                        }
+                                    )
+                                    updatedPlayers
+                        in
+                        { players = resetPlayers
+                        , score = newScore
+                        , roundEndTime = Nothing
+                        , snowballs = []
+                        , footsteps = []
+                        , mergedFootsteps = []
+                        }
+
+                    Nothing ->
+                        { players = updatedPlayers
+                        , score = model3.score
+                        , roundEndTime = newRoundEndTime
+                        , snowballs = List.reverse survivingSnowballs
+                        , footsteps = model3.footsteps
+                        , mergedFootsteps = model3.mergedFootsteps
+                        }
+
+            else
+                { players = updatedPlayers
+                , score = model3.score
+                , roundEndTime = newRoundEndTime
+                , snowballs = List.reverse survivingSnowballs
+                , footsteps = model3.footsteps
+                , mergedFootsteps = model3.mergedFootsteps
+                }
+    in
+    { players = roundResult.players
+    , snowballs = roundResult.snowballs
     , particles =
         List.filter
             (\particle -> frameTimeElapsed particle.spawnedAt frameId |> Quantity.lessThan particle.lifetime)
             model3.particles
             ++ newParticles
-    , footsteps = model3.footsteps
-    , mergedFootsteps = model3.mergedFootsteps
+    , footsteps = roundResult.footsteps
+    , mergedFootsteps = roundResult.mergedFootsteps
+    , score = roundResult.score
+    , roundEndTime = roundResult.roundEndTime
     }
 
 
@@ -3333,6 +3461,8 @@ initMatch startTime users =
     , particles = []
     , footsteps = []
     , mergedFootsteps = []
+    , score = { redTeam = 0, blueTeam = 0 }
+    , roundEndTime = Nothing
     }
 
 
@@ -3491,6 +3621,43 @@ desyncWarning maybeDesyncFrame =
 
         Nothing ->
             Ui.none
+
+
+scoreDisplay : MatchState -> Ui.Element msg
+scoreDisplay matchState =
+    Ui.row
+        [ Ui.width Ui.shrink
+        , Ui.alignTop
+        , Ui.centerX
+        , Ui.padding 12
+        , Ui.spacing 16
+        , Ui.background (Ui.rgba 0 0 0 0.7)
+        , Ui.rounded 8
+        , Ui.move { x = 0, y = 8, z = 0 }
+        , noPointerEvents
+        ]
+        [ Ui.el
+            [ Ui.width Ui.shrink
+            , Ui.Font.size 24
+            , Ui.Font.bold
+            , Ui.Font.color (Ui.rgb 255 100 100)
+            ]
+            (Ui.text ("Red: " ++ String.fromInt matchState.score.redTeam))
+        , Ui.el
+            [ Ui.width Ui.shrink
+            , Ui.Font.size 24
+            , Ui.Font.bold
+            , Ui.Font.color (Ui.rgb 255 255 255)
+            ]
+            (Ui.text "-")
+        , Ui.el
+            [ Ui.width Ui.shrink
+            , Ui.Font.size 24
+            , Ui.Font.bold
+            , Ui.Font.color (Ui.rgb 100 150 255)
+            ]
+            (Ui.text ("Blue: " ++ String.fromInt matchState.score.blueTeam))
+        ]
 
 
 timestamp_ : Duration -> String
