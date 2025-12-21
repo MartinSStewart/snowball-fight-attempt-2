@@ -105,6 +105,7 @@ type alias MatchState =
     { players : SeqDict (Id UserId) Player
     , snowballs : List Snowball
     , particles : List Particle
+    , footsteps : List (Point2d Meters WorldCoordinate)
     }
 
 

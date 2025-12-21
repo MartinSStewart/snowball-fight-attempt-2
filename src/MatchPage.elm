@@ -1995,6 +1995,11 @@ gameUpdate frameId inputs model =
                                 ( Nothing, [] )
                                 model2.snowballs
                                 |> Tuple.mapSecond List.reverse
+
+                        takesStep : Bool
+                        takesStep =
+                            Point2d.distanceFrom player.lastStep.position player.position
+                                |> Quantity.lessThan (Length.meters 0.6)
                     in
                     { model2
                         | players =
@@ -2130,10 +2135,7 @@ gameUpdate frameId inputs model =
                                             Nothing ->
                                                 player.isDead
                                     , lastStep =
-                                        if
-                                            Point2d.distanceFrom player.lastStep.position player.position
-                                                |> Quantity.lessThan (Length.meters 0.6)
-                                        then
+                                        if takesStep then
                                             player.lastStep
 
                                         else
@@ -2180,6 +2182,12 @@ gameUpdate frameId inputs model =
 
                                 Nothing ->
                                     model2.particles
+                        , footsteps =
+                            if takesStep then
+                                player.position :: model2.footsteps
+
+                            else
+                                model2.footsteps
                     }
                 )
                 model
@@ -2230,6 +2238,7 @@ gameUpdate frameId inputs model =
             (\particle -> frameTimeElapsed particle.spawnedAt frameId |> Quantity.lessThan particle.lifetime)
             model3.particles
             ++ newParticles
+    , footsteps = model3.footsteps
     }
 
 
@@ -3158,6 +3167,7 @@ initMatch startTime users =
             |> SeqDict.fromList
     , snowballs = []
     , particles = []
+    , footsteps = []
     }
 
 
