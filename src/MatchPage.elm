@@ -64,7 +64,7 @@ import List.Nonempty exposing (Nonempty)
 import Match exposing (Action(..), Emote(..), Input, LobbyPreview, Match, MatchActive, MatchState, Particle, Place(..), Player, PlayerData, PlayerMode(..), ServerTime(..), Snowball, Team(..), TimelineEvent, WorldCoordinate)
 import MatchName exposing (MatchName)
 import Math.Matrix4 as Mat4 exposing (Mat4)
-import Math.Vector2 exposing (Vec2)
+import Math.Vector2 as Vec2 exposing (Vec2)
 import Math.Vector3 as Vec3 exposing (Vec3)
 import Math.Vector4 exposing (Vec4)
 import MyUi
@@ -2864,6 +2864,19 @@ circleMesh size color =
                 , { position = Vec3.vec3 (cos t2 * size) (sin t2 * size) 0, color = color }
                 )
             )
+
+
+ovalMesh : Vec2 -> Float -> Vec3 -> List ( Vertex, Vertex, Vertex )
+ovalMesh scale radiansRotation color =
+    let
+        detail =
+            64
+
+        s : { x : Float, y : Float }
+        s =
+            Vec2.toRecord scale
+    in
+    Debug.todo "implement"
 
 
 snowballMesh : WebGL.Mesh Vertex
