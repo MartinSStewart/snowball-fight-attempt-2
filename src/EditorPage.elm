@@ -31,8 +31,8 @@ import Length exposing (Length, Meters)
 import LineSegment2d
 import List.Extra as List
 import List.Nonempty
-import Match exposing (WorldCoordinate)
-import MatchPage exposing (Mouse, ScreenCoordinate, Vertex, WorldPixel)
+import Match exposing (Vertex, WorldCoordinate)
+import MatchPage exposing (Mouse, ScreenCoordinate, WorldPixel)
 import Math.Matrix4 as Mat4 exposing (Mat4)
 import Math.Vector2
 import Math.Vector3 as Vec3

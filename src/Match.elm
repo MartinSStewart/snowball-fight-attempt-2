@@ -16,6 +16,7 @@ module Match exposing
     , Snowball
     , Team(..)
     , TimelineEvent
+    , Vertex
     , WorldCoordinate
     , allUsers
     , allUsersAndBots
@@ -46,11 +47,13 @@ import ColorIndex exposing (ColorIndex(..))
 import Decal exposing (Decal)
 import Direction2d exposing (Direction2d)
 import Duration exposing (Duration)
+import Effect.WebGL exposing (Mesh)
 import Id exposing (Id)
 import Length exposing (Length, Meters)
 import List.Extra as List
 import List.Nonempty exposing (Nonempty(..))
 import MatchName exposing (MatchName)
+import Math.Vector3 exposing (Vec3)
 import Point2d exposing (Point2d)
 import Point3d exposing (Point3d)
 import Quantity
@@ -105,8 +108,12 @@ type alias MatchState =
     { players : SeqDict (Id UserId) Player
     , snowballs : List Snowball
     , particles : List Particle
-    , footsteps : List (Point2d Meters WorldCoordinate)
+    , footsteps : List (Mesh Vertex)
     }
+
+
+type alias Vertex =
+    { position : Vec3, color : Vec3 }
 
 
 type alias Snowball =
@@ -137,7 +144,7 @@ type alias Player =
     , clickStart : Maybe { position : Point2d Meters WorldCoordinate, time : Id FrameId }
     , isDead : Maybe { time : Id FrameId, fallDirection : Direction2d WorldCoordinate }
     , team : Team
-    , lastStep : { position : Point2d Meters WorldCoordinate, time : Id FrameId }
+    , lastStep : { position : Point2d Meters WorldCoordinate, time : Id FrameId, stepCount : Int }
     }
 
 

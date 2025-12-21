@@ -7,7 +7,6 @@ module MatchPage exposing
     , ScreenCoordinate
     , ToBackend(..)
     , ToFrontend(..)
-    , Vertex
     , WorldPixel
     , actualTime
     , animationFrame
@@ -61,7 +60,7 @@ import Length exposing (Length, Meters)
 import LineSegment2d exposing (LineSegment2d)
 import List.Extra as List
 import List.Nonempty exposing (Nonempty)
-import Match exposing (Action(..), Emote(..), Input, LobbyPreview, Match, MatchActive, MatchState, Particle, Place(..), Player, PlayerData, PlayerMode(..), ServerTime(..), Snowball, Team(..), TimelineEvent, WorldCoordinate)
+import Match exposing (Action(..), Emote(..), Input, LobbyPreview, Match, MatchActive, MatchState, Particle, Place(..), Player, PlayerData, PlayerMode(..), ServerTime(..), Snowball, Team(..), TimelineEvent, Vertex, WorldCoordinate)
 import MatchName exposing (MatchName)
 import Math.Matrix4 as Mat4 exposing (Mat4)
 import Math.Vector2 as Vec2 exposing (Vec2)
@@ -173,10 +172,6 @@ type alias MatchSetupLocal_ =
     { matchName : String, message : String, maxPlayers : String, botCount : String }
 
 
-type alias Vertex =
-    { position : Vec3, color : Vec3 }
-
-
 type ScreenCoordinate
     = ScreenCoordinate Never
 
@@ -190,6 +185,7 @@ type alias MatchActiveLocal_ =
     , primaryDown : Maybe Time.Posix
     , previousPrimaryDown : Maybe Time.Posix
     , desyncedAtFrame : Maybe (Id FrameId)
+    , footstepMesh : List (Mesh Vertex)
     }
 
 
@@ -549,11 +545,7 @@ updateFromBackend msg matchSetup =
                 { matchSetup
                     | networkModel = newNetworkModel
                     , matchData =
-                        updateMatchData
-                            matchSetupMsg
-                            newNetworkModel
-                            matchSetup.networkModel
-                            matchSetup.matchData
+                        updateMatchData matchSetupMsg newNetworkModel matchSetup.networkModel matchSetup.matchData
                 }
 
               else
@@ -595,7 +587,7 @@ updateFromBackend msg matchSetup =
                             case Timeline.getStateAt gameUpdate frameId timelineCache matchActive.timeline of
                                 Ok ( _, ok ) ->
                                     ( matchSetup
-                                    , Effect.Lamdera.sendToBackend (CurrentCache matchId frameId ok)
+                                    , Effect.Lamdera.sendToBackend (CurrentCache matchId frameId { ok | footsteps = [] })
                                     )
 
                                 Err _ ->
@@ -1361,6 +1353,19 @@ canvasViewHelper model matchSetup canvasSize =
                                             player
                                     )
                                     (SeqDict.toList state.players)
+                                ++ List.map
+                                    (\footstepMesh2 ->
+                                        WebGL.entityWith
+                                            [ WebGL.Settings.cullFace WebGL.Settings.back, WebGL.Settings.DepthTest.default ]
+                                            vertexShader
+                                            fragmentShader
+                                            footstepMesh2
+                                            { ucolor = Vec3.vec3 1 1 1
+                                            , view = viewMatrix
+                                            , model = Mat4.identity
+                                            }
+                                    )
+                                    state.footsteps
                                 ++ List.concatMap
                                     (\snowball ->
                                         let
@@ -1378,7 +1383,7 @@ canvasViewHelper model matchSetup canvasSize =
                                             { ucolor = Vec3.vec3 1 1 1
                                             , view = viewMatrix
                                             , model =
-                                                Mat4.makeTranslate3 x y -0.1
+                                                Mat4.makeTranslate3 x y 0.01
                                                     |> Mat4.scale3 snowballRadius_ snowballRadius_ snowballRadius_
                                             }
                                         , WebGL.entityWith
@@ -1640,7 +1645,7 @@ drawPlayer frameId userId matchData viewMatrix player =
                 { ucolor = Vec3.vec3 1 1 1
                 , view = viewMatrix
                 , model =
-                    Mat4.makeTranslate3 px py -0.1
+                    Mat4.makeTranslate3 px py 0
                         |> Mat4.scale3 playerRadius_ playerRadius_ playerRadius_
                 }
             , WebGL.entityWith
@@ -1999,7 +2004,7 @@ gameUpdate frameId inputs model =
                         takesStep : Bool
                         takesStep =
                             Point2d.distanceFrom player.lastStep.position player.position
-                                |> Quantity.lessThan (Length.meters 0.6)
+                                |> Quantity.greaterThan (Length.meters 0.6)
                     in
                     { model2
                         | players =
@@ -2136,10 +2141,13 @@ gameUpdate frameId inputs model =
                                                 player.isDead
                                     , lastStep =
                                         if takesStep then
-                                            player.lastStep
+                                            { position = player.position
+                                            , time = frameId
+                                            , stepCount = player.lastStep.stepCount + 1
+                                            }
 
                                         else
-                                            { position = player.position, time = frameId }
+                                            player.lastStep
                                 }
                                 model2.players
                         , snowballs =
@@ -2184,7 +2192,7 @@ gameUpdate frameId inputs model =
                                     model2.particles
                         , footsteps =
                             if takesStep then
-                                player.position :: model2.footsteps
+                                footstepMesh player.position player.rotation player.lastStep.stepCount :: model2.footsteps
 
                             else
                                 model2.footsteps
@@ -2875,11 +2883,14 @@ circleMesh size color =
             )
 
 
-ovalMesh : Vec2 -> Float -> Vec3 -> List ( Vertex, Vertex, Vertex )
-ovalMesh scale radiansRotation color =
+ovalMesh : Point3d Meters WorldCoordinate -> Vec2 -> Float -> Vec3 -> List ( Vertex, Vertex, Vertex )
+ovalMesh position scale radiansRotation color =
     let
         detail =
-            64
+            8
+
+        p =
+            Point3d.toMeters position
 
         s : { x : Float, y : Float }
         s =
@@ -2901,12 +2912,12 @@ ovalMesh scale radiansRotation color =
                     sin angle * s.y
 
                 rotatedX =
-                    x * cosR - y * sinR
+                    x * cosR - y * sinR + p.x
 
                 rotatedY =
-                    x * sinR + y * cosR
+                    x * sinR + y * cosR + p.y
             in
-            Vec3.vec3 rotatedX rotatedY 0
+            Vec3.vec3 rotatedX rotatedY p.z
     in
     List.range 0 (detail - 3)
         |> List.map
@@ -2928,6 +2939,47 @@ ovalMesh scale radiansRotation color =
             )
 
 
+footstepMesh : Point2d Meters WorldCoordinate -> Direction2d WorldCoordinate -> Int -> WebGL.Mesh Vertex
+footstepMesh position direction stepCount =
+    let
+        topMesh =
+            ovalMesh
+                (Point2d.translateIn
+                    (if modBy 2 stepCount == 0 then
+                        Direction2d.rotateClockwise direction
+
+                     else
+                        Direction2d.rotateCounterclockwise direction
+                    )
+                    (Length.meters 0.2)
+                    position
+                    |> point2To3 (Length.meters -0.01)
+                )
+                (Vec2.vec2 0.2 0.1)
+                (Direction2d.toAngle direction |> Angle.inRadians)
+                (Vec3.vec3 1 1 1)
+
+        bottomMesh =
+            ovalMesh
+                (Point2d.translateIn
+                    (if modBy 2 stepCount == 0 then
+                        Direction2d.rotateClockwise direction
+
+                     else
+                        Direction2d.rotateCounterclockwise direction
+                    )
+                    (Length.meters 0.2)
+                    position
+                    |> Point2d.translateBy (Vector2d.meters 0 0.05)
+                    |> point2To3 (Length.meters -0.02)
+                )
+                (Vec2.vec2 0.2 0.1)
+                (Direction2d.toAngle direction |> Angle.inRadians)
+                (Vec3.vec3 0.8 0.8 0.8)
+    in
+    topMesh ++ bottomMesh |> WebGL.triangles
+
+
 snowballMesh : WebGL.Mesh Vertex
 snowballMesh =
     circleMesh 0.85 (Vec3.vec3 1 1 1)
@@ -2943,7 +2995,7 @@ snowballShadowMesh =
 
 playerShadowMesh : WebGL.Mesh Vertex
 playerShadowMesh =
-    circleMesh 1 (Vec3.vec3 0.9 0.9 0.9)
+    circleMesh 1 (Vec3.vec3 0.8 0.8 0.8)
         |> WebGL.triangles
 
 
@@ -3066,6 +3118,7 @@ initMatchData serverTime newUserIds maybeTimelineCache =
     , primaryDown = Nothing
     , previousPrimaryDown = Nothing
     , desyncedAtFrame = Nothing
+    , footstepMesh = []
     }
 
 
@@ -3233,7 +3286,7 @@ initPlayer team position =
     , clickStart = Nothing
     , isDead = Nothing
     , team = team
-    , lastStep = { position = position, time = Id.fromInt -999 }
+    , lastStep = { position = position, time = Id.fromInt -999, stepCount = 0 }
     }
 
 
