@@ -1086,7 +1086,7 @@ canvasView time windowSize devicePixelRatio entities =
             findPixelPerfectSize windowSize devicePixelRatio
     in
     WebGL.toHtmlWith
-        [ WebGL.alpha True, WebGL.stencil 0, WebGL.depth 1 ]
+        [ WebGL.alpha True, WebGL.stencil 0, WebGL.depth 1, WebGL.clearColor 0 0 0 1 ]
         [ Html.Attributes.width (Pixels.inPixels actualCanvasSize.width)
         , Html.Attributes.height (Pixels.inPixels actualCanvasSize.height)
         , Html.Attributes.style "width" (String.fromInt cssWindowWidth ++ "px")
@@ -1301,6 +1301,24 @@ drawParticles frameId viewMatrix particles =
             particles
 
 
+viewWidth =
+    18.5
+
+
+viewHeight =
+    14
+
+
+mapFillMesh : Mesh Vertex
+mapFillMesh =
+    WebGL.triangleFan
+        [ { position = Vec3.vec3 -viewWidth -viewHeight -1, color = Vec3.vec3 1 1 1 }
+        , { position = Vec3.vec3 viewWidth -viewHeight -1, color = Vec3.vec3 1 1 1 }
+        , { position = Vec3.vec3 viewWidth viewHeight -1, color = Vec3.vec3 1 1 1 }
+        , { position = Vec3.vec3 -viewWidth viewHeight -1, color = Vec3.vec3 1 1 1 }
+        ]
+
+
 canvasViewHelper : Config a -> Model -> Size -> List WebGL.Entity
 canvasViewHelper model matchSetup canvasSize =
     case ( Match.matchActive (getLocalState matchSetup), matchSetup.matchData ) of
@@ -1339,6 +1357,15 @@ canvasViewHelper model matchSetup canvasSize =
                                         vertexShader
                                         fragmentShader
                                         matchData.wallMesh
+                                        { ucolor = Vec3.vec3 1 1 1
+                                        , view = viewMatrix
+                                        , model = Mat4.identity
+                                        }
+                                   , WebGL.entityWith
+                                        [ WebGL.Settings.cullFace WebGL.Settings.back ]
+                                        vertexShader
+                                        fragmentShader
+                                        mapFillMesh
                                         { ucolor = Vec3.vec3 1 1 1
                                         , view = viewMatrix
                                         , model = Mat4.identity
