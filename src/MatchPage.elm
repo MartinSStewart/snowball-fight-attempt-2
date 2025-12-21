@@ -2875,8 +2875,48 @@ ovalMesh scale radiansRotation color =
         s : { x : Float, y : Float }
         s =
             Vec2.toRecord scale
+
+        cosR =
+            cos radiansRotation
+
+        sinR =
+            sin radiansRotation
+
+        pointAt : Float -> Vec3
+        pointAt angle =
+            let
+                x =
+                    cos angle * s.x
+
+                y =
+                    sin angle * s.y
+
+                rotatedX =
+                    x * cosR - y * sinR
+
+                rotatedY =
+                    x * sinR + y * cosR
+            in
+            Vec3.vec3 rotatedX rotatedY 0
     in
-    Debug.todo "implement"
+    List.range 0 (detail - 3)
+        |> List.map
+            (\index ->
+                let
+                    t0 =
+                        0
+
+                    t1 =
+                        pi * 2 * toFloat (index + 1) / detail
+
+                    t2 =
+                        pi * 2 * toFloat (index + 2) / detail
+                in
+                ( { position = pointAt t0, color = color }
+                , { position = pointAt t1, color = color }
+                , { position = pointAt t2, color = color }
+                )
+            )
 
 
 snowballMesh : WebGL.Mesh Vertex
