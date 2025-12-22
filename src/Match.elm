@@ -17,6 +17,7 @@ module Match exposing
     , Team(..)
     , TimelineEvent
     , Vertex
+    , Winner(..)
     , WorldCoordinate
     , allUsers
     , allUsersAndBots
@@ -117,8 +118,14 @@ type alias MatchState =
             }
     , mergedFootsteps : List (Mesh Vertex)
     , score : { redTeam : Int, blueTeam : Int }
-    , roundEndTime : Maybe { winningTeam : Team, time : Id FrameId }
+    , roundEndTime : Maybe { winner : Winner, time : Id FrameId }
     }
+
+
+type Winner
+    = BothLost
+    | RedWon
+    | BlueWon
 
 
 type alias Vertex =

@@ -27,7 +27,7 @@ module MatchPage exposing
 
 import Acceleration exposing (Acceleration, MetersPerSecondSquared)
 import Angle exposing (Angle)
-import Array
+import Array exposing (Array)
 import Audio exposing (Audio)
 import Axis2d
 import Axis3d
@@ -60,7 +60,7 @@ import Length exposing (Length, Meters)
 import LineSegment2d exposing (LineSegment2d)
 import List.Extra as List
 import List.Nonempty exposing (Nonempty)
-import Match exposing (Action(..), Emote(..), Input, LobbyPreview, Match, MatchActive, MatchState, Particle, Place(..), Player, PlayerData, PlayerMode(..), ServerTime(..), Snowball, Team(..), TimelineEvent, Vertex, WorldCoordinate)
+import Match exposing (Action(..), Emote(..), Input, LobbyPreview, Match, MatchActive, MatchState, Particle, Place(..), Player, PlayerData, PlayerMode(..), ServerTime(..), Snowball, Team(..), TimelineEvent, Vertex, Winner(..), WorldCoordinate)
 import MatchName exposing (MatchName)
 import Math.Matrix4 as Mat4 exposing (Mat4)
 import Math.Vector2 as Vec2 exposing (Vec2)
@@ -648,7 +648,6 @@ view config model =
                                     :: Ui.htmlAttribute (Html.Events.Extra.Pointer.onLeave PointerLeave)
                                     :: Ui.id "canvas"
                                     :: Ui.inFront (desyncWarning matchData.desyncedAtFrame)
-                                    :: Ui.inFront (scoreDisplay matchState)
                                     :: Ui.inFront
                                         (Ui.el
                                             [ Ui.width Ui.shrink
@@ -1200,6 +1199,16 @@ countdown =
     Array.fromList [ Shape.three, Shape.two, Shape.one, Shape.go ]
 
 
+redNumbers : Array RenderableShape
+redNumbers =
+    List.map (Shape.setColor (Vec3.vec3 1 0 0)) [ Shape.zero, Shape.one, Shape.two, Shape.three ] |> Array.fromList
+
+
+blueNumbers : Array RenderableShape
+blueNumbers =
+    List.map (Shape.setColor (Vec3.vec3 0 0 1)) [ Shape.zero, Shape.one, Shape.two, Shape.three ] |> Array.fromList
+
+
 drawCountdown : Id FrameId -> Mat4 -> List WebGL.Entity
 drawCountdown frameId viewMatrix =
     let
@@ -1372,6 +1381,28 @@ canvasViewHelper model matchSetup canvasSize =
                                         , model = Mat4.identity
                                         }
                                    ]
+                                ++ (case Array.get state.score.redTeam redNumbers of
+                                        Just number ->
+                                            drawShape
+                                                0.004
+                                                (Point2d.meters -2 8)
+                                                viewMatrix
+                                                number
+
+                                        Nothing ->
+                                            []
+                                   )
+                                ++ (case Array.get state.score.blueTeam blueNumbers of
+                                        Just number ->
+                                            drawShape
+                                                0.004
+                                                (Point2d.meters 2 8)
+                                                viewMatrix
+                                                number
+
+                                        Nothing ->
+                                            []
+                                   )
                                 ++ List.concatMap
                                     (\( userId, player ) ->
                                         drawPlayer
@@ -2010,6 +2041,268 @@ playerHeight =
     Length.meters 1.5
 
 
+updatePlayer : SeqDict (Id UserId) Input -> Id FrameId -> Id UserId -> Player -> MatchState -> MatchState
+updatePlayer inputs2 frameId userId player model =
+    let
+        input : Input
+        input =
+            if Id.toInt userId < 0 then
+                getBotInput frameId model userId player
+
+            else
+                SeqDict.get userId inputs2 |> Maybe.withDefault noInput
+
+        ( hitBySnowball, snowballs ) =
+            List.foldl
+                (\snowball ( hitSnowball, snowballs2 ) ->
+                    if hitSnowball == Nothing && snowballPlayerCollision snowball userId player then
+                        ( Just snowball, snowballs2 )
+
+                    else
+                        ( hitSnowball, snowball :: snowballs2 )
+                )
+                ( Nothing, [] )
+                model.snowballs
+                |> Tuple.mapSecond List.reverse
+
+        ( lastStep, footsteps, mergedFootsteps ) =
+            if
+                Point2d.distanceFrom player.lastStep.position player.position
+                    |> Quantity.greaterThan (Length.meters 0.6)
+            then
+                let
+                    newFootstep : List ( Vertex, Vertex, Vertex )
+                    newFootstep =
+                        footstepMesh player.position player.rotation player.lastStep.stepCount
+
+                    merge =
+                        List.length model.footsteps > 20
+                in
+                ( { position = player.position
+                  , time = frameId
+                  , stepCount = player.lastStep.stepCount + 1
+                  }
+                , if merge then
+                    []
+
+                  else
+                    { position = player.position
+                    , rotation = player.rotation
+                    , stepCount = player.lastStep.stepCount
+                    , mesh = WebGL.triangles newFootstep
+                    }
+                        :: model.footsteps
+                , if merge then
+                    WebGL.triangles
+                        (newFootstep
+                            ++ List.concatMap
+                                (\footstep ->
+                                    footstepMesh footstep.position footstep.rotation footstep.stepCount
+                                )
+                                model.footsteps
+                        )
+                        :: model.mergedFootsteps
+                        |> List.take 100
+
+                  else
+                    model.mergedFootsteps
+                )
+
+            else
+                ( player.lastStep, model.footsteps, model.mergedFootsteps )
+
+        players : SeqDict (Id UserId) Player
+        players =
+            SeqDict.insert
+                userId
+                { player
+                    | targetPosition =
+                        case player.isDead of
+                            Just _ ->
+                                Nothing
+
+                            Nothing ->
+                                case ( player.clickStart, input.action ) of
+                                    ( Just clickStart, ClickRelease point ) ->
+                                        if
+                                            frameTimeElapsed clickStart.time frameId
+                                                |> Quantity.lessThan clickMoveMaxDelay
+                                        then
+                                            Just point
+
+                                        else
+                                            player.targetPosition
+
+                                    ( Just clickStart, _ ) ->
+                                        if
+                                            frameTimeElapsed clickStart.time frameId
+                                                |> Quantity.greaterThanOrEqualTo clickMoveMaxDelay
+                                        then
+                                            Nothing
+
+                                        else
+                                            player.targetPosition
+
+                                    _ ->
+                                        player.targetPosition
+                    , rotation =
+                        case player.targetPosition of
+                            Just targetPosition ->
+                                case Direction2d.from player.position targetPosition of
+                                    Just direction ->
+                                        let
+                                            angleDifference : Angle
+                                            angleDifference =
+                                                Direction2d.angleFrom player.rotation direction
+                                        in
+                                        if Quantity.abs angleDifference |> Quantity.lessThan (Angle.degrees 5) then
+                                            direction
+
+                                        else
+                                            Direction2d.rotateBy
+                                                (Angle.degrees (5 * Quantity.sign angleDifference))
+                                                player.rotation
+
+                                    Nothing ->
+                                        player.rotation
+
+                            Nothing ->
+                                case player.clickStart of
+                                    Just clickStart ->
+                                        case Direction2d.from player.position clickStart.position of
+                                            Just direction ->
+                                                let
+                                                    angleDifference : Angle
+                                                    angleDifference =
+                                                        Direction2d.angleFrom player.rotation direction
+                                                in
+                                                if Quantity.abs angleDifference |> Quantity.lessThan (Angle.degrees 5) then
+                                                    direction
+
+                                                else
+                                                    Direction2d.rotateBy
+                                                        (Angle.degrees (5 * Quantity.sign angleDifference))
+                                                        player.rotation
+
+                                            Nothing ->
+                                                player.rotation
+
+                                    Nothing ->
+                                        player.rotation
+                    , lastEmote =
+                        case input.emote of
+                            Just emote ->
+                                Just { time = frameId, emote = emote }
+
+                            Nothing ->
+                                player.lastEmote
+                    , clickStart =
+                        case player.isDead of
+                            Just _ ->
+                                Nothing
+
+                            Nothing ->
+                                case input.action of
+                                    ClickStart point ->
+                                        Just { position = point, time = frameId }
+
+                                    ClickRelease _ ->
+                                        Nothing
+
+                                    NoAction ->
+                                        case player.clickStart of
+                                            Just clickStart ->
+                                                if
+                                                    frameTimeElapsed clickStart.time frameId
+                                                        |> Quantity.greaterThanOrEqualTo clickTotalDelay
+                                                then
+                                                    Nothing
+
+                                                else
+                                                    player.clickStart
+
+                                            Nothing ->
+                                                player.clickStart
+                    , isDead =
+                        case hitBySnowball of
+                            Just snowball ->
+                                case SeqDict.get snowball.thrownBy model.players of
+                                    Just thrower ->
+                                        if thrower.team == player.team then
+                                            player.isDead
+
+                                        else
+                                            { time = frameId
+                                            , fallDirection =
+                                                vector3To2 snowball.velocity
+                                                    |> Vector2d.direction
+                                                    |> Maybe.withDefault Direction2d.x
+                                            }
+                                                |> Just
+
+                                    Nothing ->
+                                        player.isDead
+
+                            Nothing ->
+                                player.isDead
+                    , lastStep = lastStep
+                }
+                model.players
+    in
+    { model
+        | players = players
+        , snowballs =
+            case ( player.clickStart, input.action ) of
+                ( Just clickStart, ClickRelease point ) ->
+                    let
+                        elapsed : Duration
+                        elapsed =
+                            frameTimeElapsed clickStart.time frameId
+                    in
+                    if
+                        (elapsed |> Quantity.greaterThanOrEqualTo clickMoveMaxDelay)
+                            && (elapsed |> Quantity.lessThan clickTotalDelay)
+                    then
+                        let
+                            direction : Direction2d WorldCoordinate
+                            direction =
+                                Direction2d.from player.position clickStart.position
+                                    |> Maybe.withDefault Direction2d.x
+
+                            { x, y } =
+                                Point2d.toMeters player.position
+                        in
+                        { thrownBy = userId
+                        , thrownAt = frameId
+                        , velocity = throwVelocity direction (throwDistance elapsed)
+                        , position = Point3d.meters x y (Length.inMeters snowballStartHeight)
+                        }
+                            :: snowballs
+
+                    else
+                        snowballs
+
+                _ ->
+                    snowballs
+        , particles =
+            case hitBySnowball of
+                Just snowball ->
+                    snowballParticles frameId snowball.thrownAt snowball.position ++ model.particles
+
+                Nothing ->
+                    model.particles
+        , footsteps = footsteps
+        , mergedFootsteps = mergedFootsteps
+        , roundEndTime =
+            case hitBySnowball of
+                Just _ ->
+                    checkWinningTeam frameId players
+
+                Nothing ->
+                    model.roundEndTime
+    }
+
+
 gameUpdate : Id FrameId -> List TimelineEvent -> MatchState -> MatchState
 gameUpdate frameId inputs model =
     let
@@ -2019,258 +2312,7 @@ gameUpdate frameId inputs model =
 
         model3 : MatchState
         model3 =
-            SeqDict.foldl
-                (\userId player model2 ->
-                    let
-                        input : Input
-                        input =
-                            if Id.toInt userId < 0 then
-                                getBotInput frameId model2 userId player
-
-                            else
-                                SeqDict.get userId inputs2 |> Maybe.withDefault noInput
-
-                        ( hitBySnowball, snowballs ) =
-                            List.foldl
-                                (\snowball ( hitSnowball, snowballs2 ) ->
-                                    if hitSnowball == Nothing && snowballPlayerCollision snowball userId player then
-                                        ( Just snowball, snowballs2 )
-
-                                    else
-                                        ( hitSnowball, snowball :: snowballs2 )
-                                )
-                                ( Nothing, [] )
-                                model2.snowballs
-                                |> Tuple.mapSecond List.reverse
-
-                        ( lastStep, footsteps, mergedFootsteps ) =
-                            if
-                                Point2d.distanceFrom player.lastStep.position player.position
-                                    |> Quantity.greaterThan (Length.meters 0.6)
-                            then
-                                let
-                                    newFootstep : List ( Vertex, Vertex, Vertex )
-                                    newFootstep =
-                                        footstepMesh player.position player.rotation player.lastStep.stepCount
-
-                                    merge =
-                                        List.length model2.footsteps > 20
-                                in
-                                ( { position = player.position
-                                  , time = frameId
-                                  , stepCount = player.lastStep.stepCount + 1
-                                  }
-                                , if merge then
-                                    []
-
-                                  else
-                                    { position = player.position
-                                    , rotation = player.rotation
-                                    , stepCount = player.lastStep.stepCount
-                                    , mesh = WebGL.triangles newFootstep
-                                    }
-                                        :: model2.footsteps
-                                , if merge then
-                                    WebGL.triangles
-                                        (newFootstep
-                                            ++ List.concatMap
-                                                (\footstep ->
-                                                    footstepMesh footstep.position footstep.rotation footstep.stepCount
-                                                )
-                                                model2.footsteps
-                                        )
-                                        :: model2.mergedFootsteps
-                                        |> List.take 100
-
-                                  else
-                                    model2.mergedFootsteps
-                                )
-
-                            else
-                                ( player.lastStep, model2.footsteps, model2.mergedFootsteps )
-                    in
-                    { model2
-                        | players =
-                            SeqDict.insert userId
-                                { player
-                                    | targetPosition =
-                                        case player.isDead of
-                                            Just _ ->
-                                                Nothing
-
-                                            Nothing ->
-                                                case ( player.clickStart, input.action ) of
-                                                    ( Just clickStart, ClickRelease point ) ->
-                                                        if
-                                                            frameTimeElapsed clickStart.time frameId
-                                                                |> Quantity.lessThan clickMoveMaxDelay
-                                                        then
-                                                            Just point
-
-                                                        else
-                                                            player.targetPosition
-
-                                                    ( Just clickStart, _ ) ->
-                                                        if
-                                                            frameTimeElapsed clickStart.time frameId
-                                                                |> Quantity.greaterThanOrEqualTo clickMoveMaxDelay
-                                                        then
-                                                            Nothing
-
-                                                        else
-                                                            player.targetPosition
-
-                                                    _ ->
-                                                        player.targetPosition
-                                    , rotation =
-                                        case player.targetPosition of
-                                            Just targetPosition ->
-                                                case Direction2d.from player.position targetPosition of
-                                                    Just direction ->
-                                                        let
-                                                            angleDifference : Angle
-                                                            angleDifference =
-                                                                Direction2d.angleFrom player.rotation direction
-                                                        in
-                                                        if Quantity.abs angleDifference |> Quantity.lessThan (Angle.degrees 5) then
-                                                            direction
-
-                                                        else
-                                                            Direction2d.rotateBy
-                                                                (Angle.degrees (5 * Quantity.sign angleDifference))
-                                                                player.rotation
-
-                                                    Nothing ->
-                                                        player.rotation
-
-                                            Nothing ->
-                                                case player.clickStart of
-                                                    Just clickStart ->
-                                                        case Direction2d.from player.position clickStart.position of
-                                                            Just direction ->
-                                                                let
-                                                                    angleDifference : Angle
-                                                                    angleDifference =
-                                                                        Direction2d.angleFrom player.rotation direction
-                                                                in
-                                                                if Quantity.abs angleDifference |> Quantity.lessThan (Angle.degrees 5) then
-                                                                    direction
-
-                                                                else
-                                                                    Direction2d.rotateBy
-                                                                        (Angle.degrees (5 * Quantity.sign angleDifference))
-                                                                        player.rotation
-
-                                                            Nothing ->
-                                                                player.rotation
-
-                                                    Nothing ->
-                                                        player.rotation
-                                    , lastEmote =
-                                        case input.emote of
-                                            Just emote ->
-                                                Just { time = frameId, emote = emote }
-
-                                            Nothing ->
-                                                player.lastEmote
-                                    , clickStart =
-                                        case player.isDead of
-                                            Just _ ->
-                                                Nothing
-
-                                            Nothing ->
-                                                case input.action of
-                                                    ClickStart point ->
-                                                        Just { position = point, time = frameId }
-
-                                                    ClickRelease _ ->
-                                                        Nothing
-
-                                                    NoAction ->
-                                                        case player.clickStart of
-                                                            Just clickStart ->
-                                                                if
-                                                                    frameTimeElapsed clickStart.time frameId
-                                                                        |> Quantity.greaterThanOrEqualTo clickTotalDelay
-                                                                then
-                                                                    Nothing
-
-                                                                else
-                                                                    player.clickStart
-
-                                                            Nothing ->
-                                                                player.clickStart
-                                    , isDead =
-                                        case hitBySnowball of
-                                            Just snowball ->
-                                                case SeqDict.get snowball.thrownBy model2.players of
-                                                    Just thrower ->
-                                                        if thrower.team == player.team then
-                                                            player.isDead
-
-                                                        else
-                                                            { time = frameId
-                                                            , fallDirection =
-                                                                vector3To2 snowball.velocity
-                                                                    |> Vector2d.direction
-                                                                    |> Maybe.withDefault Direction2d.x
-                                                            }
-                                                                |> Just
-
-                                                    Nothing ->
-                                                        player.isDead
-
-                                            Nothing ->
-                                                player.isDead
-                                    , lastStep = lastStep
-                                }
-                                model2.players
-                        , snowballs =
-                            case ( player.clickStart, input.action ) of
-                                ( Just clickStart, ClickRelease point ) ->
-                                    let
-                                        elapsed : Duration
-                                        elapsed =
-                                            frameTimeElapsed clickStart.time frameId
-                                    in
-                                    if
-                                        (elapsed |> Quantity.greaterThanOrEqualTo clickMoveMaxDelay)
-                                            && (elapsed |> Quantity.lessThan clickTotalDelay)
-                                    then
-                                        let
-                                            direction : Direction2d WorldCoordinate
-                                            direction =
-                                                Direction2d.from player.position clickStart.position
-                                                    |> Maybe.withDefault Direction2d.x
-
-                                            { x, y } =
-                                                Point2d.toMeters player.position
-                                        in
-                                        { thrownBy = userId
-                                        , thrownAt = frameId
-                                        , velocity = throwVelocity direction (throwDistance elapsed)
-                                        , position = Point3d.meters x y (Length.inMeters snowballStartHeight)
-                                        }
-                                            :: snowballs
-
-                                    else
-                                        snowballs
-
-                                _ ->
-                                    snowballs
-                        , particles =
-                            case hitBySnowball of
-                                Just snowball ->
-                                    snowballParticles frameId snowball.thrownAt snowball.position ++ model2.particles
-
-                                Nothing ->
-                                    model2.particles
-                        , footsteps = footsteps
-                        , mergedFootsteps = mergedFootsteps
-                    }
-                )
-                model
-                model.players
+            SeqDict.foldl (updatePlayer inputs2 frameId) model model.players
 
         updatedVelocities_ : SeqDict (Id UserId) Player
         updatedVelocities_ =
@@ -2303,150 +2345,54 @@ gameUpdate frameId inputs model =
                 ( [], [] )
                 model3.snowballs
     in
-    let
-        updatedPlayers =
-            SeqDict.map
-                (\id player ->
-                    SeqDict.remove id updatedVelocities_
-                        |> SeqDict.values
-                        |> List.foldl (\a b -> handleCollision frameId b a |> Tuple.first) player
-                )
-                updatedVelocities_
-
-        -- Check if only one team remains alive
-        alivePlayers =
-            SeqDict.values updatedPlayers
-                |> List.filter (\player -> player.isDead == Nothing)
-
-        aliveRedTeam =
-            List.filter (\player -> player.team == RedTeam) alivePlayers
-
-        aliveBlueTeam =
-            List.filter (\player -> player.team == BlueTeam) alivePlayers
-
-        -- Determine if a team has won this round
-        maybeWinningTeam =
-            case ( aliveRedTeam, aliveBlueTeam ) of
-                ( [], _ :: _ ) ->
-                    Just BlueTeam
-
-                ( _ :: _, [] ) ->
-                    Just RedTeam
-
-                _ ->
-                    Nothing
-
-        -- Set roundEndTime if a team just won
-        newRoundEndTime =
-            case model3.roundEndTime of
-                Just _ ->
-                    model3.roundEndTime
-
-                Nothing ->
-                    case maybeWinningTeam of
-                        Just team ->
-                            Just { winningTeam = team, time = frameId }
-
-                        Nothing ->
-                            Nothing
-
-        -- Check if 5 seconds have passed since round ended
-        roundResetDuration =
-            Duration.seconds 5
-
-        shouldResetRound =
-            case newRoundEndTime of
-                Just endTime ->
-                    frameTimeElapsed endTime.time frameId |> Quantity.greaterThanOrEqualTo roundResetDuration
-
-                Nothing ->
-                    False
-
-        -- Update score and reset players if round should reset
-        roundResult =
-            if shouldResetRound then
-                case newRoundEndTime of
-                    Just endTime ->
-                        let
-                            newScore =
-                                case endTime.winningTeam of
-                                    RedTeam ->
-                                        { redTeam = model3.score.redTeam + 1, blueTeam = model3.score.blueTeam }
-
-                                    BlueTeam ->
-                                        { redTeam = model3.score.redTeam, blueTeam = model3.score.blueTeam + 1 }
-
-                            -- Reset all players to alive and back to spawn positions
-                            resetPlayers =
-                                SeqDict.map
-                                    (\_ player ->
-                                        let
-                                            spawnPos =
-                                                case player.team of
-                                                    RedTeam ->
-                                                        Point2d.meters -12 -10
-
-                                                    BlueTeam ->
-                                                        Point2d.meters 12 10
-
-                                            facingDirection =
-                                                case player.team of
-                                                    RedTeam ->
-                                                        Direction2d.fromAngle (Angle.degrees 45)
-
-                                                    BlueTeam ->
-                                                        Direction2d.fromAngle (Angle.degrees 225)
-                                        in
-                                        { player
-                                            | isDead = Nothing
-                                            , position = spawnPos
-                                            , targetPosition = Nothing
-                                            , velocity = Vector2d.zero
-                                            , rotation = facingDirection
-                                            , clickStart = Nothing
-                                            , lastStep = { position = spawnPos, time = frameId, stepCount = 0 }
-                                        }
-                                    )
-                                    updatedPlayers
-                        in
-                        { players = resetPlayers
-                        , score = newScore
-                        , roundEndTime = Nothing
-                        , snowballs = []
-                        , footsteps = []
-                        , mergedFootsteps = []
-                        }
-
-                    Nothing ->
-                        { players = updatedPlayers
-                        , score = model3.score
-                        , roundEndTime = newRoundEndTime
-                        , snowballs = List.reverse survivingSnowballs
-                        , footsteps = model3.footsteps
-                        , mergedFootsteps = model3.mergedFootsteps
-                        }
-
-            else
-                { players = updatedPlayers
-                , score = model3.score
-                , roundEndTime = newRoundEndTime
-                , snowballs = List.reverse survivingSnowballs
-                , footsteps = model3.footsteps
-                , mergedFootsteps = model3.mergedFootsteps
-                }
-    in
-    { players = roundResult.players
-    , snowballs = roundResult.snowballs
+    { players =
+        SeqDict.map
+            (\id player ->
+                SeqDict.remove id updatedVelocities_
+                    |> SeqDict.values
+                    |> List.foldl (\a b -> handleCollision frameId b a |> Tuple.first) player
+            )
+            updatedVelocities_
+    , snowballs = List.reverse survivingSnowballs
     , particles =
         List.filter
             (\particle -> frameTimeElapsed particle.spawnedAt frameId |> Quantity.lessThan particle.lifetime)
             model3.particles
             ++ newParticles
-    , footsteps = roundResult.footsteps
-    , mergedFootsteps = roundResult.mergedFootsteps
-    , score = roundResult.score
-    , roundEndTime = roundResult.roundEndTime
+    , footsteps = model3.footsteps
+    , mergedFootsteps = model3.mergedFootsteps
+    , score = model3.score
+    , roundEndTime = model3.roundEndTime
     }
+
+
+roundResetDuration : Duration
+roundResetDuration =
+    Duration.seconds 5
+
+
+checkWinningTeam : Id FrameId -> SeqDict (Id UserId) Player -> Maybe { winner : Winner, time : Id FrameId }
+checkWinningTeam frameId players =
+    let
+        alivePlayers =
+            SeqDict.values players |> List.filter (\player -> player.isDead == Nothing)
+    in
+    case
+        ( List.any (\player -> player.team == RedTeam) alivePlayers
+        , List.any (\player -> player.team == BlueTeam) alivePlayers
+        )
+    of
+        ( True, True ) ->
+            Nothing
+
+        ( True, False ) ->
+            Just { winner = RedWon, time = frameId }
+
+        ( False, True ) ->
+            Just { winner = BlueWon, time = frameId }
+
+        ( False, False ) ->
+            Just { winner = BothLost, time = frameId }
 
 
 vector3To2 : Vector3d u c -> Vector2d u c
@@ -3621,43 +3567,6 @@ desyncWarning maybeDesyncFrame =
 
         Nothing ->
             Ui.none
-
-
-scoreDisplay : MatchState -> Ui.Element msg
-scoreDisplay matchState =
-    Ui.row
-        [ Ui.width Ui.shrink
-        , Ui.alignTop
-        , Ui.centerX
-        , Ui.padding 12
-        , Ui.spacing 16
-        , Ui.background (Ui.rgba 0 0 0 0.7)
-        , Ui.rounded 8
-        , Ui.move { x = 0, y = 8, z = 0 }
-        , noPointerEvents
-        ]
-        [ Ui.el
-            [ Ui.width Ui.shrink
-            , Ui.Font.size 24
-            , Ui.Font.bold
-            , Ui.Font.color (Ui.rgb 255 100 100)
-            ]
-            (Ui.text ("Red: " ++ String.fromInt matchState.score.redTeam))
-        , Ui.el
-            [ Ui.width Ui.shrink
-            , Ui.Font.size 24
-            , Ui.Font.bold
-            , Ui.Font.color (Ui.rgb 255 255 255)
-            ]
-            (Ui.text "-")
-        , Ui.el
-            [ Ui.width Ui.shrink
-            , Ui.Font.size 24
-            , Ui.Font.bold
-            , Ui.Font.color (Ui.rgb 100 150 255)
-            ]
-            (Ui.text ("Blue: " ++ String.fromInt matchState.score.blueTeam))
-        ]
 
 
 timestamp_ : Duration -> String
