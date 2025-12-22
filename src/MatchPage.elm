@@ -2296,7 +2296,7 @@ updatePlayer inputs2 frameId userId player model =
         , roundEndTime =
             case hitBySnowball of
                 Just _ ->
-                    checkWinningTeam frameId players
+                    checkWinningTeam frameId players model.roundEndTime
 
                 Nothing ->
                     model.roundEndTime
@@ -2371,28 +2371,47 @@ roundResetDuration =
     Duration.seconds 5
 
 
-checkWinningTeam : Id FrameId -> SeqDict (Id UserId) Player -> Maybe { winner : Winner, time : Id FrameId }
-checkWinningTeam frameId players =
+checkWinningTeam :
+    Id FrameId
+    -> SeqDict (Id UserId) Player
+    -> Maybe { winner : Winner, time : Id FrameId }
+    -> Maybe { winner : Winner, time : Id FrameId }
+checkWinningTeam frameId players existingWinner =
     let
         alivePlayers =
             SeqDict.values players |> List.filter (\player -> player.isDead == Nothing)
+
+        maybeWinner =
+            case
+                ( List.any (\player -> player.team == RedTeam) alivePlayers
+                , List.any (\player -> player.team == BlueTeam) alivePlayers
+                )
+            of
+                ( True, True ) ->
+                    Nothing
+
+                ( True, False ) ->
+                    Just RedWon
+
+                ( False, True ) ->
+                    Just BlueWon
+
+                ( False, False ) ->
+                    Just BothLost
     in
-    case
-        ( List.any (\player -> player.team == RedTeam) alivePlayers
-        , List.any (\player -> player.team == BlueTeam) alivePlayers
-        )
-    of
-        ( True, True ) ->
-            Nothing
+    case ( maybeWinner, existingWinner ) of
+        ( Just winner, Just existingWinner2 ) ->
+            if winner == existingWinner2.winner then
+                existingWinner
 
-        ( True, False ) ->
-            Just { winner = RedWon, time = frameId }
+            else
+                Just { winner = winner, time = frameId }
 
-        ( False, True ) ->
-            Just { winner = BlueWon, time = frameId }
+        ( Just winner, Nothing ) ->
+            Just { winner = winner, time = frameId }
 
-        ( False, False ) ->
-            Just { winner = BothLost, time = frameId }
+        ( Nothing, _ ) ->
+            existingWinner
 
 
 vector3To2 : Vector3d u c -> Vector2d u c
