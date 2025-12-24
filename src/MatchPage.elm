@@ -34,7 +34,6 @@ import Axis3d
 import Camera3d exposing (Camera3d)
 import ColorIndex exposing (ColorIndex(..))
 import Decal exposing (Decal)
-import SkinTone exposing (SkinTone)
 import Dict exposing (Dict)
 import Direction2d exposing (Direction2d)
 import Direction3d
@@ -84,6 +83,7 @@ import SeqDict exposing (SeqDict)
 import SeqSet exposing (SeqSet)
 import Shape exposing (RenderableShape)
 import Size exposing (Size)
+import SkinTone exposing (SkinTone)
 import Sounds exposing (Sounds)
 import Speed exposing (MetersPerSecond)
 import TextMessage exposing (TextMessage)
@@ -1371,21 +1371,21 @@ canvasViewHelper model matchSetup canvasSize =
                                                 (Quantity.toFloatQuantity canvasSize.height)
                                         }
                             in
-                            drawCountdown frameId viewMatrix
+                            WebGL.entityWith
+                                [ WebGL.Settings.cullFace WebGL.Settings.back ]
+                                vertexShader
+                                fragmentShader
+                                mapFillMesh
+                                { ucolor = Vec3.vec3 1 1 1
+                                , view = viewMatrix
+                                , model = Mat4.identity
+                                }
+                                :: drawCountdown frameId viewMatrix
                                 ++ [ WebGL.entityWith
                                         [ WebGL.Settings.cullFace WebGL.Settings.back ]
                                         vertexShader
                                         fragmentShader
                                         matchData.wallMesh
-                                        { ucolor = Vec3.vec3 1 1 1
-                                        , view = viewMatrix
-                                        , model = Mat4.identity
-                                        }
-                                   , WebGL.entityWith
-                                        [ WebGL.Settings.cullFace WebGL.Settings.back ]
-                                        vertexShader
-                                        fragmentShader
-                                        mapFillMesh
                                         { ucolor = Vec3.vec3 1 1 1
                                         , view = viewMatrix
                                         , model = Mat4.identity
