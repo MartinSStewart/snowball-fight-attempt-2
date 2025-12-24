@@ -180,7 +180,7 @@ type ScreenCoordinate
 
 type alias MatchActiveLocal_ =
     { timelineCache : Result Timeline.Error (TimelineCache MatchState)
-    , userIds : SeqDict (Id UserId) { mesh : Mesh Vertex, skinTone : SkinTone }
+    , userIds : SeqDict (Id UserId) { skinTone : SkinTone }
     , wallMesh : Mesh Vertex
     , touchPosition : Maybe (Point2d Pixels ScreenCoordinate)
     , previousTouchPosition : Maybe (Point2d Pixels ScreenCoordinate)
@@ -1681,7 +1681,7 @@ matMul a b =
 drawPlayer : Id FrameId -> Id UserId -> MatchActiveLocal_ -> Mat4 -> Player -> List WebGL.Entity
 drawPlayer frameId userId matchData viewMatrix player =
     case SeqDict.get userId matchData.userIds of
-        Just { mesh, skinTone } ->
+        Just { skinTone } ->
             let
                 rotation : Float
                 rotation =
@@ -3012,25 +3012,6 @@ squareMesh =
         ]
 
 
-playerMesh : PlayerData -> WebGL.Mesh Vertex
-playerMesh playerData =
-    let
-        primaryColor : Vec3
-        primaryColor =
-            ColorIndex.toVec3 playerData.primaryColor
-    in
-    circleMesh 1 (Vec3.vec3 0 0 0)
-        ++ circleMesh 0.95 primaryColor
-        ++ (case playerData.decal of
-                Just decal ->
-                    Decal.triangles playerData.secondaryColor decal
-
-                Nothing ->
-                    []
-           )
-        |> WebGL.triangles
-
-
 circleMesh : Float -> Vec3 -> List ( Vertex, Vertex, Vertex )
 circleMesh size color =
     let
@@ -3280,7 +3261,7 @@ initMatchData serverTime newUserIds maybeTimelineCache =
                 (\( id, playerData ) ->
                     case playerData.mode of
                         PlayerMode ->
-                            Just ( id, { mesh = playerMesh playerData, skinTone = playerData.skinTone } )
+                            Just ( id, { skinTone = playerData.skinTone } )
 
                         SpectatorMode ->
                             Nothing
