@@ -34,6 +34,7 @@ import Axis3d
 import Camera3d exposing (Camera3d)
 import ColorIndex exposing (ColorIndex(..))
 import Decal exposing (Decal)
+import SkinTone exposing (SkinTone)
 import Dict exposing (Dict)
 import Direction2d exposing (Direction2d)
 import Direction3d
@@ -108,6 +109,7 @@ type Msg
     | PressedPrimaryColor ColorIndex
     | PressedSecondaryColor ColorIndex
     | PressedDecal (Maybe Decal)
+    | PressedSkinTone SkinTone
     | TypedMatchName String
     | PressedPlayerMode PlayerMode
     | PressedSaveMatchName MatchName
@@ -178,7 +180,7 @@ type ScreenCoordinate
 
 type alias MatchActiveLocal_ =
     { timelineCache : Result Timeline.Error (TimelineCache MatchState)
-    , userIds : SeqDict (Id UserId) (Mesh Vertex)
+    , userIds : SeqDict (Id UserId) { mesh : Mesh Vertex, skinTone : SkinTone }
     , wallMesh : Mesh Vertex
     , touchPosition : Maybe (Point2d Pixels ScreenCoordinate)
     , previousTouchPosition : Maybe (Point2d Pixels ScreenCoordinate)
@@ -219,6 +221,9 @@ update config msg model =
 
         PressedDecal decal ->
             matchSetupUpdate config.userId (Match.SetDecal decal) model
+
+        PressedSkinTone skinTone ->
+            matchSetupUpdate config.userId (Match.SetSkinTone skinTone) model
 
         PressedPlayerMode mode ->
             matchSetupUpdate config.userId (Match.SetPlayerMode mode) model
@@ -868,6 +873,11 @@ matchSetupView config lobby matchSetupData currentPlayerData =
                     [ Ui.width Ui.shrink, Ui.spacing 4, Ui.Font.size 16, Ui.Font.bold ]
                     [ Ui.text "Secondary color"
                     , colorSelector PressedSecondaryColor currentPlayerData.secondaryColor
+                    ]
+                , Ui.column
+                    [ Ui.width Ui.shrink, Ui.spacing 4, Ui.Font.size 16, Ui.Font.bold ]
+                    [ Ui.text "Skin tone"
+                    , skinToneSelector PressedSkinTone currentPlayerData.skinTone
                     ]
                 , Ui.column
                     [ Ui.spacing 4 ]
@@ -1671,7 +1681,7 @@ matMul a b =
 drawPlayer : Id FrameId -> Id UserId -> MatchActiveLocal_ -> Mat4 -> Player -> List WebGL.Entity
 drawPlayer frameId userId matchData viewMatrix player =
     case SeqDict.get userId matchData.userIds of
-        Just mesh ->
+        Just { mesh, skinTone } ->
             let
                 rotation : Float
                 rotation =
@@ -1726,7 +1736,7 @@ drawPlayer frameId userId matchData viewMatrix player =
                 vertexShader
                 fragmentShader
                 playerHead
-                { ucolor = Vec3.vec3 1 0.8 0.5
+                { ucolor = SkinTone.toVec3 skinTone
                 , view = viewMatrix
                 , model = point2ToMatrix player.position |> matMul modelMatrix
                 }
@@ -3270,7 +3280,7 @@ initMatchData serverTime newUserIds maybeTimelineCache =
                 (\( id, playerData ) ->
                     case playerData.mode of
                         PlayerMode ->
-                            Just ( id, playerMesh playerData )
+                            Just ( id, { mesh = playerMesh playerData, skinTone = playerData.skinTone } )
 
                         SpectatorMode ->
                             Nothing
@@ -3670,6 +3680,57 @@ colorSelectorHtmlId colorIndex =
 
                 Yellow ->
                     "Yellow"
+           )
+        |> Dom.id
+
+
+skinToneSelector : (SkinTone -> msg) -> SkinTone -> Ui.Element msg
+skinToneSelector onSelect currentSkinTone =
+    List.Nonempty.toList SkinTone.allSkinTones
+        |> List.map
+            (\skinTone ->
+                MyUi.button
+                    (skinToneSelectorHtmlId currentSkinTone)
+                    [ Ui.width (Ui.px 36)
+                    , Ui.height (Ui.px 36)
+                    , Ui.border
+                        (if currentSkinTone == skinTone then
+                            3
+
+                         else
+                            0
+                        )
+                    , Ui.borderColor (Ui.rgb 255 255 255)
+                    , SkinTone.toElColor skinTone |> Ui.background
+                    ]
+                    { onPress = onSelect skinTone
+                    , label = Ui.none
+                    }
+            )
+        |> Ui.row [ Ui.width Ui.shrink, Ui.wrap ]
+
+
+skinToneSelectorHtmlId : SkinTone -> HtmlId
+skinToneSelectorHtmlId skinTone =
+    "matchPageSkinToneSelector_"
+        ++ (case skinTone of
+                SkinTone.Light ->
+                    "Light"
+
+                SkinTone.Fair ->
+                    "Fair"
+
+                SkinTone.Medium ->
+                    "Medium"
+
+                SkinTone.Tan ->
+                    "Tan"
+
+                SkinTone.Brown ->
+                    "Brown"
+
+                SkinTone.Dark ->
+                    "Dark"
            )
         |> Dom.id
 
