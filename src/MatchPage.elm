@@ -32,6 +32,7 @@ import Audio exposing (Audio)
 import Axis2d
 import Axis3d
 import Camera3d exposing (Camera3d)
+import Character
 import ColorIndex exposing (ColorIndex(..))
 import Decal exposing (Decal)
 import Dict exposing (Dict)
@@ -110,6 +111,7 @@ type Msg
     | PressedSecondaryColor ColorIndex
     | PressedDecal (Maybe Decal)
     | PressedSkinTone SkinTone
+    | PressedCharacter Character.Character
     | TypedMatchName String
     | PressedPlayerMode PlayerMode
     | PressedSaveMatchName MatchName
@@ -224,6 +226,9 @@ update config msg model =
 
         PressedSkinTone skinTone ->
             matchSetupUpdate config.userId (Match.SetSkinTone skinTone) model
+
+        PressedCharacter character ->
+            matchSetupUpdate config.userId (Match.SetCharacter character) model
 
         PressedPlayerMode mode ->
             matchSetupUpdate config.userId (Match.SetPlayerMode mode) model
@@ -911,6 +916,36 @@ matchSetupView config lobby matchSetupData currentPlayerData =
                             )
                         |> Ui.row [ Ui.spacing 8 ]
                     ]
+                , Ui.column
+                    [ Ui.spacing 4 ]
+                    [ Ui.el [ Ui.width Ui.shrink, Ui.Font.size 16, Ui.Font.bold ] (Ui.text "Character")
+                    , Character.all
+                        |> List.map
+                            (\character ->
+                                MyUi.button
+                                    (characterHtmlId character)
+                                    [ Ui.paddingXY 8 8
+                                    , Ui.background
+                                        (if character == currentPlayerData.character then
+                                            Ui.rgb 153 179 255
+
+                                         else
+                                            Ui.rgb 204 204 204
+                                        )
+                                    ]
+                                    { onPress = PressedCharacter character
+                                    , label =
+                                        Ui.image
+                                            [ Ui.width (Ui.px 100)
+                                            , Ui.height (Ui.px 100)
+                                            ]
+                                            { src = Character.toPortraitPath character
+                                            , description = Character.toString character
+                                            }
+                                    }
+                            )
+                        |> Ui.wrappedRow [ Ui.spacing 8 ]
+                    ]
                 ]
             ]
         , Ui.column
@@ -986,6 +1021,11 @@ decalHtmlId maybeDecal =
                     "noDecal"
            )
         |> Dom.id
+
+
+characterHtmlId : Character.Character -> HtmlId
+characterHtmlId character =
+    "selectCharacter_" ++ Character.toString character |> Dom.id
 
 
 textChat : MatchSetupLocal_ -> Match -> Ui.Element Msg

@@ -44,6 +44,7 @@ module Match exposing
     )
 
 import Angle exposing (Angle)
+import Character exposing (Character)
 import ColorIndex exposing (ColorIndex(..))
 import Decal exposing (Decal)
 import SkinTone exposing (SkinTone)
@@ -170,7 +171,13 @@ type WorldCoordinate
 
 
 type alias PlayerData =
-    { primaryColor : ColorIndex, secondaryColor : ColorIndex, decal : Maybe Decal, skinTone : SkinTone, mode : PlayerMode }
+    { primaryColor : ColorIndex
+    , secondaryColor : ColorIndex
+    , decal : Maybe Decal
+    , mode : PlayerMode
+    , skinTone : SkinTone
+    , character : Character
+    }
 
 
 type alias MatchActive =
@@ -202,6 +209,7 @@ type Msg
     | SetDecal (Maybe Decal)
     | SetSkinTone SkinTone
     | SetPlayerMode PlayerMode
+    | SetCharacter Character
     | StartMatch ServerTime
     | MatchInputRequest ServerTime Input
     | SetMatchName MatchName
@@ -279,13 +287,14 @@ initPlayerData : Id UserId -> PlayerData
 initPlayerData userId =
     let
         randomData =
-            Random.map3
-                (\( primary, secondary ) decal skinTone ->
+            Random.map4
+                (\( primary, secondary ) decal skinTone character ->
                     { primaryColor = primary
                     , secondaryColor = secondary
                     , decal = Just decal
                     , skinTone = skinTone
                     , mode = PlayerMode
+                    , character = character
                     }
                 )
                 (List.Nonempty.sample ColorIndex.allColors
@@ -303,6 +312,13 @@ initPlayerData userId =
                 )
                 (List.Nonempty.sample Decal.allDecals)
                 (List.Nonempty.sample SkinTone.allSkinTones)
+                (case Character.all of
+                    head :: rest ->
+                        Random.uniform head rest
+
+                    [] ->
+                        Random.constant Character.Character1
+                )
     in
     Random.step randomData (Random.initialSeed (Id.toInt userId + 3)) |> Tuple.first
 
@@ -396,6 +412,7 @@ allUsersAndBots (Match lobby) =
                           , decal = Nothing
                           , skinTone = SkinTone.Medium
                           , mode = PlayerMode
+                          , character = Character.Character1
                           }
                         )
                     )
@@ -436,6 +453,9 @@ matchSetupUpdate { userId, msg } match =
 
         SetPlayerMode mode ->
             updatePlayerData userId (\a -> { a | mode = mode }) match
+
+        SetCharacter character ->
+            updatePlayerData userId (\a -> { a | character = character }) match
 
         StartMatch time ->
             startMatch time userId match
