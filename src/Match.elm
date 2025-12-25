@@ -44,6 +44,7 @@ module Match exposing
     )
 
 import Angle exposing (Angle)
+import Character exposing (Character)
 import ColorIndex exposing (ColorIndex(..))
 import Decal exposing (Decal)
 import Direction2d exposing (Direction2d)
@@ -169,7 +170,12 @@ type WorldCoordinate
 
 
 type alias PlayerData =
-    { primaryColor : ColorIndex, secondaryColor : ColorIndex, decal : Maybe Decal, mode : PlayerMode }
+    { primaryColor : ColorIndex
+    , secondaryColor : ColorIndex
+    , decal : Maybe Decal
+    , mode : PlayerMode
+    , character : Character
+    }
 
 
 type alias MatchActive =
@@ -200,6 +206,7 @@ type Msg
     | SetSecondaryColor ColorIndex
     | SetDecal (Maybe Decal)
     | SetPlayerMode PlayerMode
+    | SetCharacter Character
     | StartMatch ServerTime
     | MatchInputRequest ServerTime Input
     | SetMatchName MatchName
@@ -277,12 +284,13 @@ initPlayerData : Id UserId -> PlayerData
 initPlayerData userId =
     let
         randomData =
-            Random.map2
-                (\( primary, secondary ) decal ->
+            Random.map3
+                (\( primary, secondary ) decal character ->
                     { primaryColor = primary
                     , secondaryColor = secondary
                     , decal = Just decal
                     , mode = PlayerMode
+                    , character = character
                     }
                 )
                 (List.Nonempty.sample ColorIndex.allColors
@@ -299,6 +307,13 @@ initPlayerData userId =
                         )
                 )
                 (List.Nonempty.sample Decal.allDecals)
+                (case Character.all of
+                    head :: rest ->
+                        Random.uniform head rest
+
+                    [] ->
+                        Random.constant Character.Character1
+                )
     in
     Random.step randomData (Random.initialSeed (Id.toInt userId + 3)) |> Tuple.first
 
@@ -391,6 +406,7 @@ allUsersAndBots (Match lobby) =
                           , secondaryColor = Blue
                           , decal = Nothing
                           , mode = PlayerMode
+                          , character = Character.Character1
                           }
                         )
                     )
@@ -428,6 +444,9 @@ matchSetupUpdate { userId, msg } match =
 
         SetPlayerMode mode ->
             updatePlayerData userId (\a -> { a | mode = mode }) match
+
+        SetCharacter character ->
+            updatePlayerData userId (\a -> { a | character = character }) match
 
         StartMatch time ->
             startMatch time userId match
