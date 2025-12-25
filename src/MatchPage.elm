@@ -939,12 +939,13 @@ matchSetupView config lobby matchSetupData currentPlayerData =
                                             [ Ui.width (Ui.px 100)
                                             , Ui.height (Ui.px 100)
                                             ]
-                                            { src = Character.toPortraitPath character
+                                            { source = Character.toPortraitPath character
                                             , description = Character.toString character
+                                            , onLoad = Nothing
                                             }
                                     }
                             )
-                        |> Ui.wrappedRow [ Ui.spacing 8 ]
+                        |> Ui.row [ Ui.spacing 8, Ui.wrap ]
                     ]
                 ]
             ]
