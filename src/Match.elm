@@ -46,6 +46,7 @@ module Match exposing
 import Angle exposing (Angle)
 import ColorIndex exposing (ColorIndex(..))
 import Decal exposing (Decal)
+import SkinTone exposing (SkinTone)
 import Direction2d exposing (Direction2d)
 import Duration exposing (Duration)
 import Effect.WebGL exposing (Mesh)
@@ -169,7 +170,7 @@ type WorldCoordinate
 
 
 type alias PlayerData =
-    { primaryColor : ColorIndex, secondaryColor : ColorIndex, decal : Maybe Decal, mode : PlayerMode }
+    { primaryColor : ColorIndex, secondaryColor : ColorIndex, decal : Maybe Decal, skinTone : SkinTone, mode : PlayerMode }
 
 
 type alias MatchActive =
@@ -199,6 +200,7 @@ type Msg
     | SetPrimaryColor ColorIndex
     | SetSecondaryColor ColorIndex
     | SetDecal (Maybe Decal)
+    | SetSkinTone SkinTone
     | SetPlayerMode PlayerMode
     | StartMatch ServerTime
     | MatchInputRequest ServerTime Input
@@ -277,11 +279,12 @@ initPlayerData : Id UserId -> PlayerData
 initPlayerData userId =
     let
         randomData =
-            Random.map2
-                (\( primary, secondary ) decal ->
+            Random.map3
+                (\( primary, secondary ) decal skinTone ->
                     { primaryColor = primary
                     , secondaryColor = secondary
                     , decal = Just decal
+                    , skinTone = skinTone
                     , mode = PlayerMode
                     }
                 )
@@ -299,6 +302,7 @@ initPlayerData userId =
                         )
                 )
                 (List.Nonempty.sample Decal.allDecals)
+                (List.Nonempty.sample SkinTone.allSkinTones)
     in
     Random.step randomData (Random.initialSeed (Id.toInt userId + 3)) |> Tuple.first
 
@@ -390,6 +394,7 @@ allUsersAndBots (Match lobby) =
                         , { primaryColor = Blue
                           , secondaryColor = Blue
                           , decal = Nothing
+                          , skinTone = SkinTone.Medium
                           , mode = PlayerMode
                           }
                         )
@@ -425,6 +430,9 @@ matchSetupUpdate { userId, msg } match =
 
         SetDecal decal ->
             updatePlayerData userId (\a -> { a | decal = decal }) match
+
+        SetSkinTone skinTone ->
+            updatePlayerData userId (\a -> { a | skinTone = skinTone }) match
 
         SetPlayerMode mode ->
             updatePlayerData userId (\a -> { a | mode = mode }) match
