@@ -1389,7 +1389,7 @@ drawScoreNumber team viewMatrix frameId score roundEndTime =
                             frameTimeElapsed roundEnded.time frameId |> Quantity.minus Duration.second
 
                         t =
-                            Quantity.ratio elapsed Duration.second |> clamp 0 1
+                            Quantity.ratio elapsed (Duration.seconds 0.2) |> clamp 0 1
 
                         t0 =
                             t * 2 |> clamp 0 1
@@ -1404,34 +1404,18 @@ drawScoreNumber team viewMatrix frameId score roundEndTime =
                         , Array.get (score + 1) numbers
                         )
                     of
-                        ( True, _ ) ->
-                            []
+                        ( False, _ ) ->
+                            drawShape 0.004 position viewMatrix number
 
-                        ( False, Just numberPlus1 ) ->
-                            drawShape
-                                ((1 - t0) * 0.004)
-                                position
-                                viewMatrix
-                                number
-                                ++ drawShape
-                                    (0.004 * t1)
-                                    position
-                                    viewMatrix
-                                    numberPlus1
+                        ( True, Just numberPlus1 ) ->
+                            drawShape ((1 - t0) * 0.004) position viewMatrix number
+                                ++ drawShape (0.004 * t1) position viewMatrix numberPlus1
 
-                        ( False, Nothing ) ->
-                            drawShape
-                                0.004
-                                position
-                                viewMatrix
-                                number
+                        ( True, Nothing ) ->
+                            drawShape 0.004 position viewMatrix number
 
                 Nothing ->
-                    drawShape
-                        0.004
-                        position
-                        viewMatrix
-                        number
+                    drawShape 0.004 position viewMatrix number
 
         Nothing ->
             []
@@ -2463,7 +2447,7 @@ gameUpdate frameId inputs model =
                 , snowballs = []
                 , particles = []
                 , footsteps = model2.footsteps
-                , mergedFootsteps = []
+                , mergedFootsteps = model2.mergedFootsteps
                 , score =
                     case roundEnd.winner of
                         BothWon ->
@@ -4071,7 +4055,7 @@ audio loaded matchPage =
                                             let
                                                 volume =
                                                     if loaded.userId == userId then
-                                                        0.5
+                                                        0.3
 
                                                     else
                                                         0.2
@@ -4118,9 +4102,6 @@ audio loaded matchPage =
                                                     [ loaded.sounds.pop
                                                     , loaded.sounds.railToggle
                                                     , loaded.sounds.erase
-                                                    , loaded.sounds.lightSwitch
-
-                                                    --, loaded.sounds.error
                                                     ]
                                                 )
                                                 (Random.initialSeed (Time.posixToMillis (Match.unwrapServerTime match.startTime)))
@@ -4134,6 +4115,18 @@ audio loaded matchPage =
                                                 (frameToTime (Id.fromInt ((index + 1) * Match.framesPerSecond)))
                                         )
                                         (sounds ++ [ loaded.sounds.meow ])
+
+                                pointAdded : List Audio
+                                pointAdded =
+                                    case state.roundEndTime of
+                                        Just roundEnd ->
+                                            [ Audio.audio
+                                                loaded.sounds.lightSwitch
+                                                (Duration.addTo (frameToTime roundEnd.time) (Duration.seconds 1))
+                                            ]
+
+                                        Nothing ->
+                                            []
                             in
                             collisionSounds
                                 ++ chargeSounds
@@ -4141,6 +4134,7 @@ audio loaded matchPage =
                                 ++ deadSounds
                                 ++ throwSounds
                                 ++ countdownSounds
+                                ++ pointAdded
                                 |> Audio.group
 
                         Err _ ->
