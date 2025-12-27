@@ -1212,8 +1212,8 @@ drawOverlays canvasSize vignetteTexture videoTexture =
                 , texture = texture
                 }
     in
-    [ drawOverlay vignetteTexture
-    , drawOverlay videoTexture
+    [ drawOverlay videoTexture
+    , drawOverlay vignetteTexture
     ]
 
 
