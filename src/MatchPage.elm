@@ -2359,11 +2359,41 @@ updatePlayer inputs2 frameId userId player model =
 
                             { x, y } =
                                 Point2d.toMeters player.position
+
+                            distance : Length
+                            distance =
+                                throwDistance elapsed
+
+                            velocity : Vector3d MetersPerSecond WorldCoordinate
+                            velocity =
+                                throwVelocity direction distance
+
+                            apexFrame : Maybe (Id FrameId)
+                            apexFrame =
+                                if distance |> Quantity.greaterThanOrEqualTo (Quantity.multiplyBy 0.5 maxThrowDistance) then
+                                    let
+                                        vZ =
+                                            Vector3d.zComponent velocity |> Speed.inMetersPerSecond
+
+                                        g =
+                                            Acceleration.inMetersPerSecondSquared gravity |> abs
+
+                                        timeToApex =
+                                            vZ / g
+
+                                        framesToApex =
+                                            timeToApex / Duration.inSeconds Match.frameDuration |> round
+                                    in
+                                    Just (Id.fromInt (Id.toInt frameId + framesToApex))
+
+                                else
+                                    Nothing
                         in
                         { thrownBy = userId
                         , thrownAt = frameId
-                        , velocity = throwVelocity direction (throwDistance elapsed)
+                        , velocity = velocity
                         , position = Point3d.meters x y (Length.inMeters snowballStartHeight)
+                        , apexFrame = apexFrame
                         }
                             :: snowballs
 
@@ -2419,6 +2449,7 @@ gameUpdate frameId inputs model =
                           , velocity = Vector3d.plus (Vector3d.for Match.frameDuration gravityVector) snowball.velocity
                           , thrownBy = snowball.thrownBy
                           , thrownAt = snowball.thrownAt
+                          , apexFrame = snowball.apexFrame
                           }
                             :: snowballs2
                         , particles2
@@ -4109,6 +4140,19 @@ audio loaded matchPage =
                                         )
                                         state.snowballs
 
+                                whooshSounds : List Audio
+                                whooshSounds =
+                                    List.filterMap
+                                        (\snowball ->
+                                            case snowball.apexFrame of
+                                                Just apexFrameId ->
+                                                    Audio.audio loaded.sounds.whoosh (frameToTime apexFrameId) |> Just
+
+                                                Nothing ->
+                                                    Nothing
+                                        )
+                                        state.snowballs
+
                                 countdownSounds : List Audio
                                 countdownSounds =
                                     let
@@ -4140,6 +4184,7 @@ audio loaded matchPage =
                                 ++ footstepSounds
                                 ++ deadSounds
                                 ++ throwSounds
+                                ++ whooshSounds
                                 ++ countdownSounds
                                 |> Audio.group
 
