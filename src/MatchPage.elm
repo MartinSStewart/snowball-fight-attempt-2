@@ -62,7 +62,7 @@ import Length exposing (Length, Meters)
 import LineSegment2d exposing (LineSegment2d)
 import List.Extra as List
 import List.Nonempty exposing (Nonempty)
-import Match exposing (Action(..), Emote(..), Input, LobbyPreview, Match, MatchActive, MatchState, Particle, Player, PlayerData, PlayerMode(..), ServerTime(..), Snowball, Team(..), TimelineEvent, Vertex, Winner(..), WorldCoordinate)
+import Match exposing (Action(..), Emote(..), Input, LobbyPreview, Match, MatchActive, MatchState, Particle, Player, PlayerData, PlayerMode(..), ServerTime(..), Snowball, Team(..), TextureVertex, TimelineEvent, Vertex, Winner(..), WorldCoordinate)
 import MatchName exposing (MatchName)
 import Math.Matrix4 as Mat4 exposing (Mat4)
 import Math.Vector2 as Vec2 exposing (Vec2)
@@ -104,6 +104,7 @@ import Viewpoint3d
 import WebGL.Matrices
 import WebGL.Settings
 import WebGL.Settings.DepthTest
+import WebGL.Texture
 
 
 type Msg
@@ -3339,11 +3340,49 @@ snowballRadius =
     Length.meters 0.2
 
 
-type alias PlayerUniforms =
+type alias Uniforms =
     { ucolor : Vec3, view : Mat4, model : Mat4 }
 
 
-vertexShader : Shader Vertex PlayerUniforms { vcolor : Vec4 }
+type alias TextureUniforms =
+    { ucolor : Vec3, view : Mat4, model : Mat4, texture : WebGL.Texture.Texture }
+
+
+textureVertexShader : Shader TextureVertex TextureUniforms { vcolor : Vec4 }
+textureVertexShader =
+    [glsl|
+attribute vec3 position;
+attribute vec3 color;
+attribute vec2 uv;
+varying vec4 vcolor;
+uniform vec3 ucolor;
+uniform mat4 view;
+uniform mat4 model;
+uniform sampler2D texture;
+
+
+void main () {
+    gl_Position = view * model * vec4(position, 1.0);
+
+    vcolor = vec4(color.xyz * ucolor, 1.0);
+}
+|]
+
+
+textureFragmentShader : Shader {} TextureUniforms { vcolor : Vec4 }
+textureFragmentShader =
+    [glsl|
+precision mediump float;
+varying vec4 vcolor;
+uniform sampler2D texture;
+
+void main () {
+    gl_FragColor = vcolor;
+}
+|]
+
+
+vertexShader : Shader Vertex Uniforms { vcolor : Vec4 }
 vertexShader =
     [glsl|
 attribute vec3 position;
@@ -3362,7 +3401,7 @@ void main () {
 |]
 
 
-fragmentShader : Shader {} PlayerUniforms { vcolor : Vec4 }
+fragmentShader : Shader {} Uniforms { vcolor : Vec4 }
 fragmentShader =
     [glsl|
         precision mediump float;

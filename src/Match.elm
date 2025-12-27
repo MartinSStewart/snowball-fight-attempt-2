@@ -14,6 +14,7 @@ module Match exposing
     , ServerTime(..)
     , Snowball
     , Team(..)
+    , TextureVertex
     , TimelineEvent
     , Vertex
     , Winner(..)
@@ -53,6 +54,7 @@ import Length exposing (Length, Meters)
 import List.Extra as List
 import List.Nonempty exposing (Nonempty(..))
 import MatchName exposing (MatchName)
+import Math.Vector2 exposing (Vec2)
 import Math.Vector3 exposing (Vec3)
 import Point2d exposing (Point2d)
 import Point3d exposing (Point3d)
@@ -125,6 +127,10 @@ type Winner
 
 type alias Vertex =
     { position : Vec3, color : Vec3 }
+
+
+type alias TextureVertex =
+    { position : Vec3, color : Vec3, uv : Vec2 }
 
 
 type alias Snowball =
