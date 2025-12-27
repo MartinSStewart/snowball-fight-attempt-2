@@ -32,7 +32,7 @@ import Audio exposing (Audio)
 import Axis2d
 import Axis3d
 import Camera3d exposing (Camera3d)
-import Character
+import Character exposing (Character)
 import ColorIndex exposing (ColorIndex(..))
 import Decal exposing (Decal)
 import Dict exposing (Dict)
@@ -182,7 +182,7 @@ type ScreenCoordinate
 
 type alias MatchActiveLocal_ =
     { timelineCache : Result Timeline.Error (TimelineCache MatchState)
-    , userIds : SeqDict (Id UserId) { skinTone : SkinTone }
+    , userIds : SeqDict (Id UserId) { skinTone : SkinTone, character : Character }
     , wallMesh : Mesh Vertex
     , touchPosition : Maybe (Point2d Pixels ScreenCoordinate)
     , previousTouchPosition : Maybe (Point2d Pixels ScreenCoordinate)
@@ -636,6 +636,40 @@ type alias Mouse =
 
 type WorldPixel
     = WorldPixel Never
+
+
+
+--characterView : MatchActiveLocal_ -> MatchState -> List (Ui.Attribute msg)
+--characterView match state =
+--    SeqDict.foldr
+--        (\userId player ( redTeam, blueTeam ) ->
+--            case SeqDict.get userId match.userIds of
+--                Just data ->
+--                    case player.team of
+--                        RedTeam ->
+--                            ( characterViewHelper :: redTeam, blueTeam )
+--
+--                        BlueTeam ->
+--                            ( redTeam, characterViewHelper :: blueTeam )
+--
+--                Nothing ->
+--                    ( redTeam, blueTeam )
+--        )
+--        ( [], [] )
+--        state.players
+--        |> (\( a, b ) -> a ++ b)
+
+
+characterViewHelper : Point2d Pixels ScreenCoordinate -> String -> Ui.Element msg
+characterViewHelper position name =
+    let
+        { x, y } =
+            Point2d.toPixels position
+    in
+    Ui.image
+        [ Ui.move { x = round x, y = round y, z = 0 }
+        ]
+        { source = "/" ++ name ++ "/base.png", description = "", onLoad = Nothing }
 
 
 view : Config a -> Model -> Ui.Element Msg
@@ -3393,7 +3427,7 @@ initMatchData serverTime newUserIds maybeTimelineCache =
                 (\( id, playerData ) ->
                     case playerData.mode of
                         PlayerMode ->
-                            Just ( id, { skinTone = playerData.skinTone } )
+                            Just ( id, { skinTone = playerData.skinTone, character = playerData.character } )
 
                         SpectatorMode ->
                             Nothing
