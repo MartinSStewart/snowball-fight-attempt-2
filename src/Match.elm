@@ -132,6 +132,7 @@ type alias Snowball =
     , position : Point3d Meters WorldCoordinate
     , thrownBy : Id UserId
     , thrownAt : Id FrameId
+    , apexFrame : Maybe (Id FrameId)
     }
 
 
