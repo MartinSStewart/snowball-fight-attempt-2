@@ -118,7 +118,7 @@ type alias MatchState =
 
 
 type Winner
-    = BothLost
+    = BothWon
     | RedWon
     | BlueWon
 

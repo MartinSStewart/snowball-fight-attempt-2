@@ -1355,6 +1355,88 @@ mapFillMesh =
         ]
 
 
+drawScoreNumber :
+    Team
+    -> Mat4
+    -> Id FrameId
+    -> Int
+    -> Maybe { time : Id FrameId, winner : Winner }
+    -> List WebGL.Entity
+drawScoreNumber team viewMatrix frameId score roundEndTime =
+    let
+        position =
+            case team of
+                RedTeam ->
+                    Point2d.meters -2 8
+
+                BlueTeam ->
+                    Point2d.meters 2 8
+
+        numbers =
+            case team of
+                RedTeam ->
+                    redNumbers
+
+                BlueTeam ->
+                    blueNumbers
+    in
+    case Array.get score numbers of
+        Just number ->
+            case roundEndTime of
+                Just roundEnded ->
+                    let
+                        elapsed =
+                            frameTimeElapsed roundEnded.time frameId |> Quantity.minus Duration.second
+
+                        t =
+                            Quantity.ratio elapsed Duration.second |> clamp 0 1
+
+                        t0 =
+                            t * 2 |> clamp 0 1
+
+                        t1 =
+                            (t - 0.5) * 2 |> clamp 0 1
+                    in
+                    case
+                        ( (roundEnded.winner == RedWon && team == RedTeam)
+                            || (roundEnded.winner == BlueWon && team == BlueTeam)
+                            || (roundEnded.winner == BothWon)
+                        , Array.get (score + 1) numbers
+                        )
+                    of
+                        ( True, _ ) ->
+                            []
+
+                        ( False, Just numberPlus1 ) ->
+                            drawShape
+                                ((1 - t0) * 0.004)
+                                position
+                                viewMatrix
+                                number
+                                ++ drawShape
+                                    (0.004 * t1)
+                                    position
+                                    viewMatrix
+                                    numberPlus1
+
+                        ( False, Nothing ) ->
+                            drawShape
+                                0.004
+                                position
+                                viewMatrix
+                                number
+
+                Nothing ->
+                    drawShape
+                        0.004
+                        position
+                        viewMatrix
+                        number
+
+        Nothing ->
+            []
+
+
 canvasViewHelper : Config a -> Model -> Size -> List WebGL.Entity
 canvasViewHelper model matchSetup canvasSize =
     case ( Match.matchActive (getLocalState matchSetup), matchSetup.matchData ) of
@@ -1407,28 +1489,8 @@ canvasViewHelper model matchSetup canvasSize =
                                         , model = Mat4.identity
                                         }
                                    ]
-                                ++ (case Array.get state.score.redTeam redNumbers of
-                                        Just number ->
-                                            drawShape
-                                                0.004
-                                                (Point2d.meters -2 8)
-                                                viewMatrix
-                                                number
-
-                                        Nothing ->
-                                            []
-                                   )
-                                ++ (case Array.get state.score.blueTeam blueNumbers of
-                                        Just number ->
-                                            drawShape
-                                                0.004
-                                                (Point2d.meters 2 8)
-                                                viewMatrix
-                                                number
-
-                                        Nothing ->
-                                            []
-                                   )
+                                ++ drawScoreNumber RedTeam viewMatrix frameId state.score.redTeam state.roundEndTime
+                                ++ drawScoreNumber BlueTeam viewMatrix frameId state.score.blueTeam state.roundEndTime
                                 ++ List.concatMap
                                     (\( userId, player ) ->
                                         drawPlayer
@@ -2336,66 +2398,86 @@ gameUpdate frameId inputs model =
         inputs2 =
             List.map (\input -> ( input.userId, input.input )) inputs |> SeqDict.fromList
 
-        model3 : MatchState
-        model3 =
+        model2 : MatchState
+        model2 =
             SeqDict.foldl (updatePlayer inputs2 frameId) model model.players
 
         updatedVelocities_ : SeqDict (Id UserId) Player
         updatedVelocities_ =
-            updateVelocities frameId model3.players
+            updateVelocities frameId model2.players
+
+        ( survivingSnowballs, newParticles ) =
+            List.foldl
+                (\snowball ( snowballs2, particles2 ) ->
+                    let
+                        position : Point3d Meters WorldCoordinate
+                        position =
+                            Point3d.translateBy (Vector3d.for Match.frameDuration snowball.velocity) snowball.position
+                    in
+                    if Point3d.zCoordinate position |> Quantity.greaterThanZero then
+                        ( { position = position
+                          , velocity = Vector3d.plus (Vector3d.for Match.frameDuration gravityVector) snowball.velocity
+                          , thrownBy = snowball.thrownBy
+                          , thrownAt = snowball.thrownAt
+                          }
+                            :: snowballs2
+                        , particles2
+                        )
+
+                    else
+                        ( snowballs2
+                        , snowballParticles frameId snowball.thrownAt position ++ particles2
+                        )
+                )
+                ( [], [] )
+                model2.snowballs
+
+        particles : List Particle
+        particles =
+            List.filter
+                (\particle -> frameTimeElapsed particle.spawnedAt frameId |> Quantity.lessThan particle.lifetime)
+                model2.particles
+                ++ newParticles
     in
     case model.roundEndTime of
         Just roundEnd ->
             if frameTimeElapsed roundEnd.time frameId |> Quantity.lessThan roundResetDuration then
-                model
+                { players =
+                    SeqDict.map
+                        (\id player ->
+                            SeqDict.remove id updatedVelocities_
+                                |> SeqDict.values
+                                |> List.foldl (\a b -> handleCollision frameId b a |> Tuple.first) player
+                        )
+                        updatedVelocities_
+                , snowballs = List.reverse survivingSnowballs
+                , particles = particles
+                , footsteps = model2.footsteps
+                , mergedFootsteps = model2.mergedFootsteps
+                , score = model2.score
+                , roundEndTime = model2.roundEndTime
+                }
 
             else
-                { players = initPlayerPosition model.players
+                { players = initPlayerPosition model2.players
                 , snowballs = []
                 , particles = []
-                , footsteps = []
+                , footsteps = model2.footsteps
                 , mergedFootsteps = []
                 , score =
                     case roundEnd.winner of
-                        BothLost ->
-                            { redTeam = model.score.redTeam + 1, blueTeam = model.score.blueTeam + 1 }
+                        BothWon ->
+                            { redTeam = model2.score.redTeam + 1, blueTeam = model2.score.blueTeam + 1 }
 
                         RedWon ->
-                            { redTeam = model.score.redTeam + 1, blueTeam = model.score.blueTeam }
+                            { redTeam = model2.score.redTeam + 1, blueTeam = model2.score.blueTeam }
 
                         BlueWon ->
-                            { redTeam = model.score.redTeam, blueTeam = model.score.blueTeam + 1 }
+                            { redTeam = model2.score.redTeam, blueTeam = model2.score.blueTeam + 1 }
                 , roundEndTime = Nothing
                 }
 
         Nothing ->
-            let
-                ( survivingSnowballs, newParticles ) =
-                    List.foldl
-                        (\snowball ( snowballs2, particles2 ) ->
-                            let
-                                position : Point3d Meters WorldCoordinate
-                                position =
-                                    Point3d.translateBy (Vector3d.for Match.frameDuration snowball.velocity) snowball.position
-                            in
-                            if Point3d.zCoordinate position |> Quantity.greaterThanZero then
-                                ( { position = position
-                                  , velocity = Vector3d.plus (Vector3d.for Match.frameDuration gravityVector) snowball.velocity
-                                  , thrownBy = snowball.thrownBy
-                                  , thrownAt = snowball.thrownAt
-                                  }
-                                    :: snowballs2
-                                , particles2
-                                )
-
-                            else
-                                ( snowballs2
-                                , snowballParticles frameId snowball.thrownAt position ++ particles2
-                                )
-                        )
-                        ( [], [] )
-                        model3.snowballs
-            in
             { players =
                 SeqDict.map
                     (\id player ->
@@ -2405,15 +2487,11 @@ gameUpdate frameId inputs model =
                     )
                     updatedVelocities_
             , snowballs = List.reverse survivingSnowballs
-            , particles =
-                List.filter
-                    (\particle -> frameTimeElapsed particle.spawnedAt frameId |> Quantity.lessThan particle.lifetime)
-                    model3.particles
-                    ++ newParticles
-            , footsteps = model3.footsteps
-            , mergedFootsteps = model3.mergedFootsteps
-            , score = model3.score
-            , roundEndTime = model3.roundEndTime
+            , particles = particles
+            , footsteps = model2.footsteps
+            , mergedFootsteps = model2.mergedFootsteps
+            , score = model2.score
+            , roundEndTime = model2.roundEndTime
             }
 
 
@@ -2448,7 +2526,7 @@ checkWinningTeam frameId players existingWinner =
                     Just BlueWon
 
                 ( False, False ) ->
-                    Just BothLost
+                    Just BothWon
     in
     case ( maybeWinner, existingWinner ) of
         ( Just winner, Just existingWinner2 ) ->
@@ -3857,9 +3935,6 @@ animationFrame config model =
                                                 |> MatchActiveLocal
                                     }
 
-                                currentFrameId =
-                                    timeToFrameId config match
-
                                 ( oldestFrameId, oldestState ) =
                                     getOldestCachedState newCache
 
@@ -3890,7 +3965,7 @@ animationFrame config model =
                                             maybeWinner =
                                                 case ( matchState.score.redTeam > 2, matchState.score.blueTeam > 2 ) of
                                                     ( True, True ) ->
-                                                        Just BothLost
+                                                        Just BothWon
 
                                                     ( True, False ) ->
                                                         Just RedWon
