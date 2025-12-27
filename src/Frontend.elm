@@ -362,9 +362,14 @@ updateLoaded msg model =
 
                 InMatchRoute a ->
                     if a == matchId then
-                        ( { model | loadMatchError = Just model.time }
-                        , Effect.Browser.Navigation.replaceUrl model.navigationKey (Route.encode HomePageRoute)
-                        )
+                        case model.page of
+                            MatchPage _ ->
+                                ( model, Command.none )
+
+                            _ ->
+                                ( { model | loadMatchError = Just model.time }
+                                , Effect.Browser.Navigation.replaceUrl model.navigationKey (Route.encode HomePageRoute)
+                                )
 
                     else
                         ( model, Command.none )

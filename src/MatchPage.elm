@@ -61,7 +61,7 @@ import Length exposing (Length, Meters)
 import LineSegment2d exposing (LineSegment2d)
 import List.Extra as List
 import List.Nonempty exposing (Nonempty)
-import Match exposing (Action(..), Emote(..), Input, LobbyPreview, Match, MatchActive, MatchState, Particle, Place(..), Player, PlayerData, PlayerMode(..), ServerTime(..), Snowball, Team(..), TimelineEvent, Vertex, Winner(..), WorldCoordinate)
+import Match exposing (Action(..), Emote(..), Input, LobbyPreview, Match, MatchActive, MatchState, Particle, Player, PlayerData, PlayerMode(..), ServerTime(..), Snowball, Team(..), TimelineEvent, Vertex, Winner(..), WorldCoordinate)
 import MatchName exposing (MatchName)
 import Math.Matrix4 as Mat4 exposing (Mat4)
 import Math.Vector2 as Vec2 exposing (Vec2)
@@ -710,24 +710,6 @@ matchSetupView config lobby matchSetupData currentPlayerData =
         users =
             Match.allUsers lobby |> List.Nonempty.toList
 
-        places : SeqDict (Id UserId) Int
-        places =
-            Match.previousMatchFinishTimes lobby
-                |> Maybe.withDefault SeqDict.empty
-                |> SeqDict.toList
-                |> List.filterMap
-                    (\( userId, place ) ->
-                        case place of
-                            Finished finishTime ->
-                                ( userId, Id.toInt finishTime ) |> Just
-
-                            DidNotFinish ->
-                                Nothing
-                    )
-                |> List.sortBy Tuple.second
-                |> List.indexedMap (\index ( userId, _ ) -> ( userId, index + 1 ))
-                |> SeqDict.fromList
-
         preview =
             Match.preview lobby
     in
@@ -966,13 +948,6 @@ matchSetupView config lobby matchSetupData currentPlayerData =
 
                                         SpectatorMode ->
                                             " (spectator)"
-                                   )
-                                ++ (case SeqDict.get userId places of
-                                        Just place ->
-                                            " (" ++ placeToText place ++ ")"
-
-                                        Nothing ->
-                                            ""
                                    )
                                 |> Ui.text
                         )
@@ -1575,8 +1550,8 @@ canvasViewHelper model matchSetup canvasSize =
                                    )
                                 ++ (case SeqDict.get model.userId state.players of
                                         Just player ->
-                                            case ( player.finishTime, player.targetPosition ) of
-                                                ( DidNotFinish, Just targetPos ) ->
+                                            case player.targetPosition of
+                                                Just targetPos ->
                                                     [ WebGL.entityWith
                                                         [ WebGL.Settings.cullFace WebGL.Settings.back ]
                                                         vertexShader
@@ -1590,7 +1565,7 @@ canvasViewHelper model matchSetup canvasSize =
                                                         }
                                                     ]
 
-                                                _ ->
+                                                Nothing ->
                                                     []
 
                                         _ ->
@@ -2369,52 +2344,77 @@ gameUpdate frameId inputs model =
         updatedVelocities_ =
             updateVelocities frameId model3.players
     in
-    let
-        ( survivingSnowballs, newParticles ) =
-            List.foldl
-                (\snowball ( snowballs2, particles2 ) ->
-                    let
-                        position : Point3d Meters WorldCoordinate
-                        position =
-                            Point3d.translateBy (Vector3d.for Match.frameDuration snowball.velocity) snowball.position
-                    in
-                    if Point3d.zCoordinate position |> Quantity.greaterThanZero then
-                        ( { position = position
-                          , velocity = Vector3d.plus (Vector3d.for Match.frameDuration gravityVector) snowball.velocity
-                          , thrownBy = snowball.thrownBy
-                          , thrownAt = snowball.thrownAt
-                          }
-                            :: snowballs2
-                        , particles2
-                        )
+    case model.roundEndTime of
+        Just roundEnd ->
+            if frameTimeElapsed roundEnd.time frameId |> Quantity.lessThan roundResetDuration then
+                model
 
-                    else
-                        ( snowballs2
-                        , snowballParticles frameId snowball.thrownAt position ++ particles2
+            else
+                { players = initPlayerPosition model.players
+                , snowballs = []
+                , particles = []
+                , footsteps = []
+                , mergedFootsteps = []
+                , score =
+                    case roundEnd.winner of
+                        BothLost ->
+                            { redTeam = model.score.redTeam + 1, blueTeam = model.score.blueTeam + 1 }
+
+                        RedWon ->
+                            { redTeam = model.score.redTeam + 1, blueTeam = model.score.blueTeam }
+
+                        BlueWon ->
+                            { redTeam = model.score.redTeam, blueTeam = model.score.blueTeam + 1 }
+                , roundEndTime = Nothing
+                }
+
+        Nothing ->
+            let
+                ( survivingSnowballs, newParticles ) =
+                    List.foldl
+                        (\snowball ( snowballs2, particles2 ) ->
+                            let
+                                position : Point3d Meters WorldCoordinate
+                                position =
+                                    Point3d.translateBy (Vector3d.for Match.frameDuration snowball.velocity) snowball.position
+                            in
+                            if Point3d.zCoordinate position |> Quantity.greaterThanZero then
+                                ( { position = position
+                                  , velocity = Vector3d.plus (Vector3d.for Match.frameDuration gravityVector) snowball.velocity
+                                  , thrownBy = snowball.thrownBy
+                                  , thrownAt = snowball.thrownAt
+                                  }
+                                    :: snowballs2
+                                , particles2
+                                )
+
+                            else
+                                ( snowballs2
+                                , snowballParticles frameId snowball.thrownAt position ++ particles2
+                                )
                         )
-                )
-                ( [], [] )
-                model3.snowballs
-    in
-    { players =
-        SeqDict.map
-            (\id player ->
-                SeqDict.remove id updatedVelocities_
-                    |> SeqDict.values
-                    |> List.foldl (\a b -> handleCollision frameId b a |> Tuple.first) player
-            )
-            updatedVelocities_
-    , snowballs = List.reverse survivingSnowballs
-    , particles =
-        List.filter
-            (\particle -> frameTimeElapsed particle.spawnedAt frameId |> Quantity.lessThan particle.lifetime)
-            model3.particles
-            ++ newParticles
-    , footsteps = model3.footsteps
-    , mergedFootsteps = model3.mergedFootsteps
-    , score = model3.score
-    , roundEndTime = model3.roundEndTime
-    }
+                        ( [], [] )
+                        model3.snowballs
+            in
+            { players =
+                SeqDict.map
+                    (\id player ->
+                        SeqDict.remove id updatedVelocities_
+                            |> SeqDict.values
+                            |> List.foldl (\a b -> handleCollision frameId b a |> Tuple.first) player
+                    )
+                    updatedVelocities_
+            , snowballs = List.reverse survivingSnowballs
+            , particles =
+                List.filter
+                    (\particle -> frameTimeElapsed particle.spawnedAt frameId |> Quantity.lessThan particle.lifetime)
+                    model3.particles
+                    ++ newParticles
+            , footsteps = model3.footsteps
+            , mergedFootsteps = model3.mergedFootsteps
+            , score = model3.score
+            , roundEndTime = model3.roundEndTime
+            }
 
 
 roundResetDuration : Duration
@@ -2855,8 +2855,8 @@ updateVelocities frameId players =
 
                 newVelocity : Vector2d Meters WorldCoordinate
                 newVelocity =
-                    (case ( a.finishTime, elapsed |> Quantity.lessThan countdownDelay, a.targetPosition ) of
-                        ( DidNotFinish, False, Just targetPos ) ->
+                    (case ( elapsed |> Quantity.lessThan countdownDelay, a.targetPosition ) of
+                        ( False, Just targetPos ) ->
                             let
                                 distance =
                                     Vector2d.from a.position targetPos
@@ -2892,7 +2892,6 @@ updateVelocities frameId players =
                     , targetPosition = newTargetPosition
                     , velocity = collisionVelocity
                     , rotation = a.rotation
-                    , finishTime = a.finishTime
                     , lastCollision = Just frameId
                     , lastEmote = a.lastEmote
                     , clickStart = a.clickStart
@@ -2906,7 +2905,6 @@ updateVelocities frameId players =
                     , targetPosition = newTargetPosition
                     , velocity = newVelocity
                     , rotation = a.rotation
-                    , finishTime = a.finishTime
                     , lastCollision = a.lastCollision
                     , lastEmote = a.lastEmote
                     , clickStart = a.clickStart
@@ -3393,67 +3391,23 @@ initMatch startTime users =
                 (Match.unwrapServerTime startTime |> Time.posixToMillis |> Random.initialSeed)
 
         -- Split players into two teams
+        halfCount : Int
         halfCount =
             (List.length shuffledPlayers + 1) // 2
 
+        redTeamPlayers : List (Id UserId)
         redTeamPlayers =
             List.take halfCount shuffledPlayers
 
+        blueTeamPlayers : List (Id UserId)
         blueTeamPlayers =
             List.drop halfCount shuffledPlayers
-
-        -- Team spawn positions (opposite corners)
-        -- Red team: bottom-left corner
-        redTeamStart =
-            Point2d.meters -12 -10
-
-        -- Blue team: top-right corner
-        blueTeamStart =
-            Point2d.meters 12 10
-
-        spacing =
-            Length.inMeters playerRadius * 2.1
-
-        playersPerRow =
-            4
-
-        initTeamPlayers team startPos playerList =
-            playerList
-                |> List.indexedMap
-                    (\index userId ->
-                        let
-                            x =
-                                modBy playersPerRow index
-
-                            y =
-                                index // playersPerRow
-
-                            -- For blue team, offset in negative direction (towards center)
-                            ( xDir, yDir ) =
-                                case team of
-                                    RedTeam ->
-                                        ( 1, 1 )
-
-                                    BlueTeam ->
-                                        ( -1, -1 )
-
-                            position =
-                                Point2d.translateBy
-                                    (Vector2d.fromMeters
-                                        { x = toFloat x * spacing * xDir
-                                        , y = toFloat y * spacing * yDir
-                                        }
-                                    )
-                                    startPos
-                        in
-                        ( userId, initPlayer team position )
-                    )
     in
     { players =
-        (initTeamPlayers RedTeam redTeamStart redTeamPlayers
-            ++ initTeamPlayers BlueTeam blueTeamStart blueTeamPlayers
-        )
+        List.map (\userId -> ( userId, initPlayer RedTeam )) redTeamPlayers
+            ++ List.map (\userId -> ( userId, initPlayer BlueTeam )) blueTeamPlayers
             |> SeqDict.fromList
+            |> initPlayerPosition
     , snowballs = []
     , particles = []
     , footsteps = []
@@ -3463,29 +3417,106 @@ initMatch startTime users =
     }
 
 
-initPlayer : Team -> Point2d Meters WorldCoordinate -> Player
-initPlayer team position =
+initPlayerPosition : SeqDict (Id UserId) Player -> SeqDict (Id UserId) Player
+initPlayerPosition players =
     let
-        -- Teams face each other: Red faces northeast (towards blue), Blue faces southwest (towards red)
-        facingDirection =
-            case team of
-                RedTeam ->
-                    Direction2d.fromAngle (Angle.degrees 45)
+        spacing =
+            Length.inMeters playerRadius * 2.1
 
-                BlueTeam ->
-                    Direction2d.fromAngle (Angle.degrees 225)
+        playersPerRow =
+            4
     in
-    { position = position
+    SeqDict.foldr
+        (\userId player ( newDict, redCount, blueCount ) ->
+            let
+                index : Int
+                index =
+                    case player.team of
+                        RedTeam ->
+                            redCount
+
+                        BlueTeam ->
+                            blueCount
+
+                x : Int
+                x =
+                    modBy playersPerRow index
+
+                y : Int
+                y =
+                    index // playersPerRow
+
+                -- For blue team, offset in negative direction (towards center)
+                ( xDir, yDir ) =
+                    case player.team of
+                        RedTeam ->
+                            ( 1, 1 )
+
+                        BlueTeam ->
+                            ( -1, -1 )
+
+                position : Point2d Meters WorldCoordinate
+                position =
+                    Point2d.translateBy
+                        (Vector2d.fromMeters
+                            { x = toFloat x * spacing * xDir
+                            , y = toFloat y * spacing * yDir
+                            }
+                        )
+                        (case player.team of
+                            RedTeam ->
+                                Point2d.meters -12 -10
+
+                            BlueTeam ->
+                                Point2d.meters 12 10
+                        )
+            in
+            ( SeqDict.insert
+                userId
+                { player
+                    | position = position
+                    , targetPosition = Nothing
+                    , velocity = Vector2d.zero
+                    , lastStep = { position = position, time = Id.fromInt -999, stepCount = 0 }
+                    , isDead = Nothing
+                    , rotation =
+                        case player.team of
+                            RedTeam ->
+                                Direction2d.fromAngle (Angle.degrees 45)
+
+                            BlueTeam ->
+                                Direction2d.fromAngle (Angle.degrees 225)
+                }
+                newDict
+            , if player.team == RedTeam then
+                redCount + 1
+
+              else
+                redCount
+            , if player.team == BlueTeam then
+                blueCount + 1
+
+              else
+                blueCount
+            )
+        )
+        ( SeqDict.empty, 0, 0 )
+        players
+        |> (\( a, _, _ ) -> a)
+
+
+initPlayer : Team -> Player
+initPlayer team =
+    { position = Point2d.origin
     , targetPosition = Nothing
     , velocity = Vector2d.zero
-    , rotation = facingDirection
-    , finishTime = DidNotFinish
+    , rotation = Direction2d.x
     , lastCollision = Nothing
     , lastEmote = Nothing
     , clickStart = Nothing
     , isDead = Nothing
     , team = team
-    , lastStep = { position = position, time = Id.fromInt -999, stepCount = 0 }
+    , lastStep = { position = Point2d.origin, time = Id.fromInt -999, stepCount = 0 }
     }
 
 
@@ -3855,28 +3886,27 @@ animationFrame config model =
                                     |> Tuple.mapSecond (\cmd -> Command.batch [ cmd, playerPositionsCmd ])
                             )
                                 |> (\( matchSetupPage2, cmd ) ->
-                                        case
-                                            ( matchTimeLeft currentFrameId matchState
-                                            , matchTimeLeft (Id.decrement currentFrameId) matchState
-                                            )
-                                        of
-                                            ( Just timeLeft, Just previousTimeLeft ) ->
-                                                if Quantity.lessThanZero timeLeft && not (Quantity.lessThanZero previousTimeLeft) then
-                                                    matchSetupUpdate
-                                                        config.userId
-                                                        (Match.MatchFinished
-                                                            (SeqDict.map
-                                                                (\_ player -> player.finishTime)
-                                                                matchState.players
-                                                            )
-                                                        )
-                                                        matchSetupPage2
-                                                        |> Tuple.mapSecond (\cmd2 -> Command.batch [ cmd, cmd2, scrollToBottom ])
+                                        let
+                                            maybeWinner =
+                                                case ( matchState.score.redTeam > 2, matchState.score.blueTeam > 2 ) of
+                                                    ( True, True ) ->
+                                                        Just BothLost
 
-                                                else
-                                                    ( matchSetupPage2, cmd )
+                                                    ( True, False ) ->
+                                                        Just RedWon
 
-                                            _ ->
+                                                    ( False, True ) ->
+                                                        Just BlueWon
+
+                                                    ( False, False ) ->
+                                                        Nothing
+                                        in
+                                        case maybeWinner of
+                                            Just winner ->
+                                                matchSetupUpdate config.userId (Match.MatchFinished winner) matchSetupPage2
+                                                    |> Tuple.mapSecond (\cmd2 -> Command.batch [ cmd, cmd2, scrollToBottom ])
+
+                                            Nothing ->
                                                 ( matchSetupPage2, cmd )
                                    )
 
@@ -3893,50 +3923,6 @@ animationFrame config model =
 frameTimeElapsed : Id FrameId -> Id FrameId -> Duration
 frameTimeElapsed start end =
     Quantity.multiplyBy (toFloat (Id.toInt end - Id.toInt start)) Match.frameDuration
-
-
-matchTimeLeft : Id FrameId -> MatchState -> Maybe Duration
-matchTimeLeft currentFrameId matchState =
-    let
-        finishes : List Duration
-        finishes =
-            SeqDict.toList matchState.players
-                |> List.filterMap
-                    (\( _, player ) ->
-                        case player.finishTime of
-                            Finished finishTime ->
-                                Quantity.multiplyBy
-                                    (Id.toInt currentFrameId - Id.toInt finishTime |> toFloat)
-                                    Match.frameDuration
-                                    |> Just
-
-                            DidNotFinish ->
-                                Nothing
-                    )
-
-        earliestFinish =
-            Quantity.maximum finishes |> Maybe.withDefault Quantity.zero
-
-        latestFinish =
-            Quantity.minimum finishes |> Maybe.withDefault Quantity.zero
-
-        allFinished =
-            SeqDict.size matchState.players == List.length finishes
-
-        allFinishedTimeLeft =
-            Duration.seconds 3 |> Quantity.minus latestFinish
-
-        earliestFinishTimeLeft =
-            Duration.seconds 10 |> Quantity.minus earliestFinish
-    in
-    if allFinished then
-        Quantity.min earliestFinishTimeLeft allFinishedTimeLeft |> Just
-
-    else if List.isEmpty finishes then
-        Nothing
-
-    else
-        Just earliestFinishTimeLeft
 
 
 textMessageContainerId : HtmlId

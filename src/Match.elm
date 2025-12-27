@@ -8,7 +8,6 @@ module Match exposing
     , MatchState
     , Msg(..)
     , Particle
-    , Place(..)
     , Player
     , PlayerData
     , PlayerMode(..)
@@ -37,7 +36,6 @@ module Match exposing
     , messagesOldestToNewest
     , name
     , preview
-    , previousMatchFinishTimes
     , serverTimeAdd
     , serverTimeToFrameId
     , unwrapServerTime
@@ -47,7 +45,6 @@ import Angle exposing (Angle)
 import Character exposing (Character)
 import ColorIndex exposing (ColorIndex(..))
 import Decal exposing (Decal)
-import SkinTone exposing (SkinTone)
 import Direction2d exposing (Direction2d)
 import Duration exposing (Duration)
 import Effect.WebGL exposing (Mesh)
@@ -63,6 +60,7 @@ import Quantity
 import Random
 import SeqDict exposing (SeqDict)
 import SeqSet
+import SkinTone exposing (SkinTone)
 import Speed exposing (MetersPerSecond, Speed)
 import TextMessage exposing (TextMessage)
 import Time
@@ -87,15 +85,10 @@ type alias Match_ =
     , users : SeqDict (Id UserId) PlayerData
     , matchActive : Maybe MatchActive
     , messages : List { userId : Id UserId, message : TextMessage }
-    , previousMatch : Maybe (SeqDict (Id UserId) Place)
+    , previousMatch : Maybe Winner
     , maxPlayers : Int
     , botCount : Int
     }
-
-
-type Place
-    = Finished (Id FrameId)
-    | DidNotFinish
 
 
 type Team
@@ -156,7 +149,6 @@ type alias Player =
     , targetPosition : Maybe (Point2d Meters WorldCoordinate)
     , velocity : Vector2d Meters WorldCoordinate
     , rotation : Direction2d WorldCoordinate
-    , finishTime : Place
     , lastCollision : Maybe (Id FrameId)
     , lastEmote : Maybe { time : Id FrameId, emote : Emote }
     , clickStart : Maybe { position : Point2d Meters WorldCoordinate, time : Id FrameId }
@@ -214,18 +206,13 @@ type Msg
     | MatchInputRequest ServerTime Input
     | SetMatchName MatchName
     | SendTextMessage TextMessage
-    | MatchFinished (SeqDict (Id UserId) Place)
+    | MatchFinished Winner
     | SetMaxPlayers Int
     | SetBotCount Int
 
 
 type ServerTime
     = ServerTime Time.Posix
-
-
-previousMatchFinishTimes : Match -> Maybe (SeqDict (Id UserId) Place)
-previousMatchFinishTimes (Match matchSetup) =
-    matchSetup.previousMatch
 
 
 unwrapServerTime : ServerTime -> Time.Posix
@@ -497,7 +484,7 @@ setBotCount userId int (Match matchSetup) =
         Match matchSetup
 
 
-matchFinished : SeqDict (Id UserId) Place -> Match -> Match
+matchFinished : Winner -> Match -> Match
 matchFinished placements (Match matchSetup) =
     (case matchSetup.matchActive of
         Just _ ->
