@@ -2354,7 +2354,10 @@ updatePlayer inputs2 frameId userId player model =
 
                             apexFrame : Maybe (Id FrameId)
                             apexFrame =
-                                if distance |> Quantity.greaterThanOrEqualTo (Quantity.multiplyBy 0.5 maxThrowDistance) then
+                                if distance |> Quantity.lessThan (Quantity.multiplyBy 0.5 maxThrowDistance) then
+                                    Nothing
+
+                                else
                                     let
                                         vZ =
                                             Vector3d.zComponent velocity |> Speed.inMetersPerSecond
@@ -2369,9 +2372,6 @@ updatePlayer inputs2 frameId userId player model =
                                             timeToApex / Duration.inSeconds Match.frameDuration |> round
                                     in
                                     Just (Id.fromInt (Id.toInt frameId + framesToApex))
-
-                                else
-                                    Nothing
                         in
                         { thrownBy = userId
                         , thrownAt = frameId
