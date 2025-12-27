@@ -1,7 +1,8 @@
 module Evergreen.V1.Timeline exposing (..)
 
-import AssocSet
 import Evergreen.V1.Id
+import List.Nonempty
+import SeqSet
 
 
 type FrameId
@@ -9,10 +10,13 @@ type FrameId
 
 
 type alias Timeline input =
-    AssocSet.Set ( Evergreen.V1.Id.Id FrameId, input )
+    SeqSet.SeqSet ( Evergreen.V1.Id.Id FrameId, input )
+
+
+type Error
+    = InputTooOld
 
 
 type alias TimelineCache state =
-    { cache : List ( Evergreen.V1.Id.Id FrameId, state )
-    , initialState : state
+    { cache : List.Nonempty.Nonempty ( Evergreen.V1.Id.Id FrameId, state )
     }

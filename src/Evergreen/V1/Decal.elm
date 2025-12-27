@@ -8,4 +8,3 @@ type Decal
     | Minus
     | Square
     | HollowSquare
-    | NoDecal
