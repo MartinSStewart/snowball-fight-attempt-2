@@ -46,6 +46,7 @@ import Effect.Lamdera
 import Effect.Task as Task
 import Effect.Time as Time
 import Effect.WebGL as WebGL exposing (Mesh, Shader)
+import Effect.WebGL.Texture exposing (Texture)
 import Env
 import FontRender
 import Geometry
@@ -88,6 +89,7 @@ import SkinTone exposing (SkinTone)
 import Sounds exposing (Sounds)
 import Speed exposing (MetersPerSecond)
 import TextMessage exposing (TextMessage)
+import Textures exposing (Textures)
 import Timeline exposing (FrameId, TimelineCache, getOldestCachedState)
 import TriangularMesh exposing (TriangularMesh)
 import Ui
@@ -695,7 +697,7 @@ view config model =
                                     :: Ui.inFront
                                         (Ui.el
                                             [ Ui.width Ui.shrink
-                                            , Ui.background (Ui.rgb 65025 65025 65025)
+                                            , Ui.background (Ui.rgb 255 255 255)
                                             , Ui.Input.button PressedLeaveMatch
                                             ]
                                             (Ui.text "Leave match")

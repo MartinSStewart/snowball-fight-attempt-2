@@ -32,6 +32,7 @@ import Route exposing (Route(..))
 import SeqDict
 import Size exposing (Size)
 import Sounds exposing (Sounds)
+import Textures exposing (Textures)
 import Time
 import Types exposing (..)
 import Ui
@@ -108,9 +109,10 @@ loadedInit :
     FrontendLoading
     -> Time.Posix
     -> Sounds
+    -> Textures
     -> ( Id UserId, MainLobbyInitData )
     -> ( FrontendModel_, Command FrontendOnly ToBackend FrontendMsg_, AudioCmd FrontendMsg_ )
-loadedInit loading time sounds ( userId, lobbyData ) =
+loadedInit loading time sounds textures ( userId, lobbyData ) =
     let
         model : FrontendLoaded
         model =
@@ -125,6 +127,7 @@ loadedInit loading time sounds ( userId, lobbyData ) =
             , debugTimeOffset = loading.debugTimeOffset
             , page = MainLobbyPage { lobbies = lobbyData.lobbies, joinLobbyError = Nothing }
             , sounds = sounds
+            , textures = textures
             , userId = userId
             , pingStartTime = Nothing
             , pingData = Nothing
@@ -144,10 +147,11 @@ loadedInit loading time sounds ( userId, lobbyData ) =
 
 tryLoadedInit : FrontendLoading -> ( FrontendModel_, Command FrontendOnly ToBackend FrontendMsg_, AudioCmd FrontendMsg_ )
 tryLoadedInit loading =
-    Maybe.map3
+    Maybe.map4
         (loadedInit loading)
         loading.time
         (Sounds.loadingFinished loading.sounds)
+        (Textures.loadingFinished (Debug.log "a" loading.textures))
         loading.initData
         |> Maybe.withDefault ( Loading loading, Command.none, Audio.cmdNone )
 
@@ -175,6 +179,7 @@ init url key =
         , time = Nothing
         , initData = Nothing
         , sounds = SeqDict.empty
+        , textures = SeqDict.empty
         , debugTimeOffset = offset
         , route = Route.decode url
         }
@@ -188,6 +193,7 @@ init url key =
             )
             Dom.getViewport
         , Effect.Time.now |> Task.perform GotTime
+        , Textures.requestTextures TextureLoaded
         ]
     , Sounds.requestSounds SoundLoaded
     )
@@ -224,6 +230,10 @@ update _ msg model =
 
                 SoundLoaded url result ->
                     { loadingModel | sounds = SeqDict.insert url result loadingModel.sounds }
+                        |> tryLoadedInit
+
+                TextureLoaded url result ->
+                    { loadingModel | textures = SeqDict.insert url result loadingModel.textures }
                         |> tryLoadedInit
 
                 GotTime time ->
@@ -321,6 +331,10 @@ updateLoaded msg model =
             )
 
         SoundLoaded _ _ ->
+            -- Shouldn't happen
+            ( model, Command.none )
+
+        TextureLoaded _ _ ->
             -- Shouldn't happen
             ( model, Command.none )
 

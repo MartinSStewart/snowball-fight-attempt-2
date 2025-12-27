@@ -23,6 +23,7 @@ import EditorPage
 import Effect.Browser.Navigation
 import Effect.Lamdera exposing (ClientId, SessionId)
 import Effect.Time as Time
+import Effect.WebGL.Texture as Texture exposing (Texture)
 import Id exposing (Id)
 import Keyboard
 import Length exposing (Meters)
@@ -39,6 +40,7 @@ import SeqDict exposing (SeqDict)
 import SeqSet exposing (SeqSet)
 import Size exposing (Size)
 import Sounds exposing (Sounds)
+import Textures exposing (Textures)
 import Timeline exposing (FrameId)
 import Url exposing (Url)
 import User exposing (UserId)
@@ -65,6 +67,7 @@ type alias FrontendLoading =
     , debugTimeOffset : Duration
     , initData : Maybe ( Id UserId, MainLobbyInitData )
     , sounds : SeqDict String (Result Audio.LoadError Audio.Source)
+    , textures : SeqDict String (Result Texture.Error Texture)
     , route : Route
     }
 
@@ -81,6 +84,7 @@ type alias FrontendLoaded =
     , debugTimeOffset : Duration
     , page : Page
     , sounds : Sounds
+    , textures : Textures
     , userId : Id UserId
     , pingStartTime : Maybe Time.Posix
     , pingData : Maybe PingData
@@ -130,6 +134,7 @@ type FrontendMsg_
     | PressedCreateLobby
     | PressedOpenLevelEditor
     | SoundLoaded String (Result Audio.LoadError Audio.Source)
+    | TextureLoaded String (Result Texture.Error Texture)
     | MatchPageMsg MatchPage.Msg
     | GotTime Time.Posix
     | RandomInput Time.Posix
