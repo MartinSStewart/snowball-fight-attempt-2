@@ -3046,7 +3046,6 @@ updateVelocities frameId players =
                     , targetPosition = newTargetPosition
                     , velocity = collisionVelocity
                     , rotation = a.rotation
-                    , lastCollision = Just frameId
                     , lastEmote = a.lastEmote
                     , clickStart = a.clickStart
                     , isDead = a.isDead
@@ -3059,7 +3058,6 @@ updateVelocities frameId players =
                     , targetPosition = newTargetPosition
                     , velocity = newVelocity
                     , rotation = a.rotation
-                    , lastCollision = a.lastCollision
                     , lastEmote = a.lastEmote
                     , clickStart = a.clickStart
                     , isDead = a.isDead
@@ -3187,12 +3185,47 @@ aimingReticle =
 
 handleCollision : Id FrameId -> Player -> Player -> ( Player, Player )
 handleCollision frameId playerA playerB =
-    case Geometry.circleCircle playerRadius playerA.position playerA.velocity playerB.position playerB.velocity of
-        Just ( v1, v2 ) ->
-            ( { playerA | velocity = v1, lastCollision = Just frameId }, { playerB | velocity = v2 } )
+    let
+        distance =
+            Point2d.distanceFrom playerA.position playerB.position
 
-        Nothing ->
-            ( playerA, playerB )
+        minDistance =
+            Quantity.multiplyBy 2 playerRadius
+    in
+    if distance |> Quantity.lessThan minDistance then
+        case Direction2d.from playerA.position playerB.position of
+            Just direction ->
+                let
+                    overlap =
+                        Quantity.minus distance minDistance
+
+                    halfOverlap =
+                        Quantity.multiplyBy 0.5 overlap
+                in
+                ( { playerA
+                    | position = Point2d.translateIn (Direction2d.reverse direction) halfOverlap playerA.position
+                  }
+                , { playerB
+                    | position = Point2d.translateIn direction halfOverlap playerB.position
+                  }
+                )
+
+            Nothing ->
+                -- Players are at the exact same position, push them apart in an arbitrary direction
+                let
+                    halfOverlap =
+                        Quantity.multiplyBy 0.5 minDistance
+                in
+                ( { playerA
+                    | position = Point2d.translateIn Direction2d.negativeX halfOverlap playerA.position
+                  }
+                , { playerB
+                    | position = Point2d.translateIn Direction2d.positiveX halfOverlap playerB.position
+                  }
+                )
+
+    else
+        ( playerA, playerB )
 
 
 squareMesh : WebGL.Mesh { position : Vec2 }
@@ -3701,7 +3734,6 @@ initPlayer team =
     , targetPosition = Nothing
     , velocity = Vector2d.zero
     , rotation = Direction2d.x
-    , lastCollision = Nothing
     , lastEmote = Nothing
     , clickStart = Nothing
     , isDead = Nothing
@@ -4142,19 +4174,6 @@ audio loaded matchPage =
                                         |> (\a -> Duration.subtractFrom a (pingOffset loaded))
                                         |> (\a -> Duration.subtractFrom a loaded.debugTimeOffset)
 
-                                collisionSounds : List Audio
-                                collisionSounds =
-                                    List.filterMap
-                                        (\player ->
-                                            case player.lastCollision of
-                                                Just frameId ->
-                                                    Audio.audio loaded.sounds.blip (frameToTime frameId) |> Just
-
-                                                Nothing ->
-                                                    Nothing
-                                        )
-                                        (SeqDict.values state.players)
-
                                 chargeSounds : List Audio
                                 chargeSounds =
                                     List.filterMap
@@ -4269,8 +4288,7 @@ audio loaded matchPage =
                                         Nothing ->
                                             []
                             in
-                            collisionSounds
-                                ++ chargeSounds
+                            chargeSounds
                                 ++ footstepSounds
                                 ++ deadSounds
                                 ++ throwSounds
