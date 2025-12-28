@@ -53,7 +53,7 @@ requestTextures loadedTexture =
                 , horizontalWrap = Texture.clampToEdge
                 , verticalWrap = Texture.clampToEdge
                 , flipY = False
-                , premultiplyAlpha = False
+                , premultiplyAlpha = True
                 }
                 url
                 |> Task.attempt identity

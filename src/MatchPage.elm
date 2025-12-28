@@ -1202,7 +1202,7 @@ drawOverlays canvasSize vignetteTexture videoTexture =
 
         drawOverlay texture =
             WebGL.entityWith
-                [ Blend.add Blend.srcAlpha Blend.oneMinusSrcAlpha ]
+                [ Blend.add Blend.one Blend.oneMinusSrcAlpha ]
                 textureVertexShader
                 textureFragmentShader
                 overlayMesh
