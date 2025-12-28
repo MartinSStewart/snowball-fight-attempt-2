@@ -2025,10 +2025,10 @@ wall : Polygon2d Meters WorldCoordinate
 wall =
     Polygon2d.withHoles
         []
-        [ Point2d.meters -14 -12
-        , Point2d.meters 14 -12
-        , Point2d.meters 14 12
-        , Point2d.meters -14 12
+        [ Point2d.meters -14 -11
+        , Point2d.meters 14 -11
+        , Point2d.meters 14 11
+        , Point2d.meters -14 11
         ]
 
 
@@ -3529,7 +3529,7 @@ initMatchData serverTime newUserIds maybeTimelineCache =
                             Nothing
                 )
             |> SeqDict.fromList
-    , wallMesh = lineSegmentMesh (Vec3.vec3 1 0 0) wallSegments
+    , wallMesh = lineSegmentMesh (Vec3.vec3 1 0.7 0.7) wallSegments
     , touchPosition = Nothing
     , previousTouchPosition = Nothing
     , primaryDown = Nothing
@@ -3644,7 +3644,7 @@ initPlayerPosition : SeqDict (Id UserId) Player -> SeqDict (Id UserId) Player
 initPlayerPosition players =
     let
         spacing =
-            Length.inMeters playerRadius * 2.1
+            Length.inMeters playerRadius * 2.3
 
         playersPerRow =
             4
@@ -3688,10 +3688,10 @@ initPlayerPosition players =
                         )
                         (case player.team of
                             RedTeam ->
-                                Point2d.meters -12 -10
+                                Point2d.meters -12 -8
 
                             BlueTeam ->
-                                Point2d.meters 12 10
+                                Point2d.meters 12 8
                         )
             in
             ( SeqDict.insert
