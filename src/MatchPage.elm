@@ -2443,7 +2443,11 @@ updatePlayer inputs2 frameId userId player model =
                         }
                             :: snowballs
 
-                    else if elapsed |> Quantity.greaterThanOrEqualTo clickTotalDelay then
+                    else
+                        snowballs
+
+                ( Just clickStart, _ ) ->
+                    if frameTimeElapsed clickStart.time frameId |> Quantity.greaterThanOrEqualTo clickTotalDelay then
                         -- Overcharge: very short throw that becomes pushable when it lands
                         let
                             direction : Direction2d WorldCoordinate
@@ -2908,7 +2912,7 @@ maxThrowDistance =
 
 overchargeThrowDistance : Length
 overchargeThrowDistance =
-    Length.meters 0.5
+    throwDistance Quantity.zero
 
 
 throwVelocity : Direction2d WorldCoordinate -> Length -> Vector3d MetersPerSecond WorldCoordinate
