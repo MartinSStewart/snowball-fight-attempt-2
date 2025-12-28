@@ -1,4 +1,4 @@
-module Textures exposing (Textures, loadingFinished, requestTextures)
+module Textures exposing (Textures, loadingFinished, requestTextures, textureOptions)
 
 import Character exposing (Character)
 import Effect.Command as Command exposing (Command, FrontendOnly)
@@ -47,20 +47,23 @@ requestTextures : (String -> Result Texture.Error Texture -> msg) -> Command Fro
 requestTextures loadedTexture =
     List.map
         (\url ->
-            Texture.loadWith
-                { magnify = Texture.linear
-                , minify = Texture.linear
-                , horizontalWrap = Texture.clampToEdge
-                , verticalWrap = Texture.clampToEdge
-                , flipY = False
-                , premultiplyAlpha = True
-                }
-                url
+            Texture.loadWith textureOptions url
                 |> Task.attempt identity
                 |> Command.map identity (loadedTexture url)
         )
         textureUrls
         |> Command.batch
+
+
+textureOptions : Texture.Options
+textureOptions =
+    { magnify = Texture.linear
+    , minify = Texture.linear
+    , horizontalWrap = Texture.clampToEdge
+    , verticalWrap = Texture.clampToEdge
+    , flipY = False
+    , premultiplyAlpha = True
+    }
 
 
 loadingFinished : SeqDict String (Result Texture.Error Texture) -> Maybe Textures

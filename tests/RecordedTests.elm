@@ -7,6 +7,7 @@ import Dict exposing (Dict)
 import Effect.Browser.Dom as Dom
 import Effect.Lamdera as Lamdera exposing (ClientId, SessionId)
 import Effect.Test as T exposing (DelayInMs, FileUpload(..), HttpRequest, HttpResponse(..), MultipleFilesUpload(..))
+import Effect.WebGL.Texture exposing (Texture)
 import Frontend
 import Id exposing (Id)
 import Json.Decode
@@ -19,8 +20,10 @@ import MatchPage exposing (MatchId, MatchLocalOnly(..))
 import Point2d exposing (Point2d)
 import Route
 import SeqDict exposing (SeqDict)
+import Sounds
 import Test.Html.Query
 import Test.Html.Selector
+import Textures
 import Time
 import Timeline exposing (FrameId)
 import Types exposing (BackendModel, BackendMsg, FrontendModel, FrontendModel_(..), FrontendMsg, Page(..), ToBackend, ToFrontend)
@@ -31,6 +34,14 @@ import User exposing (UserId)
 setup : T.ViewerWith (List (T.EndToEndTest ToBackend FrontendMsg FrontendModel ToFrontend BackendMsg BackendModel))
 setup =
     T.viewerWith tests
+        |> T.addTextureWithOptions Textures.textureOptions "/vignette.png"
+        |> T.addTextureWithOptions Textures.textureOptions "/video0.png"
+        |> T.addTextureWithOptions Textures.textureOptions "/video1.png"
+        |> T.addTextureWithOptions Textures.textureOptions "/video2.png"
+        |> T.addTextureWithOptions Textures.textureOptions "/bones/base.png"
+        |> T.addTextureWithOptions Textures.textureOptions "/bones/shadow.png"
+        |> T.addTextureWithOptions Textures.textureOptions "/charlotte/base.png"
+        |> T.addTextureWithOptions Textures.textureOptions "/charlotte/shadow.png"
         |> T.addBytesFiles (Dict.values fileRequests)
 
 
@@ -115,33 +126,6 @@ dropPrefix prefix text =
         text
 
 
-handleHttpRequests : Dict String String -> Dict String Bytes -> { currentRequest : HttpRequest, data : T.Data FrontendModel BackendModel } -> HttpResponse
-handleHttpRequests overrides fileData requestAndData =
-    let
-        key : String
-        key =
-            requestAndData.currentRequest.method ++ "_" ++ requestAndData.currentRequest.url
-
-        getData : String -> HttpResponse
-        getData path =
-            case Dict.get path fileData of
-                Just data ->
-                    BytesHttpResponse { url = requestAndData.currentRequest.url, statusCode = 200, statusText = "OK", headers = Dict.empty } data
-
-                Nothing ->
-                    UnhandledHttpRequest
-    in
-    case ( Dict.get key overrides, Dict.get key fileRequests ) of
-        ( Just path, _ ) ->
-            getData path
-
-        ( Nothing, Just path ) ->
-            getData path
-
-        _ ->
-            UnhandledHttpRequest
-
-
 hasExactText :
     T.FrontendActions ToBackend FrontendMsg FrontendModel ToFrontend BackendMsg BackendModel
     -> List String
@@ -174,14 +158,79 @@ hasNotText user texts =
     user.checkView 100 (Test.Html.Query.hasNot (List.map Test.Html.Selector.text texts))
 
 
-tests : Dict String Bytes -> List (T.EndToEndTest ToBackend FrontendMsg FrontendModel ToFrontend BackendMsg BackendModel)
-tests fileData =
+tests :
+    Texture
+    -> Texture
+    -> Texture
+    -> Texture
+    -> Texture
+    -> Texture
+    -> Texture
+    -> Texture
+    -> Dict String Bytes
+    -> List (T.EndToEndTest ToBackend FrontendMsg FrontendModel ToFrontend BackendMsg BackendModel)
+tests vignette video0 video1 video2 bonesBase bonesShadow charlotteBase charlotteShadow fileData =
     let
+        handleHttpRequests : Dict String String -> { currentRequest : HttpRequest, data : T.Data FrontendModel BackendModel } -> HttpResponse
+        handleHttpRequests overrides requestAndData =
+            let
+                okMetadata =
+                    { url = requestAndData.currentRequest.url, statusCode = 200, statusText = "OK", headers = Dict.empty }
+
+                key : String
+                key =
+                    requestAndData.currentRequest.method ++ "_" ++ requestAndData.currentRequest.url
+
+                getData : String -> HttpResponse
+                getData path =
+                    case Dict.get path fileData of
+                        Just data ->
+                            BytesHttpResponse okMetadata data
+
+                        Nothing ->
+                            UnhandledHttpRequest
+            in
+            case key of
+                "GET_/vignette.png" ->
+                    TextureHttpResponse okMetadata vignette
+
+                "GET_/video0.png" ->
+                    TextureHttpResponse okMetadata video0
+
+                "GET_/video1.png" ->
+                    TextureHttpResponse okMetadata video1
+
+                "GET_/video2.png" ->
+                    TextureHttpResponse okMetadata video2
+
+                "GET_/bones/base.png" ->
+                    TextureHttpResponse okMetadata bonesBase
+
+                "GET_/bones/shadow.png" ->
+                    TextureHttpResponse okMetadata bonesShadow
+
+                "GET_/charlotte/base.png" ->
+                    TextureHttpResponse okMetadata charlotteBase
+
+                "GET_/charlotte/shadow.png" ->
+                    TextureHttpResponse okMetadata charlotteShadow
+
+                _ ->
+                    case ( Dict.get key overrides, Dict.get key fileRequests ) of
+                        ( Just path, _ ) ->
+                            getData path
+
+                        ( Nothing, Just path ) ->
+                            getData path
+
+                        _ ->
+                            UnhandledHttpRequest
+
         config =
             T.Config
                 Frontend.app_
                 Backend.app_
-                (handleHttpRequests Dict.empty fileData)
+                (handleHttpRequests Dict.empty)
                 handlePortToJs
                 (\_ -> UnhandledFileUpload)
                 (\_ -> UnhandledMultiFileUpload)
@@ -276,10 +325,22 @@ handleAudioPorts :
     T.FrontendActions toBackend frontendMsg frontendModel toFrontend backendMsg backendModel
     -> T.Action toBackend frontendMsg frontendModel toFrontend backendMsg backendModel
 handleAudioPorts user =
-    T.group
-        [ user.portEvent 100 "audioPortFromJS" (stringToJson """{"type":2,"samplesPerSecond":48000}""")
-        , user.portEvent 100 "audioPortFromJS" (stringToJson """{"type":1,"requestId":0,"bufferId":0,"durationInSeconds":0.03325}""")
-        ]
+    [ user.portEvent 100 "audioPortFromJS" (stringToJson """{"type":2,"samplesPerSecond":48000}""") ]
+        ++ List.map
+            (\index ->
+                user.portEvent
+                    10
+                    "audioPortFromJS"
+                    ("""{"type":1,"requestId":"""
+                        ++ String.fromInt index
+                        ++ ""","bufferId":"""
+                        ++ String.fromInt index
+                        ++ ""","durationInSeconds":0.03325}"""
+                        |> stringToJson
+                    )
+            )
+            (List.range 0 (List.length Sounds.soundUrls - 1))
+        |> T.group
 
 
 {-| Verifies that all players in active matches are in sync by checking that

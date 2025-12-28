@@ -1,4 +1,4 @@
-module Sounds exposing (Sounds, loadingFinished, requestSounds)
+module Sounds exposing (Sounds, loadingFinished, requestSounds, soundUrls)
 
 import Audio exposing (AudioCmd)
 import SeqDict exposing (SeqDict)
