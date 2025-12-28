@@ -156,7 +156,6 @@ type alias Player =
     , targetPosition : Maybe (Point2d Meters WorldCoordinate)
     , velocity : Vector2d Meters WorldCoordinate
     , rotation : Direction2d WorldCoordinate
-    , lastCollision : Maybe (Id FrameId)
     , lastEmote : Maybe { time : Id FrameId, emote : Emote }
     , clickStart : Maybe { position : Point2d Meters WorldCoordinate, time : Id FrameId }
     , isDead : Maybe { time : Id FrameId, fallDirection : Direction2d WorldCoordinate }

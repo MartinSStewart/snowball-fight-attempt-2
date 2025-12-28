@@ -3046,7 +3046,6 @@ updateVelocities frameId players =
                     , targetPosition = newTargetPosition
                     , velocity = collisionVelocity
                     , rotation = a.rotation
-                    , lastCollision = Just frameId
                     , lastEmote = a.lastEmote
                     , clickStart = a.clickStart
                     , isDead = a.isDead
@@ -3059,7 +3058,6 @@ updateVelocities frameId players =
                     , targetPosition = newTargetPosition
                     , velocity = newVelocity
                     , rotation = a.rotation
-                    , lastCollision = a.lastCollision
                     , lastEmote = a.lastEmote
                     , clickStart = a.clickStart
                     , isDead = a.isDead
@@ -3206,7 +3204,6 @@ handleCollision frameId playerA playerB =
                 in
                 ( { playerA
                     | position = Point2d.translateIn (Direction2d.reverse direction) halfOverlap playerA.position
-                    , lastCollision = Just frameId
                   }
                 , { playerB
                     | position = Point2d.translateIn direction halfOverlap playerB.position
@@ -3221,7 +3218,6 @@ handleCollision frameId playerA playerB =
                 in
                 ( { playerA
                     | position = Point2d.translateIn Direction2d.negativeX halfOverlap playerA.position
-                    , lastCollision = Just frameId
                   }
                 , { playerB
                     | position = Point2d.translateIn Direction2d.positiveX halfOverlap playerB.position
@@ -3738,7 +3734,6 @@ initPlayer team =
     , targetPosition = Nothing
     , velocity = Vector2d.zero
     , rotation = Direction2d.x
-    , lastCollision = Nothing
     , lastEmote = Nothing
     , clickStart = Nothing
     , isDead = Nothing
@@ -4179,19 +4174,6 @@ audio loaded matchPage =
                                         |> (\a -> Duration.subtractFrom a (pingOffset loaded))
                                         |> (\a -> Duration.subtractFrom a loaded.debugTimeOffset)
 
-                                collisionSounds : List Audio
-                                collisionSounds =
-                                    List.filterMap
-                                        (\player ->
-                                            case player.lastCollision of
-                                                Just frameId ->
-                                                    Audio.audio loaded.sounds.blip (frameToTime frameId) |> Just
-
-                                                Nothing ->
-                                                    Nothing
-                                        )
-                                        (SeqDict.values state.players)
-
                                 chargeSounds : List Audio
                                 chargeSounds =
                                     List.filterMap
@@ -4306,8 +4288,7 @@ audio loaded matchPage =
                                         Nothing ->
                                             []
                             in
-                            collisionSounds
-                                ++ chargeSounds
+                            chargeSounds
                                 ++ footstepSounds
                                 ++ deadSounds
                                 ++ throwSounds
