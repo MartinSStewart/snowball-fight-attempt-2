@@ -1409,10 +1409,10 @@ mapFillMesh =
 overlayMesh : Mesh TextureVertex
 overlayMesh =
     WebGL.triangleFan
-        [ { position = Vec3.vec3 -1 -1 0, color = Vec3.vec3 1 1 1, uv = Vec2.vec2 0 1 }
-        , { position = Vec3.vec3 1 -1 0, color = Vec3.vec3 1 1 1, uv = Vec2.vec2 1 1 }
-        , { position = Vec3.vec3 1 1 0, color = Vec3.vec3 1 1 1, uv = Vec2.vec2 1 0 }
-        , { position = Vec3.vec3 -1 1 0, color = Vec3.vec3 1 1 1, uv = Vec2.vec2 0 0 }
+        [ { position = Vec3.vec3 -1 -1 0, uv = Vec2.vec2 0 1 }
+        , { position = Vec3.vec3 1 -1 0, uv = Vec2.vec2 1 1 }
+        , { position = Vec3.vec3 1 1 0, uv = Vec2.vec2 1 0 }
+        , { position = Vec3.vec3 -1 1 0, uv = Vec2.vec2 0 0 }
         ]
 
 
@@ -3376,7 +3376,6 @@ textureVertexShader : Shader TextureVertex TextureUniforms { vuv : Vec2 }
 textureVertexShader =
     [glsl|
 attribute vec3 position;
-attribute vec3 color;
 attribute vec2 uv;
 varying vec2 vuv;
 uniform vec3 ucolor;
