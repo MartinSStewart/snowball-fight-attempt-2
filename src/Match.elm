@@ -310,7 +310,7 @@ initPlayerData userId =
                         Random.uniform head rest
 
                     [] ->
-                        Random.constant Character.Character1
+                        Random.constant Character.Bones
                 )
     in
     Random.step randomData (Random.initialSeed (Id.toInt userId + 3)) |> Tuple.first
@@ -405,7 +405,7 @@ allUsersAndBots (Match lobby) =
                           , decal = Nothing
                           , skinTone = SkinTone.Medium
                           , mode = PlayerMode
-                          , character = Character.Character1
+                          , character = Character.Bones
                           }
                         )
                     )

@@ -643,7 +643,7 @@ type WorldPixel
 
 
 
---characterView : MatchActiveLocal_ -> MatchState -> List (Ui.Attribute msg)
+--characterView : MatchActiveLocal_ -> MatchState -> List WebGL.Entity
 --characterView match state =
 --    SeqDict.foldr
 --        (\userId player ( redTeam, blueTeam ) ->
@@ -960,7 +960,7 @@ matchSetupView config lobby matchSetupData currentPlayerData =
                                             [ Ui.width (Ui.px 100)
                                             , Ui.height (Ui.px 100)
                                             ]
-                                            { source = Character.toPortraitPath character
+                                            { source = "/bones/base.png"
                                             , description = Character.toString character
                                             , onLoad = Nothing
                                             }
