@@ -11,6 +11,7 @@ module Match exposing
     , Player
     , PlayerData
     , PlayerMode(..)
+    , PushableSnowball
     , ServerTime(..)
     , Snowball
     , Team(..)
@@ -105,6 +106,7 @@ type alias TimelineEvent =
 type alias MatchState =
     { players : SeqDict (Id UserId) Player
     , snowballs : List Snowball
+    , pushableSnowballs : List PushableSnowball
     , particles : List Particle
     , footsteps :
         List
@@ -139,6 +141,12 @@ type alias Snowball =
     , thrownBy : Id UserId
     , thrownAt : Id FrameId
     , apexFrame : Maybe (Id FrameId)
+    , isOvercharge : Bool
+    }
+
+
+type alias PushableSnowball =
+    { position : Point2d Meters WorldCoordinate
     }
 
 

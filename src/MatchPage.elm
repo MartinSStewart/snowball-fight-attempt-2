@@ -2439,6 +2439,31 @@ updatePlayer inputs2 frameId userId player model =
                         , velocity = velocity
                         , position = Point3d.meters x y (Length.inMeters snowballStartHeight)
                         , apexFrame = apexFrame
+                        , isOvercharge = False
+                        }
+                            :: snowballs
+
+                    else if elapsed |> Quantity.greaterThanOrEqualTo clickTotalDelay then
+                        -- Overcharge: very short throw that becomes pushable when it lands
+                        let
+                            direction : Direction2d WorldCoordinate
+                            direction =
+                                Direction2d.from player.position clickStart.position
+                                    |> Maybe.withDefault Direction2d.x
+
+                            { x, y } =
+                                Point2d.toMeters player.position
+
+                            velocity : Vector3d MetersPerSecond WorldCoordinate
+                            velocity =
+                                throwVelocity direction overchargeThrowDistance
+                        in
+                        { thrownBy = userId
+                        , thrownAt = frameId
+                        , velocity = velocity
+                        , position = Point3d.meters x y (Length.inMeters snowballStartHeight)
+                        , apexFrame = Nothing
+                        , isOvercharge = True
                         }
                             :: snowballs
 
@@ -2481,9 +2506,9 @@ gameUpdate frameId inputs model =
         updatedVelocities_ =
             updateVelocities frameId model2.players
 
-        ( survivingSnowballs, newParticles ) =
+        ( survivingSnowballs, newParticles, newPushableSnowballs ) =
             List.foldl
-                (\snowball ( snowballs2, particles2 ) ->
+                (\snowball ( snowballs2, particles2, pushable2 ) ->
                     let
                         position : Point3d Meters WorldCoordinate
                         position =
@@ -2495,17 +2520,31 @@ gameUpdate frameId inputs model =
                           , thrownBy = snowball.thrownBy
                           , thrownAt = snowball.thrownAt
                           , apexFrame = snowball.apexFrame
+                          , isOvercharge = snowball.isOvercharge
                           }
                             :: snowballs2
                         , particles2
+                        , pushable2
+                        )
+
+                    else if snowball.isOvercharge then
+                        -- Overcharge snowball lands and becomes pushable
+                        let
+                            { x, y } =
+                                Point3d.toMeters position
+                        in
+                        ( snowballs2
+                        , particles2
+                        , { position = Point2d.meters x y } :: pushable2
                         )
 
                     else
                         ( snowballs2
                         , snowballParticles frameId snowball.thrownAt position ++ particles2
+                        , pushable2
                         )
                 )
-                ( [], [] )
+                ( [], [], [] )
                 model2.snowballs
 
         particles : List Particle
@@ -2527,6 +2566,7 @@ gameUpdate frameId inputs model =
                         )
                         updatedVelocities_
                 , snowballs = List.reverse survivingSnowballs
+                , pushableSnowballs = model2.pushableSnowballs ++ newPushableSnowballs
                 , particles = particles
                 , footsteps = model2.footsteps
                 , mergedFootsteps = model2.mergedFootsteps
@@ -2537,6 +2577,7 @@ gameUpdate frameId inputs model =
             else
                 { players = initPlayerPosition model2.players
                 , snowballs = []
+                , pushableSnowballs = []
                 , particles = []
                 , footsteps = model2.footsteps
                 , mergedFootsteps = model2.mergedFootsteps
@@ -2563,6 +2604,7 @@ gameUpdate frameId inputs model =
                     )
                     updatedVelocities_
             , snowballs = List.reverse survivingSnowballs
+            , pushableSnowballs = model2.pushableSnowballs ++ newPushableSnowballs
             , particles = particles
             , footsteps = model2.footsteps
             , mergedFootsteps = model2.mergedFootsteps
@@ -2862,6 +2904,11 @@ snowballStartHeight =
 maxThrowDistance : Length
 maxThrowDistance =
     Length.meters 15
+
+
+overchargeThrowDistance : Length
+overchargeThrowDistance =
+    Length.meters 0.5
 
 
 throwVelocity : Direction2d WorldCoordinate -> Length -> Vector3d MetersPerSecond WorldCoordinate
@@ -3632,6 +3679,7 @@ initMatch startTime users =
             |> SeqDict.fromList
             |> initPlayerPosition
     , snowballs = []
+    , pushableSnowballs = []
     , particles = []
     , footsteps = []
     , mergedFootsteps = []
