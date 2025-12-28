@@ -3187,12 +3187,49 @@ aimingReticle =
 
 handleCollision : Id FrameId -> Player -> Player -> ( Player, Player )
 handleCollision frameId playerA playerB =
-    case Geometry.circleCircle playerRadius playerA.position playerA.velocity playerB.position playerB.velocity of
-        Just ( v1, v2 ) ->
-            ( { playerA | velocity = v1, lastCollision = Just frameId }, { playerB | velocity = v2 } )
+    let
+        distance =
+            Point2d.distanceFrom playerA.position playerB.position
 
-        Nothing ->
-            ( playerA, playerB )
+        minDistance =
+            Quantity.multiplyBy 2 playerRadius
+    in
+    if distance |> Quantity.lessThan minDistance then
+        case Direction2d.from playerA.position playerB.position of
+            Just direction ->
+                let
+                    overlap =
+                        Quantity.minus distance minDistance
+
+                    halfOverlap =
+                        Quantity.multiplyBy 0.5 overlap
+                in
+                ( { playerA
+                    | position = Point2d.translateIn (Direction2d.reverse direction) halfOverlap playerA.position
+                    , lastCollision = Just frameId
+                  }
+                , { playerB
+                    | position = Point2d.translateIn direction halfOverlap playerB.position
+                  }
+                )
+
+            Nothing ->
+                -- Players are at the exact same position, push them apart in an arbitrary direction
+                let
+                    halfOverlap =
+                        Quantity.multiplyBy 0.5 minDistance
+                in
+                ( { playerA
+                    | position = Point2d.translateIn Direction2d.negativeX halfOverlap playerA.position
+                    , lastCollision = Just frameId
+                  }
+                , { playerB
+                    | position = Point2d.translateIn Direction2d.positiveX halfOverlap playerB.position
+                  }
+                )
+
+    else
+        ( playerA, playerB )
 
 
 squareMesh : WebGL.Mesh { position : Vec2 }
