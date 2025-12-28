@@ -3336,7 +3336,7 @@ updatePushableSnowballs players pushableSnowballs =
 
         -- Finally, apply friction and move snowballs
         friction =
-            0.92
+            0.95
     in
     List.map
         (\snowball ->
@@ -3371,47 +3371,34 @@ applyPlayerCollision player snowball =
             Quantity.plus playerRadius pushableSnowballRadius
     in
     if distance |> Quantity.lessThan minDistance then
-        case Direction2d.from player.position snowball.position of
-            Just direction ->
-                let
-                    -- Push the snowball away from the player
-                    overlap =
-                        Quantity.minus distance minDistance |> Quantity.negate
+        let
+            direction =
+                Direction2d.from player.position snowball.position |> Maybe.withDefault Direction2d.x
 
-                    -- Add velocity based on player's movement and push direction
-                    pushStrength =
-                        Length.meters 0.15
+            -- Push the snowball away from the player
+            overlap =
+                Quantity.minus distance minDistance |> Quantity.negate
 
-                    pushVelocity =
-                        Vector2d.withLength pushStrength direction
+            -- Add velocity based on player's movement and push direction
+            pushStrength =
+                Length.meters 0.05
 
-                    -- Also inherit some of player's velocity
-                    inheritedVelocity =
-                        Vector2d.scaleBy 0.5 player.velocity
+            pushVelocity =
+                Vector2d.withLength pushStrength direction
 
-                    newVelocity =
-                        Vector2d.plus snowball.velocity pushVelocity
-                            |> Vector2d.plus inheritedVelocity
+            -- Also inherit some of player's velocity
+            inheritedVelocity =
+                Vector2d.scaleBy 0.5 player.velocity
 
-                    -- Move snowball out of collision
-                    newPosition =
-                        Point2d.translateIn direction overlap snowball.position
-                in
-                { snowball | position = newPosition, velocity = newVelocity }
+            newVelocity =
+                Vector2d.plus snowball.velocity pushVelocity
+                    |> Vector2d.plus inheritedVelocity
 
-            Nothing ->
-                -- Player and snowball at same position, push in arbitrary direction
-                let
-                    pushStrength =
-                        Length.meters 0.15
-
-                    newVelocity =
-                        Vector2d.plus snowball.velocity (Vector2d.xy pushStrength Quantity.zero)
-
-                    newPosition =
-                        Point2d.translateIn Direction2d.positiveX minDistance snowball.position
-                in
-                { snowball | position = newPosition, velocity = newVelocity }
+            -- Move snowball out of collision
+            newPosition =
+                Point2d.translateIn direction overlap snowball.position
+        in
+        { snowball | position = newPosition, velocity = newVelocity }
 
     else
         snowball
