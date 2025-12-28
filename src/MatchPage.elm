@@ -103,8 +103,8 @@ import Vector3d exposing (Vector3d)
 import Viewpoint3d
 import WebGL.Matrices
 import WebGL.Settings
+import WebGL.Settings.Blend as Blend
 import WebGL.Settings.DepthTest
-import WebGL.Texture
 
 
 type Msg
@@ -627,6 +627,7 @@ type alias Config a =
         , previousMouse : Mouse
         , currentMouse : Mouse
         , devicePixelRatio : Quantity Float (Rate WorldPixel Pixels)
+        , textures : Textures
     }
 
 
@@ -708,6 +709,7 @@ view config model =
                                             config.time
                                             config.windowSize
                                             config.devicePixelRatio
+                                            config.textures
                                             (canvasViewHelper config model)
                                         )
                                     :: (case matchData.touchPosition of
@@ -1139,14 +1141,28 @@ findPixelPerfectSize windowSize (Quantity pixelRatio) =
     }
 
 
-canvasView : Time.Posix -> Size -> Quantity Float (Rate WorldPixel Pixels) -> (Size -> List WebGL.Entity) -> Ui.Element msg
-canvasView time windowSize devicePixelRatio entities =
+canvasView : Time.Posix -> Size -> Quantity Float (Rate WorldPixel Pixels) -> Textures -> (Size -> List WebGL.Entity) -> Ui.Element msg
+canvasView time windowSize devicePixelRatio textures entities =
     let
         ( Quantity cssWindowWidth, Quantity cssWindowHeight ) =
             canvasSize
 
         { canvasSize, actualCanvasSize } =
             findPixelPerfectSize windowSize devicePixelRatio
+
+        videoTexture =
+            case Time.posixToMillis time // 10 |> modBy 3 of
+                0 ->
+                    textures.video0
+
+                1 ->
+                    textures.video1
+
+                _ ->
+                    textures.video2
+
+        overlayEntities =
+            drawOverlays actualCanvasSize textures.vignette videoTexture
     in
     WebGL.toHtmlWith
         [ WebGL.alpha True, WebGL.stencil 0, WebGL.depth 1, WebGL.clearColor 0 0 0 1 ]
@@ -1155,40 +1171,9 @@ canvasView time windowSize devicePixelRatio entities =
         , Html.Attributes.style "width" (String.fromInt cssWindowWidth ++ "px")
         , Html.Attributes.style "height" (String.fromInt cssWindowHeight ++ "px")
         ]
-        (entities actualCanvasSize)
+        (entities actualCanvasSize ++ overlayEntities)
         |> Ui.html
-        |> Ui.el
-            [ Ui.inFront
-                (Ui.image
-                    [ cssWindowHeight |> Ui.px |> Ui.height
-                    , overlayRatio * toFloat cssWindowHeight |> round |> Ui.px |> Ui.width
-                    , Ui.centerX
-                    , MyUi.noPointerEvents
-                    ]
-                    { source = "/vignette.png", description = "", onLoad = Nothing }
-                )
-            , Ui.inFront
-                (Ui.image
-                    [ cssWindowHeight |> Ui.px |> Ui.height
-                    , overlayRatio * toFloat cssWindowHeight |> round |> Ui.px |> Ui.width
-                    , Ui.centerX
-                    , MyUi.noPointerEvents
-                    ]
-                    { source =
-                        case Time.posixToMillis time // 10 |> modBy 3 of
-                            0 ->
-                                "/video0.png"
-
-                            1 ->
-                                "/video1.png"
-
-                            _ ->
-                                "/video2.png"
-                    , description = ""
-                    , onLoad = Nothing
-                    }
-                )
-            ]
+        |> Ui.el []
 
 
 overlayRatio =
@@ -1201,6 +1186,35 @@ overlayWidth =
 
 overlayHeight =
     800
+
+
+drawOverlays : Size -> Texture -> Texture -> List WebGL.Entity
+drawOverlays canvasSize vignetteTexture videoTexture =
+    let
+        screenAspect =
+            toFloat (Pixels.inPixels canvasSize.width) / toFloat (Pixels.inPixels canvasSize.height)
+
+        scaleX =
+            overlayRatio / screenAspect
+
+        modelMatrix =
+            Mat4.makeScale3 scaleX 1 1
+
+        drawOverlay texture =
+            WebGL.entityWith
+                [ Blend.add Blend.srcAlpha Blend.oneMinusSrcAlpha ]
+                textureVertexShader
+                textureFragmentShader
+                overlayMesh
+                { ucolor = Vec3.vec3 1 1 1
+                , view = Mat4.identity
+                , model = modelMatrix
+                , texture = texture
+                }
+    in
+    [ drawOverlay videoTexture
+    , drawOverlay vignetteTexture
+    ]
 
 
 camera : Point2d Meters WorldCoordinate -> Length -> Camera3d Meters WorldCoordinate
@@ -1389,6 +1403,16 @@ mapFillMesh =
         , { position = Vec3.vec3 viewWidth -viewHeight -1, color = Vec3.vec3 1 1 1 }
         , { position = Vec3.vec3 viewWidth viewHeight -1, color = Vec3.vec3 1 1 1 }
         , { position = Vec3.vec3 -viewWidth viewHeight -1, color = Vec3.vec3 1 1 1 }
+        ]
+
+
+overlayMesh : Mesh TextureVertex
+overlayMesh =
+    WebGL.triangleFan
+        [ { position = Vec3.vec3 -1 -1 0, uv = Vec2.vec2 0 1 }
+        , { position = Vec3.vec3 1 -1 0, uv = Vec2.vec2 1 1 }
+        , { position = Vec3.vec3 1 1 0, uv = Vec2.vec2 1 0 }
+        , { position = Vec3.vec3 -1 1 0, uv = Vec2.vec2 0 0 }
         ]
 
 
@@ -3345,16 +3369,15 @@ type alias Uniforms =
 
 
 type alias TextureUniforms =
-    { ucolor : Vec3, view : Mat4, model : Mat4, texture : WebGL.Texture.Texture }
+    { ucolor : Vec3, view : Mat4, model : Mat4, texture : Texture }
 
 
-textureVertexShader : Shader TextureVertex TextureUniforms { vcolor : Vec4 }
+textureVertexShader : Shader TextureVertex TextureUniforms { vuv : Vec2 }
 textureVertexShader =
     [glsl|
 attribute vec3 position;
-attribute vec3 color;
 attribute vec2 uv;
-varying vec4 vcolor;
+varying vec2 vuv;
 uniform vec3 ucolor;
 uniform mat4 view;
 uniform mat4 model;
@@ -3363,21 +3386,20 @@ uniform sampler2D texture;
 
 void main () {
     gl_Position = view * model * vec4(position, 1.0);
-
-    vcolor = vec4(color.xyz * ucolor, 1.0);
+    vuv = uv;
 }
 |]
 
 
-textureFragmentShader : Shader {} TextureUniforms { vcolor : Vec4 }
+textureFragmentShader : Shader {} TextureUniforms { vuv : Vec2 }
 textureFragmentShader =
     [glsl|
 precision mediump float;
-varying vec4 vcolor;
+varying vec2 vuv;
 uniform sampler2D texture;
 
 void main () {
-    gl_FragColor = vcolor;
+    gl_FragColor = texture2D(texture, vuv);
 }
 |]
 

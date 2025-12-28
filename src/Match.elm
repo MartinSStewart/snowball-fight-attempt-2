@@ -130,7 +130,7 @@ type alias Vertex =
 
 
 type alias TextureVertex =
-    { position : Vec3, color : Vec3, uv : Vec2 }
+    { position : Vec3, uv : Vec2 }
 
 
 type alias Snowball =
