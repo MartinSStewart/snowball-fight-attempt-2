@@ -149,6 +149,7 @@ type alias Snowball =
 type alias PushableSnowball =
     { position : Point2d Meters WorldCoordinate
     , velocity : Vector2d Meters WorldCoordinate
+    , radius : Length
     }
 
 
