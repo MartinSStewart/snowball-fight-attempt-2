@@ -211,7 +211,6 @@ circleCircle radius1 radius2 p1 v1 p2 v2 =
             d =
                 sqrt ((cx1 - cx2) ^ 2 + (cy1 - cy2) ^ 2)
 
-            -- Mass proportional to area (radius squared)
             r1 =
                 Length.inMeters radius1
 

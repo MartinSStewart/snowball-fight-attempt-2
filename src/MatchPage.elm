@@ -3345,9 +3345,12 @@ handleCollision frameId playerA playerB =
 updatePushableSnowballs : SeqDict (Id UserId) Player -> List Match.PushableSnowball -> List Match.PushableSnowball
 updatePushableSnowballs players pushableSnowballs =
     let
+        players2 =
+            SeqDict.values players
+
         -- First, apply player collisions and update velocities
         afterPlayerCollisions =
-            List.map (applyPlayerCollisions (SeqDict.values players)) pushableSnowballs
+            List.map (\snowball -> List.foldl pushableSnowballPlayerCollision snowball players2) pushableSnowballs
 
         -- Then, handle collisions between pushable snowballs themselves
         afterSnowballCollisions =
@@ -3367,7 +3370,7 @@ updatePushableSnowballs players pushableSnowballs =
 
         -- Maximum radius the snowball can grow to
         maxRadius =
-            Length.meters 1.5
+            Length.meters 1
     in
     List.map
         (\snowball ->
@@ -3394,17 +3397,10 @@ updatePushableSnowballs players pushableSnowballs =
         afterSnowballCollisions
 
 
-{-| Apply collision effects from all players to a pushable snowball
--}
-applyPlayerCollisions : List Player -> Match.PushableSnowball -> Match.PushableSnowball
-applyPlayerCollisions players snowball =
-    List.foldl applyPlayerCollision snowball players
-
-
 {-| Handle collision between a player and a pushable snowball
 -}
-applyPlayerCollision : Player -> Match.PushableSnowball -> Match.PushableSnowball
-applyPlayerCollision player snowball =
+pushableSnowballPlayerCollision : Player -> Match.PushableSnowball -> Match.PushableSnowball
+pushableSnowballPlayerCollision player snowball =
     let
         distance =
             Point2d.distanceFrom player.position snowball.position
@@ -3415,15 +3411,15 @@ applyPlayerCollision player snowball =
     if distance |> Quantity.lessThan minDistance then
         let
             direction =
-                Direction2d.from player.position snowball.position |> Maybe.withDefault Direction2d.x
+                Direction2d.from snowball.position player.position |> Maybe.withDefault Direction2d.x
 
             -- Push the snowball away from the player
             overlap =
-                Quantity.minus distance minDistance |> Quantity.negate
+                distance |> Quantity.minus minDistance
 
             -- Add velocity based on player's movement and push direction
             pushStrength =
-                Length.meters 0.05
+                Length.meters -0.01
 
             pushVelocity =
                 Vector2d.withLength pushStrength direction
@@ -3433,8 +3429,7 @@ applyPlayerCollision player snowball =
                 Vector2d.scaleBy 0.5 player.velocity
 
             newVelocity =
-                Vector2d.plus snowball.velocity pushVelocity
-                    |> Vector2d.plus inheritedVelocity
+                Vector2d.plus inheritedVelocity pushVelocity
 
             -- Move snowball out of collision
             newPosition =
@@ -3450,92 +3445,60 @@ applyPlayerCollision player snowball =
 -}
 handlePushableSnowballCollisions : List Match.PushableSnowball -> List Match.PushableSnowball
 handlePushableSnowballCollisions snowballs =
-    case snowballs of
-        [] ->
-            []
-
-        first :: rest ->
+    List.map
+        (\current ->
             let
-                ( updatedFirst, updatedRest ) =
-                    List.foldl
-                        (\other ( current, others ) ->
-                            let
-                                ( newCurrent, newOther ) =
-                                    handleTwoPushableSnowballsCollision current other
-                            in
-                            ( newCurrent, newOther :: others )
+                allCollisions : List ( Point2d Meters WorldCoordinate, Vector2d Meters WorldCoordinate )
+                allCollisions =
+                    List.filterMap
+                        (\other ->
+                            if other == current then
+                                Nothing
+
+                            else
+                                let
+                                    distance =
+                                        Point2d.distanceFrom current.position other.position
+
+                                    minDistance =
+                                        Quantity.plus current.radius other.radius
+                                in
+                                case Geometry.circleCircle current.radius other.radius current.position current.velocity other.position other.velocity of
+                                    Just ( newVelA, newVelB ) ->
+                                        let
+                                            direction =
+                                                Direction2d.from current.position other.position |> Maybe.withDefault Direction2d.x
+
+                                            overlap =
+                                                Quantity.minus distance minDistance
+
+                                            halfOverlap =
+                                                Quantity.multiplyBy 0.5 overlap
+                                        in
+                                        ( Point2d.translateIn (Direction2d.reverse direction) halfOverlap current.position
+                                        , newVelA
+                                        )
+                                            |> Just
+
+                                    Nothing ->
+                                        Nothing
                         )
-                        ( first, [] )
-                        rest
+                        snowballs
             in
-            updatedFirst :: handlePushableSnowballCollisions (List.reverse updatedRest)
+            case allCollisions of
+                [] ->
+                    current
 
-
-{-| Handle collision between two pushable snowballs
--}
-handleTwoPushableSnowballsCollision : Match.PushableSnowball -> Match.PushableSnowball -> ( Match.PushableSnowball, Match.PushableSnowball )
-handleTwoPushableSnowballsCollision snowballA snowballB =
-    let
-        distance =
-            Point2d.distanceFrom snowballA.position snowballB.position
-
-        minDistance =
-            Quantity.plus snowballA.radius snowballB.radius
-    in
-    if distance |> Quantity.lessThan minDistance then
-        case Geometry.circleCircle snowballA.radius snowballB.radius snowballA.position snowballA.velocity snowballB.position snowballB.velocity of
-            Just ( newVelA, newVelB ) ->
-                case Direction2d.from snowballA.position snowballB.position of
-                    Just direction ->
-                        let
-                            overlap =
-                                Quantity.minus distance minDistance
-
-                            halfOverlap =
-                                Quantity.multiplyBy 0.5 overlap
-                        in
-                        ( { snowballA
-                            | velocity = newVelA
-                            , position = Point2d.translateIn (Direction2d.reverse direction) halfOverlap snowballA.position
-                          }
-                        , { snowballB
-                            | velocity = newVelB
-                            , position = Point2d.translateIn direction halfOverlap snowballB.position
-                          }
-                        )
-
-                    Nothing ->
-                        -- Same position, push apart
-                        ( { snowballA
-                            | position = Point2d.translateIn Direction2d.negativeX (Quantity.multiplyBy 0.5 minDistance) snowballA.position
-                          }
-                        , { snowballB
-                            | position = Point2d.translateIn Direction2d.positiveX (Quantity.multiplyBy 0.5 minDistance) snowballB.position
-                          }
-                        )
-
-            Nothing ->
-                -- No velocity-based collision, just separate them
-                case Direction2d.from snowballA.position snowballB.position of
-                    Just direction ->
-                        let
-                            overlap =
-                                Quantity.minus distance minDistance
-
-                            halfOverlap =
-                                Quantity.multiplyBy 0.5 overlap
-                        in
-                        ( { snowballA | position = Point2d.translateIn (Direction2d.reverse direction) halfOverlap snowballA.position }
-                        , { snowballB | position = Point2d.translateIn direction halfOverlap snowballB.position }
-                        )
-
-                    Nothing ->
-                        ( { snowballA | position = Point2d.translateIn Direction2d.negativeX (Quantity.multiplyBy 0.5 minDistance) snowballA.position }
-                        , { snowballB | position = Point2d.translateIn Direction2d.positiveX (Quantity.multiplyBy 0.5 minDistance) snowballB.position }
-                        )
-
-    else
-        ( snowballA, snowballB )
+                first :: rest ->
+                    { current
+                        | position = Point2d.centroidOf Tuple.first first rest
+                        , velocity =
+                            List.map Tuple.second allCollisions
+                                |> Vector2d.sum
+                                |> Vector2d.scaleBy (1 / toFloat (List.length allCollisions))
+                    }
+        )
+        snowballs
 
 
 squareMesh : WebGL.Mesh { position : Vec2 }
@@ -3714,8 +3677,7 @@ pushableSnowballRadius =
 
 pushableSnowballMesh : WebGL.Mesh Vertex
 pushableSnowballMesh =
-    circleMesh 0.85 (Vec3.vec3 0.9 0.95 1)
-        ++ circleMesh 1 (Vec3.vec3 0 0 0)
+    circleMesh 1 (Vec3.vec3 0.85 0.9 1)
         |> WebGL.triangles
 
 
