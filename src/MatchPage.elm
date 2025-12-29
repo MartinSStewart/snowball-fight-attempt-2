@@ -2580,7 +2580,7 @@ gameUpdate frameId inputs model =
                         in
                         ( snowballs2
                         , particles2
-                        , { position = Point2d.meters x y, velocity = Vector2d.zero, radius = pushableSnowballRadius } :: pushable2
+                        , { position = Point2d.meters x y, velocity = Vector2d.zero, radius = pushableSnowballStartRadius } :: pushable2
                         )
 
                     else
@@ -3370,7 +3370,7 @@ updatePushableSnowballs players pushableSnowballs =
 
         -- Maximum radius the snowball can grow to
         maxRadius =
-            Length.meters 1
+            Length.meters 0.8
     in
     List.map
         (\snowball ->
@@ -3670,8 +3670,8 @@ snowballRadius =
     Length.meters 0.2
 
 
-pushableSnowballRadius : Quantity Float Meters
-pushableSnowballRadius =
+pushableSnowballStartRadius : Quantity Float Meters
+pushableSnowballStartRadius =
     Length.meters 0.4
 
 
