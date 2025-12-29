@@ -1614,17 +1614,20 @@ canvasViewHelper model matchSetup canvasSize =
 
                                             radius =
                                                 Length.inMeters pushableSnowball.radius
+
+                                            outlineRadius =
+                                                radius + 0.05
                                         in
                                         [ WebGL.entityWith
                                             [ WebGL.Settings.cullFace WebGL.Settings.back, WebGL.Settings.DepthTest.default ]
                                             vertexShader
                                             fragmentShader
-                                            snowballShadowMesh
-                                            { ucolor = Vec3.vec3 1 1 1
+                                            pushableSnowballMesh
+                                            { ucolor = Vec3.vec3 0 0 0
                                             , view = viewMatrix
                                             , model =
-                                                Mat4.makeTranslate3 x y 0.01
-                                                    |> Mat4.scale3 radius radius radius
+                                                Mat4.makeTranslate3 x y radius
+                                                    |> Mat4.scale3 outlineRadius outlineRadius outlineRadius
                                             }
                                         , WebGL.entityWith
                                             [ WebGL.Settings.cullFace WebGL.Settings.back, WebGL.Settings.DepthTest.default ]
@@ -1634,7 +1637,7 @@ canvasViewHelper model matchSetup canvasSize =
                                             { ucolor = Vec3.vec3 1 1 1
                                             , view = viewMatrix
                                             , model =
-                                                Mat4.makeTranslate3 x y radius
+                                                Mat4.makeTranslate3 x y (radius + 0.01)
                                                     |> Mat4.scale3 radius radius radius
                                             }
                                         ]
@@ -3677,25 +3680,21 @@ pushableSnowballStartRadius =
 
 pushableSnowballMesh : WebGL.Mesh Vertex
 pushableSnowballMesh =
-    flatBottomCircleMesh 1 0.15 (Vec3.vec3 0.85 0.9 1)
+    flatBottomCircleMesh 1 0.1 (Vec3.vec3 1 1 1)
         |> WebGL.triangles
 
 
-{-| Create a circle mesh with the bottom flattened, giving the appearance of sinking into snow.
-The flattenAmount is how much of the bottom to cut off (0.15 means the bottom 15% is flattened).
--}
 flatBottomCircleMesh : Float -> Float -> Vec3 -> List ( Vertex, Vertex, Vertex )
-flatBottomCircleMesh size flattenAmount color =
+flatBottomCircleMesh radius flattenAmount color =
     let
         detail =
             64
 
         -- The y-coordinate threshold below which we flatten
         minY =
-            -size * (1 - flattenAmount)
+            -radius * (1 - flattenAmount)
 
-        -- Clamp y coordinate to create flat bottom
-        clampY y =
+        adjustY y =
             max minY y
     in
     List.range 0 (detail - 1)
@@ -3709,14 +3708,14 @@ flatBottomCircleMesh size flattenAmount color =
                         pi * 2 * toFloat (index + 1) / detail
 
                     y1 =
-                        clampY (sin t1 * size)
+                        adjustY (sin t1 * radius)
 
                     y2 =
-                        clampY (sin t2 * size)
+                        adjustY (sin t2 * radius)
                 in
                 ( { position = Vec3.vec3 0 0 0, color = color }
-                , { position = Vec3.vec3 (cos t1 * size) y1 0, color = color }
-                , { position = Vec3.vec3 (cos t2 * size) y2 0, color = color }
+                , { position = Vec3.vec3 (cos t1 * radius) y1 0, color = color }
+                , { position = Vec3.vec3 (cos t2 * radius) y2 0, color = color }
                 )
             )
 
