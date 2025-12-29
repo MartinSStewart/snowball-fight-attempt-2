@@ -2636,7 +2636,7 @@ gameUpdate frameId inputs model =
             else
                 { players = initPlayerPosition model2.players
                 , snowballs = []
-                , pushableSnowballs = []
+                , pushableSnowballs = model2.pushableSnowballs
                 , particles = []
                 , footsteps = model2.footsteps
                 , mergedFootsteps = model2.mergedFootsteps
