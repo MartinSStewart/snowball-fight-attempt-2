@@ -118,6 +118,7 @@ type alias MatchState =
     , mergedFootsteps : List (Mesh Vertex)
     , score : { redTeam : Int, blueTeam : Int }
     , roundEndTime : Maybe { winner : Winner, time : Id FrameId }
+    , snowballImpacts : List (Id FrameId)
     }
 
 

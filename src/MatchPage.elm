@@ -2526,6 +2526,13 @@ updatePlayer inputs2 frameId userId player model =
 
                 Nothing ->
                     model.roundEndTime
+        , snowballImpacts =
+            case hitBySnowball of
+                Just _ ->
+                    frameId :: model.snowballImpacts
+
+                Nothing ->
+                    model.snowballImpacts
     }
 
 
@@ -2591,6 +2598,15 @@ gameUpdate frameId inputs model =
                 (\particle -> frameTimeElapsed particle.spawnedAt frameId |> Quantity.lessThan particle.lifetime)
                 model2.particles
                 ++ newParticles
+
+        snowballImpacts : List (Id FrameId)
+        snowballImpacts =
+            List.filter
+                (\impactTime -> frameTimeElapsed impactTime frameId |> Quantity.lessThan Duration.second)
+                model2.snowballImpacts
+                ++ List.map
+                    (\_ -> frameId)
+                    (List.range 1 (List.length model2.snowballs - List.length survivingSnowballs))
     in
     case model.roundEndTime of
         Just roundEnd ->
@@ -2614,6 +2630,7 @@ gameUpdate frameId inputs model =
                 , mergedFootsteps = model2.mergedFootsteps
                 , score = model2.score
                 , roundEndTime = model2.roundEndTime
+                , snowballImpacts = snowballImpacts
                 }
 
             else
@@ -2634,6 +2651,7 @@ gameUpdate frameId inputs model =
                         BlueWon ->
                             { redTeam = model2.score.redTeam, blueTeam = model2.score.blueTeam + 1 }
                 , roundEndTime = Nothing
+                , snowballImpacts = []
                 }
 
         Nothing ->
@@ -2656,6 +2674,7 @@ gameUpdate frameId inputs model =
             , mergedFootsteps = model2.mergedFootsteps
             , score = model2.score
             , roundEndTime = model2.roundEndTime
+            , snowballImpacts = snowballImpacts
             }
 
 
@@ -3918,6 +3937,7 @@ initMatch startTime users =
     , mergedFootsteps = []
     , score = { redTeam = 0, blueTeam = 0 }
     , roundEndTime = Nothing
+    , snowballImpacts = []
     }
 
 
@@ -4476,24 +4496,17 @@ audio loaded matchPage =
                                         )
                                         (SeqDict.values state.players)
 
-                                footstepSounds : List Audio
+                                footstepSounds : Audio
                                 footstepSounds =
                                     List.map
                                         (\( userId, player ) ->
-                                            let
-                                                volume =
-                                                    if loaded.userId == userId then
-                                                        0.3
-
-                                                    else
-                                                        0.2
-                                            in
                                             Audio.audio
                                                 (footstepSound loaded userId player.lastStep.time)
                                                 (frameToTime player.lastStep.time)
-                                                |> Audio.scaleVolume volume
                                         )
                                         (SeqDict.toList state.players)
+                                        |> Audio.group
+                                        |> Audio.scaleVolume 0.1
 
                                 deadSounds : List Audio
                                 deadSounds =
@@ -4568,9 +4581,23 @@ audio loaded matchPage =
 
                                         Nothing ->
                                             []
+
+                                hitSounds : Audio
+                                hitSounds =
+                                    List.map
+                                        (\impactTime ->
+                                            Audio.audioWithConfig
+                                                { loop = Nothing, playbackRate = 1.5, startAt = Quantity.zero }
+                                                loaded.sounds.footstep4
+                                                (frameToTime impactTime)
+                                        )
+                                        state.snowballImpacts
+                                        |> Audio.group
+                                        |> Audio.scaleVolume 0.5
                             in
-                            chargeSounds
-                                ++ footstepSounds
+                            footstepSounds
+                                :: hitSounds
+                                :: chargeSounds
                                 ++ deadSounds
                                 ++ throwSounds
                                 ++ whooshSounds
