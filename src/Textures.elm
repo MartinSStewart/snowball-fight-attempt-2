@@ -1,4 +1,4 @@
-module Textures exposing (Textures, loadingFinished, requestTextures, textureOptions)
+module Textures exposing (CharacterTextures, Textures, loadingFinished, requestTextures, textureOptions)
 
 import Character exposing (Character)
 import Effect.Command as Command exposing (Command, FrontendOnly)
@@ -61,7 +61,7 @@ textureOptions =
     , minify = Texture.linear
     , horizontalWrap = Texture.clampToEdge
     , verticalWrap = Texture.clampToEdge
-    , flipY = False
+    , flipY = True
     , premultiplyAlpha = True
     }
 

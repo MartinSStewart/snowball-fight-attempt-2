@@ -32,7 +32,7 @@ import Audio exposing (Audio)
 import Axis2d
 import Axis3d
 import Camera3d exposing (Camera3d)
-import Character exposing (Character)
+import Character exposing (Character(..))
 import ColorIndex exposing (ColorIndex(..))
 import Decal exposing (Decal)
 import Dict exposing (Dict)
@@ -46,7 +46,7 @@ import Effect.Lamdera
 import Effect.Task as Task
 import Effect.Time as Time
 import Effect.WebGL as WebGL exposing (Mesh, Shader)
-import Effect.WebGL.Texture exposing (Texture)
+import Effect.WebGL.Texture as Texture exposing (Texture)
 import Env
 import FontRender
 import Geometry
@@ -89,7 +89,7 @@ import SkinTone exposing (SkinTone)
 import Sounds exposing (Sounds)
 import Speed exposing (MetersPerSecond)
 import TextMessage exposing (TextMessage)
-import Textures exposing (Textures)
+import Textures exposing (CharacterTextures, Textures)
 import Timeline exposing (FrameId, TimelineCache, getOldestCachedState)
 import TriangularMesh exposing (TriangularMesh)
 import Ui
@@ -642,38 +642,63 @@ type WorldPixel
     = WorldPixel Never
 
 
+characterView : Mat4 -> Textures -> MatchActiveLocal_ -> MatchState -> List WebGL.Entity
+characterView viewMatrix textures match state =
+    SeqDict.foldr
+        (\userId player ( redTeam, blueTeam ) ->
+            case SeqDict.get userId match.userIds of
+                Just data ->
+                    let
+                        characterTextures =
+                            case data.character of
+                                Bones ->
+                                    textures.bones
 
---characterView : MatchActiveLocal_ -> MatchState -> List WebGL.Entity
---characterView match state =
---    SeqDict.foldr
---        (\userId player ( redTeam, blueTeam ) ->
---            case SeqDict.get userId match.userIds of
---                Just data ->
---                    case player.team of
---                        RedTeam ->
---                            ( characterViewHelper :: redTeam, blueTeam )
---
---                        BlueTeam ->
---                            ( redTeam, characterViewHelper :: blueTeam )
---
---                Nothing ->
---                    ( redTeam, blueTeam )
---        )
---        ( [], [] )
---        state.players
---        |> (\( a, b ) -> a ++ b)
+                                Charlotte ->
+                                    textures.charlotte
+                    in
+                    case player.team of
+                        RedTeam ->
+                            let
+                                position =
+                                    Point2d.meters -20 0
+                            in
+                            ( characterViewHelper viewMatrix characterTextures position :: redTeam, blueTeam )
+
+                        BlueTeam ->
+                            let
+                                position =
+                                    Point2d.meters 20 0
+                            in
+                            ( redTeam, characterViewHelper viewMatrix characterTextures position :: blueTeam )
+
+                Nothing ->
+                    ( redTeam, blueTeam )
+        )
+        ( [], [] )
+        state.players
+        |> (\( a, b ) -> a ++ b)
 
 
-characterViewHelper : Point2d Pixels ScreenCoordinate -> String -> Ui.Element msg
-characterViewHelper position name =
+characterViewHelper : Mat4 -> CharacterTextures -> Point2d Meters WorldCoordinate -> WebGL.Entity
+characterViewHelper viewMatrix textures position =
     let
         { x, y } =
-            Point2d.toPixels position
+            Point2d.toMeters position
+
+        ( width, height ) =
+            Texture.size textures.base
     in
-    Ui.image
-        [ Ui.move { x = round x, y = round y, z = 0 }
-        ]
-        { source = "/" ++ name ++ "/base.png", description = "", onLoad = Nothing }
+    WebGL.entityWith
+        [ Blend.add Blend.one Blend.oneMinusSrcAlpha ]
+        textureVertexShader
+        textureFragmentShader
+        squareTextureMesh
+        { ucolor = Vec3.vec3 1 1 1
+        , view = viewMatrix
+        , model = Mat4.makeTranslate3 x y 2 |> Mat4.scale3 1 (toFloat height / toFloat width) 1
+        , texture = textures.base
+        }
 
 
 view : Config a -> Model -> Ui.Element Msg
@@ -1715,6 +1740,7 @@ canvasViewHelper model matchSetup canvasSize =
                                         _ ->
                                             []
                                    )
+                                ++ characterView viewMatrix model.textures matchData state
 
                         Err _ ->
                             []
@@ -3511,6 +3537,16 @@ squareMesh =
         , { position = Vec2.vec2 1 -1 }
         , { position = Vec2.vec2 1 1 }
         , { position = Vec2.vec2 -1 1 }
+        ]
+
+
+squareTextureMesh : WebGL.Mesh TextureVertex
+squareTextureMesh =
+    WebGL.triangleFan
+        [ { position = Vec3.vec3 -1 -1 0, uv = Vec2.vec2 0 0 }
+        , { position = Vec3.vec3 1 -1 0, uv = Vec2.vec2 1 0 }
+        , { position = Vec3.vec3 1 1 0, uv = Vec2.vec2 1 1 }
+        , { position = Vec3.vec3 -1 1 0, uv = Vec2.vec2 0 1 }
         ]
 
 
