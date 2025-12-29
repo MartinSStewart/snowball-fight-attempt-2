@@ -20,6 +20,7 @@ type alias Textures =
 type alias CharacterTextures =
     { base : Texture
     , shadows : Texture
+    , eye : Texture
     }
 
 
@@ -57,7 +58,7 @@ requestTextures loadedTexture =
 
 textureOptions : Texture.Options
 textureOptions =
-    { magnify = Texture.linear
+    { magnify = Texture.nearest
     , minify = Texture.linear
     , horizontalWrap = Texture.clampToEdge
     , verticalWrap = Texture.clampToEdge
@@ -88,6 +89,7 @@ loadingFinished sounds =
             case maybeTextures of
                 Just textures ->
                     ( urlsLeft, Just CharacterTextures )
+                        |> loadTexture
                         |> loadTexture
                         |> loadTexture
                         |> (\( a, b ) ->

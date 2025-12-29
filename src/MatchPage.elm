@@ -642,8 +642,13 @@ type WorldPixel
     = WorldPixel Never
 
 
-characterView : Mat4 -> Textures -> MatchActiveLocal_ -> MatchState -> List WebGL.Entity
-characterView viewMatrix textures match state =
+characterView : Id FrameId -> Mat4 -> Textures -> MatchActiveLocal_ -> MatchState -> List WebGL.Entity
+characterView frameId viewMatrix textures match state =
+    let
+        alpha : Float
+        alpha =
+            Id.toInt frameId |> toFloat |> sin |> (*) 0.03 |> (+) 0.7
+    in
     SeqDict.foldr
         (\userId player ( redTeam, blueTeam ) ->
             case SeqDict.get userId match.userIds of
@@ -659,10 +664,14 @@ characterView viewMatrix textures match state =
                     in
                     case player.team of
                         RedTeam ->
-                            ( characterViewHelper viewMatrix characterTextures player.team (List.length redTeam) :: redTeam, blueTeam )
+                            ( characterViewHelper alpha viewMatrix characterTextures player.team (List.length redTeam) ++ redTeam
+                            , blueTeam
+                            )
 
                         BlueTeam ->
-                            ( redTeam, characterViewHelper viewMatrix characterTextures player.team (List.length blueTeam) :: blueTeam )
+                            ( redTeam
+                            , characterViewHelper alpha viewMatrix characterTextures player.team (List.length blueTeam) ++ blueTeam
+                            )
 
                 Nothing ->
                     ( redTeam, blueTeam )
@@ -672,8 +681,8 @@ characterView viewMatrix textures match state =
         |> (\( a, b ) -> a ++ b)
 
 
-characterViewHelper : Mat4 -> CharacterTextures -> Team -> Int -> WebGL.Entity
-characterViewHelper viewMatrix textures team index =
+characterViewHelper : Float -> Mat4 -> CharacterTextures -> Team -> Int -> List WebGL.Entity
+characterViewHelper alpha viewMatrix textures team index =
     let
         x =
             case team of
@@ -684,32 +693,57 @@ characterViewHelper viewMatrix textures team index =
                     20
 
         y =
-            toFloat index * 5
+            toFloat index * 3 + 1
 
         ( width, height ) =
             Texture.size textures.base
+
+        size =
+            3
     in
-    WebGL.entityWith
+    [ WebGL.entityWith
         [ Blend.add Blend.one Blend.oneMinusSrcAlpha ]
         textureVertexShader
         textureFragmentShader
         squareTextureMesh
-        { ucolor = Vec3.vec3 1 1 1
+        { alpha = 1
         , view = viewMatrix
         , model =
             Mat4.makeTranslate3 x y 2
                 |> Mat4.scale3
                     (case team of
                         RedTeam ->
-                            -1
+                            -size
 
                         BlueTeam ->
-                            1
+                            size
                     )
-                    (toFloat height / toFloat width)
+                    (size * toFloat height / toFloat width)
                     1
         , texture = textures.base
         }
+    , WebGL.entityWith
+        [ Blend.add Blend.one Blend.oneMinusSrcAlpha ]
+        textureVertexShader
+        textureFragmentShader
+        squareTextureMesh
+        { alpha = alpha
+        , view = viewMatrix
+        , model =
+            Mat4.makeTranslate3 x y 2
+                |> Mat4.scale3
+                    (case team of
+                        RedTeam ->
+                            -size
+
+                        BlueTeam ->
+                            size
+                    )
+                    (size * toFloat height / toFloat width)
+                    1
+        , texture = textures.shadows
+        }
+    ]
 
 
 view : Config a -> Model -> Ui.Element Msg
@@ -1185,20 +1219,6 @@ canvasView time windowSize devicePixelRatio textures entities =
 
         { canvasSize, actualCanvasSize } =
             findPixelPerfectSize windowSize devicePixelRatio
-
-        videoTexture =
-            case Time.posixToMillis time // 10 |> modBy 3 of
-                0 ->
-                    textures.video0
-
-                1 ->
-                    textures.video1
-
-                _ ->
-                    textures.video2
-
-        overlayEntities =
-            drawOverlays actualCanvasSize textures.vignette videoTexture
     in
     WebGL.toHtmlWith
         [ WebGL.alpha True, WebGL.stencil 0, WebGL.depth 1, WebGL.clearColor 0 0 0 1 ]
@@ -1207,7 +1227,7 @@ canvasView time windowSize devicePixelRatio textures entities =
         , Html.Attributes.style "width" (String.fromInt cssWindowWidth ++ "px")
         , Html.Attributes.style "height" (String.fromInt cssWindowHeight ++ "px")
         ]
-        (entities actualCanvasSize ++ overlayEntities)
+        (entities actualCanvasSize)
         |> Ui.html
         |> Ui.el []
 
@@ -1224,9 +1244,20 @@ overlayHeight =
     800
 
 
-drawOverlays : Size -> Texture -> Texture -> List WebGL.Entity
-drawOverlays canvasSize vignetteTexture videoTexture =
+drawOverlays : Config a -> Size -> List WebGL.Entity
+drawOverlays config canvasSize =
     let
+        videoTexture =
+            case Time.posixToMillis config.time // 10 |> modBy 3 of
+                0 ->
+                    config.textures.video0
+
+                1 ->
+                    config.textures.video1
+
+                _ ->
+                    config.textures.video2
+
         screenAspect =
             toFloat (Pixels.inPixels canvasSize.width) / toFloat (Pixels.inPixels canvasSize.height)
 
@@ -1242,14 +1273,14 @@ drawOverlays canvasSize vignetteTexture videoTexture =
                 textureVertexShader
                 textureFragmentShader
                 overlayMesh
-                { ucolor = Vec3.vec3 1 1 1
+                { alpha = 1
                 , view = Mat4.identity
                 , model = modelMatrix
                 , texture = texture
                 }
     in
     [ drawOverlay videoTexture
-    , drawOverlay vignetteTexture
+    , drawOverlay config.textures.vignette
     ]
 
 
@@ -1751,7 +1782,8 @@ canvasViewHelper model matchSetup canvasSize =
                                         _ ->
                                             []
                                    )
-                                ++ characterView viewMatrix model.textures matchData state
+                                ++ drawOverlays model canvasSize
+                                ++ characterView frameId viewMatrix model.textures matchData state
 
                         Err _ ->
                             []
@@ -2260,7 +2292,7 @@ updatePlayer inputs2 frameId userId player model =
     let
         input : Input
         input =
-            if Id.toInt userId < 0 then
+            if isBot userId then
                 getBotInput frameId model userId player
 
             else
@@ -3797,16 +3829,17 @@ type alias Uniforms =
 
 
 type alias TextureUniforms =
-    { ucolor : Vec3, view : Mat4, model : Mat4, texture : Texture }
+    { alpha : Float, view : Mat4, model : Mat4, texture : Texture }
 
 
-textureVertexShader : Shader TextureVertex TextureUniforms { vuv : Vec2 }
+textureVertexShader : Shader TextureVertex TextureUniforms { vuv : Vec2, valpha : Float }
 textureVertexShader =
     [glsl|
 attribute vec3 position;
 attribute vec2 uv;
 varying vec2 vuv;
-uniform vec3 ucolor;
+varying float valpha;
+uniform float alpha;
 uniform mat4 view;
 uniform mat4 model;
 uniform sampler2D texture;
@@ -3815,19 +3848,21 @@ uniform sampler2D texture;
 void main () {
     gl_Position = view * model * vec4(position, 1.0);
     vuv = uv;
+    valpha = alpha;
 }
 |]
 
 
-textureFragmentShader : Shader {} TextureUniforms { vuv : Vec2 }
+textureFragmentShader : Shader {} TextureUniforms { vuv : Vec2, valpha : Float }
 textureFragmentShader =
     [glsl|
 precision mediump float;
 varying vec2 vuv;
+varying float valpha;
 uniform sampler2D texture;
 
 void main () {
-    gl_FragColor = texture2D(texture, vuv);
+    gl_FragColor = texture2D(texture, vuv) * valpha;
 }
 |]
 
@@ -3903,6 +3938,11 @@ backgroundFragmentShader =
     |]
 
 
+isBot : Id UserId -> Bool
+isBot id =
+    Id.toInt id < 0
+
+
 initMatchData : ServerTime -> Nonempty ( Id UserId, PlayerData ) -> Maybe ( Id FrameId, MatchState ) -> MatchActiveLocal_
 initMatchData serverTime newUserIds maybeTimelineCache =
     { timelineCache =
@@ -3918,7 +3958,17 @@ initMatchData serverTime newUserIds maybeTimelineCache =
                 (\( id, playerData ) ->
                     case playerData.mode of
                         PlayerMode ->
-                            Just ( id, { skinTone = playerData.skinTone, character = playerData.character } )
+                            Just
+                                ( id
+                                , { skinTone = playerData.skinTone
+                                  , character =
+                                        if isBot id then
+                                            Charlotte
+
+                                        else
+                                            playerData.character
+                                  }
+                                )
 
                         SpectatorMode ->
                             Nothing
