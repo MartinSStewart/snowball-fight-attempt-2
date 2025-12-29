@@ -37,7 +37,7 @@ import ColorIndex exposing (ColorIndex(..))
 import Decal exposing (Decal)
 import Dict exposing (Dict)
 import Direction2d exposing (Direction2d)
-import Direction3d
+import Direction3d exposing (Direction3d)
 import Duration exposing (Duration)
 import Ease exposing (Easing)
 import Effect.Browser.Dom as Dom exposing (HtmlId)
@@ -659,18 +659,10 @@ characterView viewMatrix textures match state =
                     in
                     case player.team of
                         RedTeam ->
-                            let
-                                position =
-                                    Point2d.meters -20 0
-                            in
-                            ( characterViewHelper viewMatrix characterTextures position :: redTeam, blueTeam )
+                            ( characterViewHelper viewMatrix characterTextures player.team (List.length redTeam) :: redTeam, blueTeam )
 
                         BlueTeam ->
-                            let
-                                position =
-                                    Point2d.meters 20 0
-                            in
-                            ( redTeam, characterViewHelper viewMatrix characterTextures position :: blueTeam )
+                            ( redTeam, characterViewHelper viewMatrix characterTextures player.team (List.length blueTeam) :: blueTeam )
 
                 Nothing ->
                     ( redTeam, blueTeam )
@@ -680,11 +672,19 @@ characterView viewMatrix textures match state =
         |> (\( a, b ) -> a ++ b)
 
 
-characterViewHelper : Mat4 -> CharacterTextures -> Point2d Meters WorldCoordinate -> WebGL.Entity
-characterViewHelper viewMatrix textures position =
+characterViewHelper : Mat4 -> CharacterTextures -> Team -> Int -> WebGL.Entity
+characterViewHelper viewMatrix textures team index =
     let
-        { x, y } =
-            Point2d.toMeters position
+        x =
+            case team of
+                RedTeam ->
+                    -20
+
+                BlueTeam ->
+                    20
+
+        y =
+            toFloat index * 5
 
         ( width, height ) =
             Texture.size textures.base
@@ -696,7 +696,18 @@ characterViewHelper viewMatrix textures position =
         squareTextureMesh
         { ucolor = Vec3.vec3 1 1 1
         , view = viewMatrix
-        , model = Mat4.makeTranslate3 x y 2 |> Mat4.scale3 1 (toFloat height / toFloat width) 1
+        , model =
+            Mat4.makeTranslate3 x y 2
+                |> Mat4.scale3
+                    (case team of
+                        RedTeam ->
+                            -1
+
+                        BlueTeam ->
+                            1
+                    )
+                    (toFloat height / toFloat width)
+                    1
         , texture = textures.base
         }
 
@@ -1625,7 +1636,7 @@ canvasViewHelper model matchSetup canvasSize =
                                             { ucolor = Vec3.vec3 1 1 1
                                             , view = viewMatrix
                                             , model =
-                                                Mat4.makeTranslate3 x (y + z) z
+                                                Mat4.makeTranslate3 x (y + z * 0.7) z
                                                     |> Mat4.scale3 snowballRadius_ snowballRadius_ snowballRadius_
                                             }
                                         ]
@@ -2237,21 +2248,11 @@ playerHeight =
     Length.meters 1.5
 
 
-{-| Check if a thrown snowball collides with a pushable snowball.
-Returns Just the impulse direction if collision occurs, Nothing otherwise.
--}
 snowballPushableSnowballCollision : Match.Snowball -> Match.PushableSnowball -> Bool
 snowballPushableSnowballCollision snowball pushable =
-    let
-        { x, y, z } =
-            Point3d.toMeters snowball.position
-    in
-    -- Check if the thrown snowball is low enough to hit the pushable snowball (which is on the ground)
-    (Length.meters z |> Quantity.lessThan pushable.radius)
-        -- Check XY distance is less than sum of radii
-        && (Point2d.distanceFrom (Point2d.meters x y) pushable.position
-                |> Quantity.lessThan (Quantity.plus pushable.radius snowballRadius)
-           )
+    point2To3 pushable.radius pushable.position
+        |> Point3d.distanceFrom snowball.position
+        |> Quantity.lessThan (Quantity.plus pushable.radius snowballRadius)
 
 
 updatePlayer : SeqDict (Id UserId) Input -> Id FrameId -> Id UserId -> Player -> MatchState -> MatchState
@@ -2597,9 +2598,9 @@ gameUpdate frameId inputs model =
         updatedVelocities_ =
             updateVelocities frameId model2.players
 
-        ( survivingSnowballs, newParticles, newPushableSnowballs, pushableSnowballHits ) =
+        ( survivingSnowballs, newParticles, newPushableSnowballs ) =
             List.foldl
-                (\snowball ( snowballs2, particles2, pushable2, hits2 ) ->
+                (\snowball ( snowballs2, particles2, pushable2 ) ->
                     let
                         position : Point3d Meters WorldCoordinate
                         position =
@@ -2617,19 +2618,13 @@ gameUpdate frameId inputs model =
                             -- Snowball hit a pushable snowball - remove the snowball and record the hit
                             let
                                 -- Calculate impulse direction from snowball velocity (XY component)
+                                impulseDirection : Direction3d WorldCoordinate
                                 impulseDirection =
-                                    Vector3d.toMeters snowball.velocity
-                                        |> (\v -> Vector2d.meters v.x v.y)
-
-                                -- Scale the impulse based on the thrown snowball's speed
-                                impulseStrength =
-                                    Vector2d.length impulseDirection
-                                        |> Quantity.multiplyBy 0.1
+                                    Vector3d.direction snowball.velocity |> Maybe.withDefault Direction3d.z
                             in
                             ( snowballs2
                             , snowballParticles frameId snowball.thrownAt position ++ particles2
                             , pushable2
-                            , ( pushableIndex, Vector2d.scaleTo impulseStrength impulseDirection ) :: hits2
                             )
 
                         Nothing ->
@@ -2645,7 +2640,6 @@ gameUpdate frameId inputs model =
                                     :: snowballs2
                                 , particles2
                                 , pushable2
-                                , hits2
                                 )
 
                             else if snowball.isOvercharge then
@@ -2656,40 +2650,17 @@ gameUpdate frameId inputs model =
                                 in
                                 ( snowballs2
                                 , particles2
-                                , { position = Point2d.meters x y, velocity = Vector2d.zero, radius = pushableSnowballStartRadius } :: pushable2
-                                , hits2
+                                , { position = Point2d.meters x y, velocity = Vector2d.zero, radius = snowballRadius } :: pushable2
                                 )
 
                             else
                                 ( snowballs2
                                 , snowballParticles frameId snowball.thrownAt position ++ particles2
                                 , pushable2
-                                , hits2
                                 )
                 )
-                ( [], [], [], [] )
+                ( [], [], [] )
                 model2.snowballs
-
-        -- Apply impulses from thrown snowball hits to pushable snowballs
-        pushableSnowballsWithHits : List Match.PushableSnowball
-        pushableSnowballsWithHits =
-            List.indexedMap
-                (\index ps ->
-                    let
-                        impulses =
-                            List.filterMap
-                                (\( hitIndex, impulse ) ->
-                                    if hitIndex == index then
-                                        Just impulse
-
-                                    else
-                                        Nothing
-                                )
-                                pushableSnowballHits
-                    in
-                    { ps | velocity = Vector2d.sum (ps.velocity :: impulses) }
-                )
-                model2.pushableSnowballs
 
         particles : List Particle
         particles =
@@ -2723,7 +2694,7 @@ gameUpdate frameId inputs model =
                 { players = finalPlayers
                 , snowballs = List.reverse survivingSnowballs
                 , pushableSnowballs =
-                    updatePushableSnowballs finalPlayers (pushableSnowballsWithHits ++ newPushableSnowballs)
+                    updatePushableSnowballs finalPlayers (model2.pushableSnowballs ++ newPushableSnowballs)
                 , particles = particles
                 , footsteps = model2.footsteps
                 , mergedFootsteps = model2.mergedFootsteps
@@ -2735,7 +2706,7 @@ gameUpdate frameId inputs model =
             else
                 { players = initPlayerPosition model2.players
                 , snowballs = []
-                , pushableSnowballs = pushableSnowballsWithHits
+                , pushableSnowballs = model2.pushableSnowballs
                 , particles = []
                 , footsteps = model2.footsteps
                 , mergedFootsteps = model2.mergedFootsteps
@@ -2767,7 +2738,7 @@ gameUpdate frameId inputs model =
             { players = finalPlayers
             , snowballs = List.reverse survivingSnowballs
             , pushableSnowballs =
-                updatePushableSnowballs finalPlayers (pushableSnowballsWithHits ++ newPushableSnowballs)
+                updatePushableSnowballs finalPlayers (model2.pushableSnowballs ++ newPushableSnowballs)
             , particles = particles
             , footsteps = model2.footsteps
             , mergedFootsteps = model2.mergedFootsteps
@@ -3062,7 +3033,7 @@ gravityVector =
 
 snowballStartHeight : Length
 snowballStartHeight =
-    Length.meters 1
+    Length.meters 1.5
 
 
 maxThrowDistance : Length
@@ -3469,7 +3440,7 @@ updatePushableSnowballs players pushableSnowballs =
 
         -- Maximum radius the snowball can grow to
         maxRadius =
-            Length.meters 0.8
+            Length.meters 0.7
     in
     List.map
         (\snowball ->
@@ -3777,11 +3748,6 @@ particleOutlineMesh =
 snowballRadius : Quantity Float Meters
 snowballRadius =
     Length.meters 0.2
-
-
-pushableSnowballStartRadius : Quantity Float Meters
-pushableSnowballStartRadius =
-    Length.meters 0.4
 
 
 pushableSnowballMesh : WebGL.Mesh Vertex
