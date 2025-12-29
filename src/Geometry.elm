@@ -187,13 +187,14 @@ circlePoint circleRadius circlePosition circleVelocity point =
 
 circleCircle :
     Quantity Float Meters
+    -> Quantity Float Meters
     -> Point2d Meters coordinate
     -> Vector2d Meters coordinate
     -> Point2d Meters coordinate
     -> Vector2d Meters coordinate
     -> Maybe ( Vector2d Meters coordinate, Vector2d Meters coordinate )
-circleCircle radius p1 v1 p2 v2 =
-    if Point2d.distanceFrom p1 p2 |> Quantity.lessThan (Quantity.multiplyBy 2 radius) then
+circleCircle radius1 radius2 p1 v1 p2 v2 =
+    if Point2d.distanceFrom p1 p2 |> Quantity.lessThan (Quantity.plus radius1 radius2) then
         let
             ( circle1Vx, circle1Vy ) =
                 Vector2d.toTuple Length.inMeters v1
@@ -210,11 +211,18 @@ circleCircle radius p1 v1 p2 v2 =
             d =
                 sqrt ((cx1 - cx2) ^ 2 + (cy1 - cy2) ^ 2)
 
+            -- Mass proportional to area (radius squared)
+            r1 =
+                Length.inMeters radius1
+
+            r2 =
+                Length.inMeters radius2
+
             circle1Mass =
-                1
+                r1 * r1
 
             circle2Mass =
-                1
+                r2 * r2
 
             nx =
                 (cx2 - cx1) / d

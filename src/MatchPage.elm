@@ -1612,8 +1612,8 @@ canvasViewHelper model matchSetup canvasSize =
                                             { x, y } =
                                                 Point2d.toMeters pushableSnowball.position
 
-                                            pushableSnowballRadius_ =
-                                                Length.inMeters pushableSnowballRadius
+                                            radius =
+                                                Length.inMeters pushableSnowball.radius
                                         in
                                         [ WebGL.entityWith
                                             [ WebGL.Settings.cullFace WebGL.Settings.back, WebGL.Settings.DepthTest.default ]
@@ -1624,7 +1624,7 @@ canvasViewHelper model matchSetup canvasSize =
                                             , view = viewMatrix
                                             , model =
                                                 Mat4.makeTranslate3 x y 0.01
-                                                    |> Mat4.scale3 pushableSnowballRadius_ pushableSnowballRadius_ pushableSnowballRadius_
+                                                    |> Mat4.scale3 radius radius radius
                                             }
                                         , WebGL.entityWith
                                             [ WebGL.Settings.cullFace WebGL.Settings.back, WebGL.Settings.DepthTest.default ]
@@ -1634,8 +1634,8 @@ canvasViewHelper model matchSetup canvasSize =
                                             { ucolor = Vec3.vec3 1 1 1
                                             , view = viewMatrix
                                             , model =
-                                                Mat4.makeTranslate3 x y pushableSnowballRadius_
-                                                    |> Mat4.scale3 pushableSnowballRadius_ pushableSnowballRadius_ pushableSnowballRadius_
+                                                Mat4.makeTranslate3 x y radius
+                                                    |> Mat4.scale3 radius radius radius
                                             }
                                         ]
                                     )
@@ -2580,7 +2580,7 @@ gameUpdate frameId inputs model =
                         in
                         ( snowballs2
                         , particles2
-                        , { position = Point2d.meters x y, velocity = Vector2d.zero } :: pushable2
+                        , { position = Point2d.meters x y, velocity = Vector2d.zero, radius = pushableSnowballRadius } :: pushable2
                         )
 
                     else
@@ -3353,9 +3353,21 @@ updatePushableSnowballs players pushableSnowballs =
         afterSnowballCollisions =
             handlePushableSnowballCollisions afterPlayerCollisions
 
-        -- Finally, apply friction and move snowballs
+        -- Finally, apply friction, move snowballs, and grow them if moving
         friction =
             0.95
+
+        -- Minimum speed to grow (meters per frame)
+        growthSpeedThreshold =
+            Length.meters 0.01
+
+        -- Growth rate per frame when moving
+        growthRate =
+            Length.meters 0.002
+
+        -- Maximum radius the snowball can grow to
+        maxRadius =
+            Length.meters 1.5
     in
     List.map
         (\snowball ->
@@ -3365,8 +3377,19 @@ updatePushableSnowballs players pushableSnowballs =
 
                 newPosition =
                     Point2d.translateBy newVelocity snowball.position
+
+                speed =
+                    Vector2d.length snowball.velocity
+
+                newRadius =
+                    if speed |> Quantity.greaterThan growthSpeedThreshold then
+                        Quantity.plus snowball.radius growthRate
+                            |> Quantity.min maxRadius
+
+                    else
+                        snowball.radius
             in
-            { snowball | position = newPosition, velocity = newVelocity }
+            { snowball | position = newPosition, velocity = newVelocity, radius = newRadius }
         )
         afterSnowballCollisions
 
@@ -3387,7 +3410,7 @@ applyPlayerCollision player snowball =
             Point2d.distanceFrom player.position snowball.position
 
         minDistance =
-            Quantity.plus playerRadius pushableSnowballRadius
+            Quantity.plus playerRadius snowball.radius
     in
     if distance |> Quantity.lessThan minDistance then
         let
@@ -3457,10 +3480,10 @@ handleTwoPushableSnowballsCollision snowballA snowballB =
             Point2d.distanceFrom snowballA.position snowballB.position
 
         minDistance =
-            Quantity.multiplyBy 2 pushableSnowballRadius
+            Quantity.plus snowballA.radius snowballB.radius
     in
     if distance |> Quantity.lessThan minDistance then
-        case Geometry.circleCircle pushableSnowballRadius snowballA.position snowballA.velocity snowballB.position snowballB.velocity of
+        case Geometry.circleCircle snowballA.radius snowballB.radius snowballA.position snowballA.velocity snowballB.position snowballB.velocity of
             Just ( newVelA, newVelB ) ->
                 case Direction2d.from snowballA.position snowballB.position of
                     Just direction ->
