@@ -3677,8 +3677,48 @@ pushableSnowballRadius =
 
 pushableSnowballMesh : WebGL.Mesh Vertex
 pushableSnowballMesh =
-    circleMesh 1 (Vec3.vec3 0.85 0.9 1)
+    flatBottomCircleMesh 1 0.15 (Vec3.vec3 0.85 0.9 1)
         |> WebGL.triangles
+
+
+{-| Create a circle mesh with the bottom flattened, giving the appearance of sinking into snow.
+The flattenAmount is how much of the bottom to cut off (0.15 means the bottom 15% is flattened).
+-}
+flatBottomCircleMesh : Float -> Float -> Vec3 -> List ( Vertex, Vertex, Vertex )
+flatBottomCircleMesh size flattenAmount color =
+    let
+        detail =
+            64
+
+        -- The y-coordinate threshold below which we flatten
+        minY =
+            -size * (1 - flattenAmount)
+
+        -- Clamp y coordinate to create flat bottom
+        clampY y =
+            max minY y
+    in
+    List.range 0 (detail - 1)
+        |> List.map
+            (\index ->
+                let
+                    t1 =
+                        pi * 2 * toFloat index / detail
+
+                    t2 =
+                        pi * 2 * toFloat (index + 1) / detail
+
+                    y1 =
+                        clampY (sin t1 * size)
+
+                    y2 =
+                        clampY (sin t2 * size)
+                in
+                ( { position = Vec3.vec3 0 0 0, color = color }
+                , { position = Vec3.vec3 (cos t1 * size) y1 0, color = color }
+                , { position = Vec3.vec3 (cos t2 * size) y2 0, color = color }
+                )
+            )
 
 
 type alias Uniforms =
