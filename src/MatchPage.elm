@@ -62,7 +62,7 @@ import Length exposing (Length, Meters)
 import LineSegment2d exposing (LineSegment2d)
 import List.Extra as List
 import List.Nonempty exposing (Nonempty)
-import Match exposing (Action(..), Emote(..), Input, LobbyPreview, Match, MatchActive, MatchState, Particle, Player, PlayerData, PlayerMode(..), ServerTime(..), Snowball, Team(..), TextureVertex, TimelineEvent, Vertex, Winner(..), WorldCoordinate)
+import Match exposing (Action(..), Emote(..), Input, LobbyPreview, Match, MatchActive, MatchState, Particle, Player, PlayerData, PlayerMode(..), PushableSnowball, ServerTime(..), Snowball, Team(..), TextureVertex, TimelineEvent, Vertex, Winner(..), WorldCoordinate)
 import MatchName exposing (MatchName)
 import Math.Matrix4 as Mat4 exposing (Mat4)
 import Math.Vector2 as Vec2 exposing (Vec2)
@@ -1606,6 +1606,40 @@ canvasViewHelper model matchSetup canvasSize =
                                         ]
                                     )
                                     state.snowballs
+                                ++ List.concatMap
+                                    (\pushableSnowball ->
+                                        let
+                                            { x, y } =
+                                                Point2d.toMeters pushableSnowball.position
+
+                                            size =
+                                                Length.inMeters pushableSnowball.size
+                                        in
+                                        [ WebGL.entityWith
+                                            [ WebGL.Settings.cullFace WebGL.Settings.back, WebGL.Settings.DepthTest.default ]
+                                            vertexShader
+                                            fragmentShader
+                                            snowballShadowMesh
+                                            { ucolor = Vec3.vec3 1 1 1
+                                            , view = viewMatrix
+                                            , model =
+                                                Mat4.makeTranslate3 x y 0.01
+                                                    |> Mat4.scale3 size size size
+                                            }
+                                        , WebGL.entityWith
+                                            [ WebGL.Settings.cullFace WebGL.Settings.back, WebGL.Settings.DepthTest.default ]
+                                            vertexShader
+                                            fragmentShader
+                                            snowballMesh
+                                            { ucolor = Vec3.vec3 1 1 1
+                                            , view = viewMatrix
+                                            , model =
+                                                Mat4.makeTranslate3 x y size
+                                                    |> Mat4.scale3 size size size
+                                            }
+                                        ]
+                                    )
+                                    state.pushableSnowballs
                                 ++ drawParticles frameId viewMatrix state.particles
                                 ++ (case SeqDict.get model.userId state.players of
                                         Just player ->
@@ -2539,7 +2573,11 @@ gameUpdate frameId inputs model =
                         in
                         ( snowballs2
                         , particles2
-                        , { position = Point2d.meters x y } :: pushable2
+                        , { position = Point2d.meters x y
+                          , velocity = Vector2d.zero
+                          , size = snowballRadius
+                          }
+                            :: pushable2
                         )
 
                     else
@@ -2557,6 +2595,15 @@ gameUpdate frameId inputs model =
                 (\particle -> frameTimeElapsed particle.spawnedAt frameId |> Quantity.lessThan particle.lifetime)
                 model2.particles
                 ++ newParticles
+
+        -- Update existing pushable snowballs: movement, growth, and player collisions
+        updatedPushableSnowballs : List PushableSnowball
+        updatedPushableSnowballs =
+            let
+                players =
+                    SeqDict.values updatedVelocities_
+            in
+            List.map (updatePushableSnowball players) (model2.pushableSnowballs ++ newPushableSnowballs)
     in
     case model.roundEndTime of
         Just roundEnd ->
@@ -2570,7 +2617,7 @@ gameUpdate frameId inputs model =
                         )
                         updatedVelocities_
                 , snowballs = List.reverse survivingSnowballs
-                , pushableSnowballs = model2.pushableSnowballs ++ newPushableSnowballs
+                , pushableSnowballs = updatedPushableSnowballs
                 , particles = particles
                 , footsteps = model2.footsteps
                 , mergedFootsteps = model2.mergedFootsteps
@@ -2608,7 +2655,7 @@ gameUpdate frameId inputs model =
                     )
                     updatedVelocities_
             , snowballs = List.reverse survivingSnowballs
-            , pushableSnowballs = model2.pushableSnowballs ++ newPushableSnowballs
+            , pushableSnowballs = updatedPushableSnowballs
             , particles = particles
             , footsteps = model2.footsteps
             , mergedFootsteps = model2.mergedFootsteps
@@ -3446,6 +3493,82 @@ particleOutlineMesh =
 snowballRadius : Quantity Float Meters
 snowballRadius =
     Length.meters 0.2
+
+
+{-| Update a pushable snowball: handle player collisions, apply friction, move, and grow based on movement
+-}
+updatePushableSnowball : List Player -> PushableSnowball -> PushableSnowball
+updatePushableSnowball players snowball =
+    let
+        -- Check for collisions with players and accumulate push velocity
+        pushVelocity : Vector2d MetersPerSecond WorldCoordinate
+        pushVelocity =
+            List.foldl
+                (\player acc ->
+                    let
+                        distance =
+                            Point2d.distanceFrom player.position snowball.position
+
+                        minDistance =
+                            Quantity.plus playerRadius snowball.size
+                    in
+                    if player.isDead == Nothing && (distance |> Quantity.lessThan minDistance) then
+                        -- Player is touching the snowball, push it away
+                        case Direction2d.from player.position snowball.position of
+                            Just pushDirection ->
+                                let
+                                    pushStrength =
+                                        Speed.metersPerSecond 3.0
+                                in
+                                Vector2d.plus acc (Vector2d.withLength pushStrength pushDirection)
+
+                            Nothing ->
+                                acc
+
+                    else
+                        acc
+                )
+                Vector2d.zero
+                players
+
+        -- Apply push velocity and friction
+        friction =
+            0.92
+
+        newVelocity : Vector2d MetersPerSecond WorldCoordinate
+        newVelocity =
+            Vector2d.plus snowball.velocity pushVelocity
+                |> Vector2d.scaleBy friction
+
+        -- Move the snowball
+        displacement : Vector2d Meters WorldCoordinate
+        displacement =
+            Vector2d.for Match.frameDuration newVelocity
+
+        newPosition =
+            Point2d.translateBy displacement snowball.position
+
+        -- Grow based on distance moved (speed)
+        speed =
+            Vector2d.length newVelocity
+
+        growthRate =
+            Length.meters 0.002
+
+        sizeGrowth =
+            if speed |> Quantity.greaterThan (Speed.metersPerSecond 0.1) then
+                Quantity.multiplyBy (Speed.inMetersPerSecond speed * 0.01) growthRate
+
+            else
+                Quantity.zero
+
+        newSize =
+            Quantity.plus snowball.size sizeGrowth
+    in
+    { position = newPosition
+    , velocity = newVelocity
+    , size = newSize
+    }
 
 
 type alias Uniforms =
