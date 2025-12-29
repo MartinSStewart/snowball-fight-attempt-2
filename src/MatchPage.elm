@@ -696,14 +696,14 @@ view config model =
                                     :: Ui.htmlAttribute (Html.Events.Extra.Pointer.onLeave PointerLeave)
                                     :: Ui.id "canvas"
                                     :: Ui.inFront (desyncWarning matchData.desyncedAtFrame)
-                                    :: Ui.inFront
-                                        (Ui.el
-                                            [ Ui.width Ui.shrink
-                                            , Ui.background (Ui.rgb 255 255 255)
-                                            , Ui.Input.button PressedLeaveMatch
-                                            ]
-                                            (Ui.text "Leave match")
-                                        )
+                                    --:: Ui.inFront
+                                    --    (Ui.el
+                                    --        [ Ui.width Ui.shrink
+                                    --        , Ui.background (Ui.rgb 255 255 255)
+                                    --        , Ui.Input.button PressedLeaveMatch
+                                    --        ]
+                                    --        (Ui.text "Leave match")
+                                    --    )
                                     :: Ui.behindContent
                                         (canvasView
                                             config.time
