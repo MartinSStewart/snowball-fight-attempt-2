@@ -2237,6 +2237,23 @@ playerHeight =
     Length.meters 1.5
 
 
+{-| Check if a thrown snowball collides with a pushable snowball.
+Returns Just the impulse direction if collision occurs, Nothing otherwise.
+-}
+snowballPushableSnowballCollision : Match.Snowball -> Match.PushableSnowball -> Bool
+snowballPushableSnowballCollision snowball pushable =
+    let
+        { x, y, z } =
+            Point3d.toMeters snowball.position
+    in
+    -- Check if the thrown snowball is low enough to hit the pushable snowball (which is on the ground)
+    (Length.meters z |> Quantity.lessThan pushable.radius)
+        -- Check XY distance is less than sum of radii
+        && (Point2d.distanceFrom (Point2d.meters x y) pushable.position
+                |> Quantity.lessThan (Quantity.plus pushable.radius snowballRadius)
+           )
+
+
 updatePlayer : SeqDict (Id UserId) Input -> Id FrameId -> Id UserId -> Player -> MatchState -> MatchState
 updatePlayer inputs2 frameId userId player model =
     let
@@ -2580,46 +2597,99 @@ gameUpdate frameId inputs model =
         updatedVelocities_ =
             updateVelocities frameId model2.players
 
-        ( survivingSnowballs, newParticles, newPushableSnowballs ) =
+        ( survivingSnowballs, newParticles, newPushableSnowballs, pushableSnowballHits ) =
             List.foldl
-                (\snowball ( snowballs2, particles2, pushable2 ) ->
+                (\snowball ( snowballs2, particles2, pushable2, hits2 ) ->
                     let
                         position : Point3d Meters WorldCoordinate
                         position =
                             Point3d.translateBy (Vector3d.for Match.frameDuration snowball.velocity) snowball.position
+
+                        -- Check if this snowball hits any pushable snowball
+                        hitPushableSnowball : Maybe ( Int, Match.PushableSnowball )
+                        hitPushableSnowball =
+                            List.indexedMap Tuple.pair model2.pushableSnowballs
+                                |> List.filter (\( _, ps ) -> snowballPushableSnowballCollision { snowball | position = position } ps)
+                                |> List.head
                     in
-                    if Point3d.zCoordinate position |> Quantity.greaterThanZero then
-                        ( { position = position
-                          , velocity = Vector3d.plus (Vector3d.for Match.frameDuration gravityVector) snowball.velocity
-                          , thrownBy = snowball.thrownBy
-                          , thrownAt = snowball.thrownAt
-                          , apexFrame = snowball.apexFrame
-                          , isOvercharge = snowball.isOvercharge
-                          }
-                            :: snowballs2
-                        , particles2
-                        , pushable2
-                        )
+                    case hitPushableSnowball of
+                        Just ( pushableIndex, _ ) ->
+                            -- Snowball hit a pushable snowball - remove the snowball and record the hit
+                            let
+                                -- Calculate impulse direction from snowball velocity (XY component)
+                                impulseDirection =
+                                    Vector3d.toMeters snowball.velocity
+                                        |> (\v -> Vector2d.meters v.x v.y)
 
-                    else if snowball.isOvercharge then
-                        -- Overcharge snowball lands and becomes pushable
-                        let
-                            { x, y } =
-                                Point3d.toMeters position
-                        in
-                        ( snowballs2
-                        , particles2
-                        , { position = Point2d.meters x y, velocity = Vector2d.zero, radius = pushableSnowballStartRadius } :: pushable2
-                        )
+                                -- Scale the impulse based on the thrown snowball's speed
+                                impulseStrength =
+                                    Vector2d.length impulseDirection
+                                        |> Quantity.multiplyBy 0.1
+                            in
+                            ( snowballs2
+                            , snowballParticles frameId snowball.thrownAt position ++ particles2
+                            , pushable2
+                            , ( pushableIndex, Vector2d.scaleTo impulseStrength impulseDirection ) :: hits2
+                            )
 
-                    else
-                        ( snowballs2
-                        , snowballParticles frameId snowball.thrownAt position ++ particles2
-                        , pushable2
-                        )
+                        Nothing ->
+                            -- No collision with pushable snowball, continue normal processing
+                            if Point3d.zCoordinate position |> Quantity.greaterThanZero then
+                                ( { position = position
+                                  , velocity = Vector3d.plus (Vector3d.for Match.frameDuration gravityVector) snowball.velocity
+                                  , thrownBy = snowball.thrownBy
+                                  , thrownAt = snowball.thrownAt
+                                  , apexFrame = snowball.apexFrame
+                                  , isOvercharge = snowball.isOvercharge
+                                  }
+                                    :: snowballs2
+                                , particles2
+                                , pushable2
+                                , hits2
+                                )
+
+                            else if snowball.isOvercharge then
+                                -- Overcharge snowball lands and becomes pushable
+                                let
+                                    { x, y } =
+                                        Point3d.toMeters position
+                                in
+                                ( snowballs2
+                                , particles2
+                                , { position = Point2d.meters x y, velocity = Vector2d.zero, radius = pushableSnowballStartRadius } :: pushable2
+                                , hits2
+                                )
+
+                            else
+                                ( snowballs2
+                                , snowballParticles frameId snowball.thrownAt position ++ particles2
+                                , pushable2
+                                , hits2
+                                )
                 )
-                ( [], [], [] )
+                ( [], [], [], [] )
                 model2.snowballs
+
+        -- Apply impulses from thrown snowball hits to pushable snowballs
+        pushableSnowballsWithHits : List Match.PushableSnowball
+        pushableSnowballsWithHits =
+            List.indexedMap
+                (\index ps ->
+                    let
+                        impulses =
+                            List.filterMap
+                                (\( hitIndex, impulse ) ->
+                                    if hitIndex == index then
+                                        Just impulse
+
+                                    else
+                                        Nothing
+                                )
+                                pushableSnowballHits
+                    in
+                    { ps | velocity = Vector2d.sum (ps.velocity :: impulses) }
+                )
+                model2.pushableSnowballs
 
         particles : List Particle
         particles =
@@ -2653,7 +2723,7 @@ gameUpdate frameId inputs model =
                 { players = finalPlayers
                 , snowballs = List.reverse survivingSnowballs
                 , pushableSnowballs =
-                    updatePushableSnowballs finalPlayers (model2.pushableSnowballs ++ newPushableSnowballs)
+                    updatePushableSnowballs finalPlayers (pushableSnowballsWithHits ++ newPushableSnowballs)
                 , particles = particles
                 , footsteps = model2.footsteps
                 , mergedFootsteps = model2.mergedFootsteps
@@ -2665,7 +2735,7 @@ gameUpdate frameId inputs model =
             else
                 { players = initPlayerPosition model2.players
                 , snowballs = []
-                , pushableSnowballs = model2.pushableSnowballs
+                , pushableSnowballs = pushableSnowballsWithHits
                 , particles = []
                 , footsteps = model2.footsteps
                 , mergedFootsteps = model2.mergedFootsteps
@@ -2697,7 +2767,7 @@ gameUpdate frameId inputs model =
             { players = finalPlayers
             , snowballs = List.reverse survivingSnowballs
             , pushableSnowballs =
-                updatePushableSnowballs finalPlayers (model2.pushableSnowballs ++ newPushableSnowballs)
+                updatePushableSnowballs finalPlayers (pushableSnowballsWithHits ++ newPushableSnowballs)
             , particles = particles
             , footsteps = model2.footsteps
             , mergedFootsteps = model2.mergedFootsteps
