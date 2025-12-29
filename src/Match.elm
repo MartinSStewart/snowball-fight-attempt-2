@@ -116,6 +116,8 @@ type alias MatchState =
             , mesh : Mesh Vertex
             }
     , mergedFootsteps : List (Mesh Vertex)
+    , grassFootsteps : List { position : Point2d Meters WorldCoordinate, mesh : Mesh Vertex }
+    , mergedGrassFootsteps : List (Mesh Vertex)
     , score : { redTeam : Int, blueTeam : Int }
     , roundEndTime : Maybe { winner : Winner, time : Id FrameId }
     , snowballImpacts : List (Id FrameId)
@@ -150,6 +152,7 @@ type alias PushableSnowball =
     { position : Point2d Meters WorldCoordinate
     , velocity : Vector2d Meters WorldCoordinate
     , radius : Length
+    , lastStepPosition : Point2d Meters WorldCoordinate
     }
 
 

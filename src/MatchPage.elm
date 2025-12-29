@@ -1639,6 +1639,32 @@ canvasViewHelper model matchSetup canvasSize =
                                             }
                                     )
                                     state.mergedFootsteps
+                                ++ List.map
+                                    (\grassFootstep ->
+                                        WebGL.entityWith
+                                            [ WebGL.Settings.cullFace WebGL.Settings.back, WebGL.Settings.DepthTest.default ]
+                                            vertexShader
+                                            fragmentShader
+                                            grassFootstep.mesh
+                                            { ucolor = Vec3.vec3 1 1 1
+                                            , view = viewMatrix
+                                            , model = Mat4.identity
+                                            }
+                                    )
+                                    state.grassFootsteps
+                                ++ List.map
+                                    (\grassFootstepMesh2 ->
+                                        WebGL.entityWith
+                                            [ WebGL.Settings.cullFace WebGL.Settings.back, WebGL.Settings.DepthTest.default ]
+                                            vertexShader
+                                            fragmentShader
+                                            grassFootstepMesh2
+                                            { ucolor = Vec3.vec3 1 1 1
+                                            , view = viewMatrix
+                                            , model = Mat4.identity
+                                            }
+                                    )
+                                    state.mergedGrassFootsteps
                                 ++ List.concatMap
                                     (\snowball ->
                                         let
@@ -2679,10 +2705,13 @@ gameUpdate frameId inputs model =
                                 let
                                     { x, y } =
                                         Point3d.toMeters position
+
+                                    pos =
+                                        Point2d.meters x y
                                 in
                                 ( snowballs2
                                 , particles2
-                                , { position = Point2d.meters x y, velocity = Vector2d.zero, radius = snowballRadius } :: pushable2
+                                , { position = pos, velocity = Vector2d.zero, radius = snowballRadius, lastStepPosition = pos } :: pushable2
                                 )
 
                             else
@@ -2722,14 +2751,20 @@ gameUpdate frameId inputs model =
                                     |> List.foldl (\a b -> handleCollision frameId b a |> Tuple.first) player
                             )
                             updatedVelocities_
+                pushableResult =
+                    updatePushableSnowballs finalPlayers (model2.pushableSnowballs ++ newPushableSnowballs)
+
+                ( grassFootsteps, mergedGrassFootsteps ) =
+                    updateGrassFootsteps model2.grassFootsteps model2.mergedGrassFootsteps pushableResult.newGrassFootsteps
                 in
                 { players = finalPlayers
                 , snowballs = List.reverse survivingSnowballs
-                , pushableSnowballs =
-                    updatePushableSnowballs finalPlayers (model2.pushableSnowballs ++ newPushableSnowballs)
+                , pushableSnowballs = pushableResult.snowballs
                 , particles = particles
                 , footsteps = model2.footsteps
                 , mergedFootsteps = model2.mergedFootsteps
+                , grassFootsteps = grassFootsteps
+                , mergedGrassFootsteps = mergedGrassFootsteps
                 , score = model2.score
                 , roundEndTime = model2.roundEndTime
                 , snowballImpacts = snowballImpacts
@@ -2742,6 +2777,8 @@ gameUpdate frameId inputs model =
                 , particles = []
                 , footsteps = model2.footsteps
                 , mergedFootsteps = model2.mergedFootsteps
+                , grassFootsteps = model2.grassFootsteps
+                , mergedGrassFootsteps = model2.mergedGrassFootsteps
                 , score =
                     case roundEnd.winner of
                         BothWon ->
@@ -2766,14 +2803,21 @@ gameUpdate frameId inputs model =
                                 |> List.foldl (\a b -> handleCollision frameId b a |> Tuple.first) player
                         )
                         updatedVelocities_
+
+                pushableResult =
+                    updatePushableSnowballs finalPlayers (model2.pushableSnowballs ++ newPushableSnowballs)
+
+                ( grassFootsteps, mergedGrassFootsteps ) =
+                    updateGrassFootsteps model2.grassFootsteps model2.mergedGrassFootsteps pushableResult.newGrassFootsteps
             in
             { players = finalPlayers
             , snowballs = List.reverse survivingSnowballs
-            , pushableSnowballs =
-                updatePushableSnowballs finalPlayers (model2.pushableSnowballs ++ newPushableSnowballs)
+            , pushableSnowballs = pushableResult.snowballs
             , particles = particles
             , footsteps = model2.footsteps
             , mergedFootsteps = model2.mergedFootsteps
+            , grassFootsteps = grassFootsteps
+            , mergedGrassFootsteps = mergedGrassFootsteps
             , score = model2.score
             , roundEndTime = model2.roundEndTime
             , snowballImpacts = snowballImpacts
@@ -3443,8 +3487,12 @@ handleCollision frameId playerA playerB =
 
 
 {-| Update all pushable snowballs: move them, apply friction, handle collisions with players and each other
+Returns the updated snowballs and any new grass footsteps created
 -}
-updatePushableSnowballs : SeqDict (Id UserId) Player -> List Match.PushableSnowball -> List Match.PushableSnowball
+updatePushableSnowballs :
+    SeqDict (Id UserId) Player
+    -> List Match.PushableSnowball
+    -> { snowballs : List Match.PushableSnowball, newGrassFootsteps : List ( Vertex, Vertex, Vertex ) }
 updatePushableSnowballs players pushableSnowballs =
     let
         players2 =
@@ -3473,30 +3521,119 @@ updatePushableSnowballs players pushableSnowballs =
         -- Maximum radius the snowball can grow to
         maxRadius =
             Length.meters 0.7
+
+        -- Distance threshold for creating a new grass footstep
+        footstepDistance =
+            Length.meters 0.4
+
+        -- Size of the grass square based on snowball radius
+        grassSquareSize =
+            0.3
+
+        ( updatedSnowballs, grassFootsteps ) =
+            List.foldr
+                (\snowball ( accSnowballs, accFootsteps ) ->
+                    let
+                        newVelocity =
+                            Vector2d.scaleBy friction snowball.velocity
+
+                        newPosition =
+                            Point2d.translateBy newVelocity snowball.position
+
+                        speed =
+                            Vector2d.length snowball.velocity
+
+                        newRadius =
+                            if speed |> Quantity.greaterThan growthSpeedThreshold then
+                                Quantity.plus snowball.radius growthRate
+                                    |> Quantity.min maxRadius
+
+                            else
+                                snowball.radius
+
+                        distanceFromLastStep =
+                            Point2d.distanceFrom snowball.lastStepPosition newPosition
+
+                        ( newLastStepPosition, newFootsteps ) =
+                            if distanceFromLastStep |> Quantity.greaterThan footstepDistance then
+                                ( newPosition, grassSquareMesh newPosition grassSquareSize ++ accFootsteps )
+
+                            else
+                                ( snowball.lastStepPosition, accFootsteps )
+
+                        updatedSnowball =
+                            { snowball
+                                | position = newPosition
+                                , velocity = newVelocity
+                                , radius = newRadius
+                                , lastStepPosition = newLastStepPosition
+                            }
+                    in
+                    ( updatedSnowball :: accSnowballs, newFootsteps )
+                )
+                ( [], [] )
+                afterSnowballCollisions
     in
-    List.map
-        (\snowball ->
+    { snowballs = updatedSnowballs, newGrassFootsteps = grassFootsteps }
+
+
+{-| Updates grass footsteps, merging old ones when there are too many
+Similar to how regular footsteps are managed
+-}
+updateGrassFootsteps :
+    List { position : Point2d Meters WorldCoordinate, mesh : WebGL.Mesh Vertex }
+    -> List (WebGL.Mesh Vertex)
+    -> List ( Vertex, Vertex, Vertex )
+    -> ( List { position : Point2d Meters WorldCoordinate, mesh : WebGL.Mesh Vertex }, List (WebGL.Mesh Vertex) )
+updateGrassFootsteps existingFootsteps mergedFootsteps newFootstepTriangles =
+    if List.isEmpty newFootstepTriangles then
+        ( existingFootsteps, mergedFootsteps )
+
+    else
+        let
+            -- Create a new mesh from the triangles
+            newMesh =
+                WebGL.triangles newFootstepTriangles
+
+            -- Get the position from the first triangle (approximate center)
+            position =
+                case List.head newFootstepTriangles of
+                    Just ( v, _, _ ) ->
+                        let
+                            pos =
+                                Vec3.toRecord v.position
+                        in
+                        Point2d.meters pos.x pos.y
+
+                    Nothing ->
+                        Point2d.origin
+
+            newFootstep =
+                { position = position, mesh = newMesh }
+
+            allFootsteps =
+                newFootstep :: existingFootsteps
+
+            shouldMerge =
+                List.length allFootsteps > 20
+        in
+        if shouldMerge then
+            -- Merge all footsteps into one mesh
             let
-                newVelocity =
-                    Vector2d.scaleBy friction snowball.velocity
-
-                newPosition =
-                    Point2d.translateBy newVelocity snowball.position
-
-                speed =
-                    Vector2d.length snowball.velocity
-
-                newRadius =
-                    if speed |> Quantity.greaterThan growthSpeedThreshold then
-                        Quantity.plus snowball.radius growthRate
-                            |> Quantity.min maxRadius
-
-                    else
-                        snowball.radius
+                allTriangles =
+                    newFootstepTriangles
+                        ++ List.concatMap
+                            (\fs -> grassSquareMesh fs.position 0.3)
+                            existingFootsteps
             in
-            { snowball | position = newPosition, velocity = newVelocity, radius = newRadius }
-        )
-        afterSnowballCollisions
+            ( []
+            , WebGL.triangles allTriangles
+                :: mergedFootsteps
+                |> List.take 100
+            )
+
+        else
+            ( allFootsteps, mergedFootsteps )
 
 
 {-| Handle collision between a player and a pushable snowball
@@ -3744,6 +3881,42 @@ footstepMesh position direction stepCount =
                 (Vec3.vec3 0.8 0.8 0.8)
     in
     topMesh ++ bottomMesh
+
+
+{-| Creates a green square mesh for grass footsteps left by pushable snowballs
+-}
+grassSquareMesh : Point2d Meters WorldCoordinate -> Float -> List ( Vertex, Vertex, Vertex )
+grassSquareMesh position size =
+    let
+        { x, y } =
+            Point2d.toMeters position
+
+        halfSize =
+            size / 2
+
+        z =
+            -0.01
+
+        -- Green color for grass
+        color =
+            Vec3.vec3 0.3 0.7 0.3
+
+        -- Define the four corners
+        topLeft =
+            { position = Vec3.vec3 (x - halfSize) (y + halfSize) z, color = color }
+
+        topRight =
+            { position = Vec3.vec3 (x + halfSize) (y + halfSize) z, color = color }
+
+        bottomLeft =
+            { position = Vec3.vec3 (x - halfSize) (y - halfSize) z, color = color }
+
+        bottomRight =
+            { position = Vec3.vec3 (x + halfSize) (y - halfSize) z, color = color }
+    in
+    [ ( topLeft, bottomLeft, topRight )
+    , ( topRight, bottomLeft, bottomRight )
+    ]
 
 
 snowballMesh : WebGL.Mesh Vertex
@@ -4081,6 +4254,8 @@ initMatch startTime users =
     , particles = []
     , footsteps = []
     , mergedFootsteps = []
+    , grassFootsteps = []
+    , mergedGrassFootsteps = []
     , score = { redTeam = 0, blueTeam = 0 }
     , roundEndTime = Nothing
     , snowballImpacts = []
