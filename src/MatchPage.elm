@@ -696,14 +696,14 @@ view config model =
                                     :: Ui.htmlAttribute (Html.Events.Extra.Pointer.onLeave PointerLeave)
                                     :: Ui.id "canvas"
                                     :: Ui.inFront (desyncWarning matchData.desyncedAtFrame)
-                                    :: Ui.inFront
-                                        (Ui.el
-                                            [ Ui.width Ui.shrink
-                                            , Ui.background (Ui.rgb 255 255 255)
-                                            , Ui.Input.button PressedLeaveMatch
-                                            ]
-                                            (Ui.text "Leave match")
-                                        )
+                                    --:: Ui.inFront
+                                    --    (Ui.el
+                                    --        [ Ui.width Ui.shrink
+                                    --        , Ui.background (Ui.rgb 255 255 255)
+                                    --        , Ui.Input.button PressedLeaveMatch
+                                    --        ]
+                                    --        (Ui.text "Leave match")
+                                    --    )
                                     :: Ui.behindContent
                                         (canvasView
                                             config.time
@@ -1606,6 +1606,40 @@ canvasViewHelper model matchSetup canvasSize =
                                         ]
                                     )
                                     state.snowballs
+                                ++ List.concatMap
+                                    (\pushableSnowball ->
+                                        let
+                                            { x, y } =
+                                                Point2d.toMeters pushableSnowball.position
+
+                                            pushableSnowballRadius_ =
+                                                Length.inMeters pushableSnowballRadius
+                                        in
+                                        [ WebGL.entityWith
+                                            [ WebGL.Settings.cullFace WebGL.Settings.back, WebGL.Settings.DepthTest.default ]
+                                            vertexShader
+                                            fragmentShader
+                                            snowballShadowMesh
+                                            { ucolor = Vec3.vec3 1 1 1
+                                            , view = viewMatrix
+                                            , model =
+                                                Mat4.makeTranslate3 x y 0.01
+                                                    |> Mat4.scale3 pushableSnowballRadius_ pushableSnowballRadius_ pushableSnowballRadius_
+                                            }
+                                        , WebGL.entityWith
+                                            [ WebGL.Settings.cullFace WebGL.Settings.back, WebGL.Settings.DepthTest.default ]
+                                            vertexShader
+                                            fragmentShader
+                                            pushableSnowballMesh
+                                            { ucolor = Vec3.vec3 1 1 1
+                                            , view = viewMatrix
+                                            , model =
+                                                Mat4.makeTranslate3 x y pushableSnowballRadius_
+                                                    |> Mat4.scale3 pushableSnowballRadius_ pushableSnowballRadius_ pushableSnowballRadius_
+                                            }
+                                        ]
+                                    )
+                                    state.pushableSnowballs
                                 ++ drawParticles frameId viewMatrix state.particles
                                 ++ (case SeqDict.get model.userId state.players of
                                         Just player ->
@@ -2492,6 +2526,13 @@ updatePlayer inputs2 frameId userId player model =
 
                 Nothing ->
                     model.roundEndTime
+        , snowballImpacts =
+            case hitBySnowball of
+                Just _ ->
+                    frameId :: model.snowballImpacts
+
+                Nothing ->
+                    model.snowballImpacts
     }
 
 
@@ -2539,7 +2580,7 @@ gameUpdate frameId inputs model =
                         in
                         ( snowballs2
                         , particles2
-                        , { position = Point2d.meters x y } :: pushable2
+                        , { position = Point2d.meters x y, velocity = Vector2d.zero } :: pushable2
                         )
 
                     else
@@ -2557,31 +2598,45 @@ gameUpdate frameId inputs model =
                 (\particle -> frameTimeElapsed particle.spawnedAt frameId |> Quantity.lessThan particle.lifetime)
                 model2.particles
                 ++ newParticles
+
+        snowballImpacts : List (Id FrameId)
+        snowballImpacts =
+            List.filter
+                (\impactTime -> frameTimeElapsed impactTime frameId |> Quantity.lessThan Duration.second)
+                model2.snowballImpacts
+                ++ List.map
+                    (\_ -> frameId)
+                    (List.range 1 (List.length model2.snowballs - List.length survivingSnowballs))
     in
     case model.roundEndTime of
         Just roundEnd ->
             if frameTimeElapsed roundEnd.time frameId |> Quantity.lessThan roundResetDuration then
-                { players =
-                    SeqDict.map
-                        (\id player ->
-                            SeqDict.remove id updatedVelocities_
-                                |> SeqDict.values
-                                |> List.foldl (\a b -> handleCollision frameId b a |> Tuple.first) player
-                        )
-                        updatedVelocities_
+                let
+                    finalPlayers =
+                        SeqDict.map
+                            (\id player ->
+                                SeqDict.remove id updatedVelocities_
+                                    |> SeqDict.values
+                                    |> List.foldl (\a b -> handleCollision frameId b a |> Tuple.first) player
+                            )
+                            updatedVelocities_
+                in
+                { players = finalPlayers
                 , snowballs = List.reverse survivingSnowballs
-                , pushableSnowballs = model2.pushableSnowballs ++ newPushableSnowballs
+                , pushableSnowballs =
+                    updatePushableSnowballs finalPlayers (model2.pushableSnowballs ++ newPushableSnowballs)
                 , particles = particles
                 , footsteps = model2.footsteps
                 , mergedFootsteps = model2.mergedFootsteps
                 , score = model2.score
                 , roundEndTime = model2.roundEndTime
+                , snowballImpacts = snowballImpacts
                 }
 
             else
                 { players = initPlayerPosition model2.players
                 , snowballs = []
-                , pushableSnowballs = []
+                , pushableSnowballs = model2.pushableSnowballs
                 , particles = []
                 , footsteps = model2.footsteps
                 , mergedFootsteps = model2.mergedFootsteps
@@ -2596,24 +2651,30 @@ gameUpdate frameId inputs model =
                         BlueWon ->
                             { redTeam = model2.score.redTeam, blueTeam = model2.score.blueTeam + 1 }
                 , roundEndTime = Nothing
+                , snowballImpacts = []
                 }
 
         Nothing ->
-            { players =
-                SeqDict.map
-                    (\id player ->
-                        SeqDict.remove id updatedVelocities_
-                            |> SeqDict.values
-                            |> List.foldl (\a b -> handleCollision frameId b a |> Tuple.first) player
-                    )
-                    updatedVelocities_
+            let
+                finalPlayers =
+                    SeqDict.map
+                        (\id player ->
+                            SeqDict.remove id updatedVelocities_
+                                |> SeqDict.values
+                                |> List.foldl (\a b -> handleCollision frameId b a |> Tuple.first) player
+                        )
+                        updatedVelocities_
+            in
+            { players = finalPlayers
             , snowballs = List.reverse survivingSnowballs
-            , pushableSnowballs = model2.pushableSnowballs ++ newPushableSnowballs
+            , pushableSnowballs =
+                updatePushableSnowballs finalPlayers (model2.pushableSnowballs ++ newPushableSnowballs)
             , particles = particles
             , footsteps = model2.footsteps
             , mergedFootsteps = model2.mergedFootsteps
             , score = model2.score
             , roundEndTime = model2.roundEndTime
+            , snowballImpacts = snowballImpacts
             }
 
 
@@ -3279,6 +3340,181 @@ handleCollision frameId playerA playerB =
         ( playerA, playerB )
 
 
+{-| Update all pushable snowballs: move them, apply friction, handle collisions with players and each other
+-}
+updatePushableSnowballs : SeqDict (Id UserId) Player -> List Match.PushableSnowball -> List Match.PushableSnowball
+updatePushableSnowballs players pushableSnowballs =
+    let
+        -- First, apply player collisions and update velocities
+        afterPlayerCollisions =
+            List.map (applyPlayerCollisions (SeqDict.values players)) pushableSnowballs
+
+        -- Then, handle collisions between pushable snowballs themselves
+        afterSnowballCollisions =
+            handlePushableSnowballCollisions afterPlayerCollisions
+
+        -- Finally, apply friction and move snowballs
+        friction =
+            0.95
+    in
+    List.map
+        (\snowball ->
+            let
+                newVelocity =
+                    Vector2d.scaleBy friction snowball.velocity
+
+                newPosition =
+                    Point2d.translateBy newVelocity snowball.position
+            in
+            { snowball | position = newPosition, velocity = newVelocity }
+        )
+        afterSnowballCollisions
+
+
+{-| Apply collision effects from all players to a pushable snowball
+-}
+applyPlayerCollisions : List Player -> Match.PushableSnowball -> Match.PushableSnowball
+applyPlayerCollisions players snowball =
+    List.foldl applyPlayerCollision snowball players
+
+
+{-| Handle collision between a player and a pushable snowball
+-}
+applyPlayerCollision : Player -> Match.PushableSnowball -> Match.PushableSnowball
+applyPlayerCollision player snowball =
+    let
+        distance =
+            Point2d.distanceFrom player.position snowball.position
+
+        minDistance =
+            Quantity.plus playerRadius pushableSnowballRadius
+    in
+    if distance |> Quantity.lessThan minDistance then
+        let
+            direction =
+                Direction2d.from player.position snowball.position |> Maybe.withDefault Direction2d.x
+
+            -- Push the snowball away from the player
+            overlap =
+                Quantity.minus distance minDistance |> Quantity.negate
+
+            -- Add velocity based on player's movement and push direction
+            pushStrength =
+                Length.meters 0.05
+
+            pushVelocity =
+                Vector2d.withLength pushStrength direction
+
+            -- Also inherit some of player's velocity
+            inheritedVelocity =
+                Vector2d.scaleBy 0.5 player.velocity
+
+            newVelocity =
+                Vector2d.plus snowball.velocity pushVelocity
+                    |> Vector2d.plus inheritedVelocity
+
+            -- Move snowball out of collision
+            newPosition =
+                Point2d.translateIn direction overlap snowball.position
+        in
+        { snowball | position = newPosition, velocity = newVelocity }
+
+    else
+        snowball
+
+
+{-| Handle collisions between all pushable snowballs
+-}
+handlePushableSnowballCollisions : List Match.PushableSnowball -> List Match.PushableSnowball
+handlePushableSnowballCollisions snowballs =
+    case snowballs of
+        [] ->
+            []
+
+        first :: rest ->
+            let
+                ( updatedFirst, updatedRest ) =
+                    List.foldl
+                        (\other ( current, others ) ->
+                            let
+                                ( newCurrent, newOther ) =
+                                    handleTwoPushableSnowballsCollision current other
+                            in
+                            ( newCurrent, newOther :: others )
+                        )
+                        ( first, [] )
+                        rest
+            in
+            updatedFirst :: handlePushableSnowballCollisions (List.reverse updatedRest)
+
+
+{-| Handle collision between two pushable snowballs
+-}
+handleTwoPushableSnowballsCollision : Match.PushableSnowball -> Match.PushableSnowball -> ( Match.PushableSnowball, Match.PushableSnowball )
+handleTwoPushableSnowballsCollision snowballA snowballB =
+    let
+        distance =
+            Point2d.distanceFrom snowballA.position snowballB.position
+
+        minDistance =
+            Quantity.multiplyBy 2 pushableSnowballRadius
+    in
+    if distance |> Quantity.lessThan minDistance then
+        case Geometry.circleCircle pushableSnowballRadius snowballA.position snowballA.velocity snowballB.position snowballB.velocity of
+            Just ( newVelA, newVelB ) ->
+                case Direction2d.from snowballA.position snowballB.position of
+                    Just direction ->
+                        let
+                            overlap =
+                                Quantity.minus distance minDistance
+
+                            halfOverlap =
+                                Quantity.multiplyBy 0.5 overlap
+                        in
+                        ( { snowballA
+                            | velocity = newVelA
+                            , position = Point2d.translateIn (Direction2d.reverse direction) halfOverlap snowballA.position
+                          }
+                        , { snowballB
+                            | velocity = newVelB
+                            , position = Point2d.translateIn direction halfOverlap snowballB.position
+                          }
+                        )
+
+                    Nothing ->
+                        -- Same position, push apart
+                        ( { snowballA
+                            | position = Point2d.translateIn Direction2d.negativeX (Quantity.multiplyBy 0.5 minDistance) snowballA.position
+                          }
+                        , { snowballB
+                            | position = Point2d.translateIn Direction2d.positiveX (Quantity.multiplyBy 0.5 minDistance) snowballB.position
+                          }
+                        )
+
+            Nothing ->
+                -- No velocity-based collision, just separate them
+                case Direction2d.from snowballA.position snowballB.position of
+                    Just direction ->
+                        let
+                            overlap =
+                                Quantity.minus distance minDistance
+
+                            halfOverlap =
+                                Quantity.multiplyBy 0.5 overlap
+                        in
+                        ( { snowballA | position = Point2d.translateIn (Direction2d.reverse direction) halfOverlap snowballA.position }
+                        , { snowballB | position = Point2d.translateIn direction halfOverlap snowballB.position }
+                        )
+
+                    Nothing ->
+                        ( { snowballA | position = Point2d.translateIn Direction2d.negativeX (Quantity.multiplyBy 0.5 minDistance) snowballA.position }
+                        , { snowballB | position = Point2d.translateIn Direction2d.positiveX (Quantity.multiplyBy 0.5 minDistance) snowballB.position }
+                        )
+
+    else
+        ( snowballA, snowballB )
+
+
 squareMesh : WebGL.Mesh { position : Vec2 }
 squareMesh =
     WebGL.triangleFan
@@ -3446,6 +3682,18 @@ particleOutlineMesh =
 snowballRadius : Quantity Float Meters
 snowballRadius =
     Length.meters 0.2
+
+
+pushableSnowballRadius : Quantity Float Meters
+pushableSnowballRadius =
+    Length.meters 0.4
+
+
+pushableSnowballMesh : WebGL.Mesh Vertex
+pushableSnowballMesh =
+    circleMesh 0.85 (Vec3.vec3 0.9 0.95 1)
+        ++ circleMesh 1 (Vec3.vec3 0 0 0)
+        |> WebGL.triangles
 
 
 type alias Uniforms =
@@ -3689,6 +3937,7 @@ initMatch startTime users =
     , mergedFootsteps = []
     , score = { redTeam = 0, blueTeam = 0 }
     , roundEndTime = Nothing
+    , snowballImpacts = []
     }
 
 
@@ -4247,24 +4496,17 @@ audio loaded matchPage =
                                         )
                                         (SeqDict.values state.players)
 
-                                footstepSounds : List Audio
+                                footstepSounds : Audio
                                 footstepSounds =
                                     List.map
                                         (\( userId, player ) ->
-                                            let
-                                                volume =
-                                                    if loaded.userId == userId then
-                                                        0.3
-
-                                                    else
-                                                        0.2
-                                            in
                                             Audio.audio
                                                 (footstepSound loaded userId player.lastStep.time)
                                                 (frameToTime player.lastStep.time)
-                                                |> Audio.scaleVolume volume
                                         )
                                         (SeqDict.toList state.players)
+                                        |> Audio.group
+                                        |> Audio.scaleVolume 0.1
 
                                 deadSounds : List Audio
                                 deadSounds =
@@ -4339,9 +4581,23 @@ audio loaded matchPage =
 
                                         Nothing ->
                                             []
+
+                                hitSounds : Audio
+                                hitSounds =
+                                    List.map
+                                        (\impactTime ->
+                                            Audio.audioWithConfig
+                                                { loop = Nothing, playbackRate = 1.5, startAt = Quantity.zero }
+                                                loaded.sounds.footstep4
+                                                (frameToTime impactTime)
+                                        )
+                                        state.snowballImpacts
+                                        |> Audio.group
+                                        |> Audio.scaleVolume 0.5
                             in
-                            chargeSounds
-                                ++ footstepSounds
+                            footstepSounds
+                                :: hitSounds
+                                :: chargeSounds
                                 ++ deadSounds
                                 ++ throwSounds
                                 ++ whooshSounds
