@@ -1826,7 +1826,7 @@ canvasViewHelper model matchSetup canvasSize =
                                                         elapsed =
                                                             frameTimeElapsed clickStart.time currentFrameId
                                                     in
-                                                    if elapsed |> Quantity.greaterThanOrEqualTo clickMoveMaxDelay then
+                                                    if elapsed |> Quantity.greaterThanOrEqualTo chargeStartDelay then
                                                         case Direction2d.from player.position clickStart.position of
                                                             Just direction ->
                                                                 let
@@ -1940,7 +1940,7 @@ handPosition leftHand frameId player =
                             elapsed =
                                 frameTimeElapsed clickStart.time frameId
                         in
-                        if elapsed |> Quantity.greaterThanOrEqualTo clickMoveMaxDelay then
+                        if elapsed |> Quantity.greaterThanOrEqualTo chargeStartDelay then
                             -- Move backwards based on charge amount
                             Length.meters (-0.3 * throwCharge elapsed)
 
@@ -1965,7 +1965,7 @@ handPosition leftHand frameId player =
                             elapsed =
                                 frameTimeElapsed clickStart.time frameId
                         in
-                        if elapsed |> Quantity.greaterThanOrEqualTo clickMoveMaxDelay then
+                        if elapsed |> Quantity.greaterThanOrEqualTo chargeStartDelay then
                             0.3 * (Length.inMeters snowballStartHeight - 0.3) * throwCharge elapsed |> Length.meters
 
                         else
@@ -2360,6 +2360,16 @@ clickMoveMaxDelay =
     Duration.seconds 0.2
 
 
+snowballCreationDuration : Duration
+snowballCreationDuration =
+    Duration.seconds 1
+
+
+chargeStartDelay : Duration
+chargeStartDelay =
+    Quantity.plus clickMoveMaxDelay snowballCreationDuration
+
+
 chargeMaxDelay : Duration
 chargeMaxDelay =
     Duration.seconds 1
@@ -2367,7 +2377,7 @@ chargeMaxDelay =
 
 clickTotalDelay : Duration
 clickTotalDelay =
-    Quantity.plus chargeMaxDelay clickMoveMaxDelay
+    Quantity.plus chargeMaxDelay chargeStartDelay
 
 
 snowballPlayerCollision : Snowball -> Id UserId -> Player -> Bool
@@ -2615,7 +2625,7 @@ updatePlayer inputs2 frameId userId player model =
                             frameTimeElapsed clickStart.time frameId
                     in
                     if
-                        (elapsed |> Quantity.greaterThanOrEqualTo clickMoveMaxDelay)
+                        (elapsed |> Quantity.greaterThanOrEqualTo chargeStartDelay)
                             && (elapsed |> Quantity.lessThan clickTotalDelay)
                     then
                         let
@@ -3249,7 +3259,7 @@ throwCharge clickStartElapsed =
     let
         t : Float
         t =
-            Quantity.ratio (clickStartElapsed |> Quantity.minus clickMoveMaxDelay) chargeMaxDelay |> max 0
+            Quantity.ratio (clickStartElapsed |> Quantity.minus chargeStartDelay) chargeMaxDelay |> max 0
 
         offset =
             0.1
