@@ -713,6 +713,9 @@ characterViewHelper alpha viewMatrix textures player character index =
                     (size * toFloat height / toFloat width)
                     1
 
+        pixelSize =
+            size / toFloat width
+
         eyeOffset =
             Direction2d.from player.position (Point2d.meters x y)
                 |> Maybe.withDefault Direction2d.x
@@ -726,6 +729,7 @@ characterViewHelper alpha viewMatrix textures player character index =
                         Charlotte ->
                             0.2
                     )
+                |> (\offset -> toFloat (round (offset / pixelSize)) * pixelSize)
     in
     [ WebGL.entityWith
         [ Blend.add Blend.one Blend.oneMinusSrcAlpha ]
