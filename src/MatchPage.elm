@@ -706,12 +706,24 @@ characterViewHelper frameId viewMatrix textures player character index =
             case player.team of
                 RedTeam ->
                     -20
+                        + (if modBy 2 index == 0 then
+                            0
+
+                           else
+                            -0.5
+                          )
 
                 BlueTeam ->
                     20
+                        + (if modBy 2 index == 0 then
+                            0
+
+                           else
+                            0.5
+                          )
 
         y =
-            toFloat index * 2 + levelMinY
+            toFloat index * 1 + levelMinY
 
         ( width, height ) =
             Texture.size characterTextures.base
@@ -1707,16 +1719,6 @@ canvasViewHelper model matchSetup canvasSize =
                                    ]
                                 ++ drawScoreNumber RedTeam viewMatrix frameId state.score.redTeam state.roundEndTime
                                 ++ drawScoreNumber BlueTeam viewMatrix frameId state.score.blueTeam state.roundEndTime
-                                ++ List.concatMap
-                                    (\( userId, player ) ->
-                                        drawPlayer
-                                            (timeToFrameId model match)
-                                            userId
-                                            matchData
-                                            viewMatrix
-                                            player
-                                    )
-                                    (SeqDict.toList state.players)
                                 ++ List.map
                                     (\footstepMesh2 ->
                                         WebGL.entityWith
@@ -1743,6 +1745,16 @@ canvasViewHelper model matchSetup canvasSize =
                                             }
                                     )
                                     state.mergedFootsteps
+                                ++ List.concatMap
+                                    (\( userId, player ) ->
+                                        drawPlayer
+                                            (timeToFrameId model match)
+                                            userId
+                                            matchData
+                                            viewMatrix
+                                            player
+                                    )
+                                    (SeqDict.toList state.players)
                                 ++ List.concatMap
                                     (\snowball ->
                                         let
@@ -2174,7 +2186,7 @@ drawPlayer frameId userId matchData viewMatrix player =
                             in
                             drawShape
                                 emojiSize
-                                (Point2d.translateBy (Vector2d.meters 0.4 0.3) player.position)
+                                (Point2d.translateBy (Vector2d.meters 0.5 0.3) player.position)
                                 viewMatrix
                                 (case lastEmote.emote of
                                     SurpriseEmote ->
