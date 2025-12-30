@@ -655,13 +655,29 @@ characterView frameId viewMatrix textures match state =
                 Just data ->
                     case player.team of
                         RedTeam ->
-                            ( characterViewHelper alpha viewMatrix textures player data.character (List.length redTeam) ++ redTeam
+                            ( characterViewHelper
+                                frameId
+                                alpha
+                                viewMatrix
+                                textures
+                                player
+                                data.character
+                                (List.length redTeam)
+                                ++ redTeam
                             , blueTeam
                             )
 
                         BlueTeam ->
                             ( redTeam
-                            , characterViewHelper alpha viewMatrix textures player data.character (List.length blueTeam) ++ blueTeam
+                            , characterViewHelper
+                                frameId
+                                alpha
+                                viewMatrix
+                                textures
+                                player
+                                data.character
+                                (List.length blueTeam)
+                                ++ blueTeam
                             )
 
                 Nothing ->
@@ -672,8 +688,8 @@ characterView frameId viewMatrix textures match state =
         |> (\( a, b ) -> a ++ b)
 
 
-characterViewHelper : Float -> Mat4 -> Textures -> Player -> Character -> Int -> List WebGL.Entity
-characterViewHelper alpha viewMatrix textures player character index =
+characterViewHelper : Id FrameId -> Float -> Mat4 -> Textures -> Player -> Character -> Int -> List WebGL.Entity
+characterViewHelper frameId alpha viewMatrix textures player character index =
     let
         characterTextures =
             case character of
@@ -692,10 +708,13 @@ characterViewHelper alpha viewMatrix textures player character index =
                     20
 
         y =
-            toFloat index * 3 + 1
+            toFloat index * 2 + levelMinY
 
         ( width, height ) =
             Texture.size characterTextures.base
+
+        ( grumbleWidth, grumbleHeight ) =
+            Texture.size textures.grumble0
 
         size =
             3
@@ -714,8 +733,9 @@ characterViewHelper alpha viewMatrix textures player character index =
                     1
 
         pixelSize =
-            size / toFloat width
+            2 * size / toFloat width
 
+        eyeOffset : Float
         eyeOffset =
             Direction2d.from player.position (Point2d.meters x y)
                 |> Maybe.withDefault Direction2d.x
@@ -724,14 +744,127 @@ characterViewHelper alpha viewMatrix textures player character index =
                 |> (*)
                     (case character of
                         Bones ->
-                            0.1
+                            0
 
                         Charlotte ->
                             0.2
                     )
-                |> (\offset -> toFloat (round (offset / pixelSize)) * pixelSize)
+                |> (\offset -> toFloat (floor (offset / pixelSize)) * pixelSize)
+
+        armOffset : Float
+        armOffset =
+            case player.clickStart of
+                Just clickStart ->
+                    -2 * pixelSize
+
+                Nothing ->
+                    0
+
+        gumbleSize =
+            2
+
+        grumbleX =
+            case player.team of
+                RedTeam ->
+                    -18
+
+                BlueTeam ->
+                    18
+
+        showGrumble =
+            --case player.isDead of
+            --    Just dead ->
+            --        if frameTimeElapsed dead.time frameId |> Quantity.lessThan (Duration.seconds 3) then
+            [ WebGL.entityWith
+                [ Blend.add Blend.one Blend.oneMinusSrcAlpha ]
+                textureVertexShader
+                textureFragmentShader
+                squareTextureMesh
+                { alpha = 1
+                , view = viewMatrix
+                , model =
+                    Mat4.makeTranslate3 grumbleX (y + 5) 2
+                        |> Mat4.scale3
+                            (case player.team of
+                                RedTeam ->
+                                    -gumbleSize
+
+                                BlueTeam ->
+                                    gumbleSize
+                            )
+                            (gumbleSize * toFloat grumbleHeight / toFloat grumbleWidth)
+                            1
+                , texture =
+                    case frameTimeElapsed (Id.fromInt 0) frameId |> Duration.inSeconds |> (*) 15 |> round |> modBy 3 of
+                        0 ->
+                            textures.grumble0
+
+                        1 ->
+                            textures.grumble1
+
+                        2 ->
+                            textures.grumble2
+
+                        3 ->
+                            textures.grumble3
+
+                        4 ->
+                            textures.grumble4
+
+                        _ ->
+                            textures.grumble5
+                }
+            ]
+
+        --    else
+        --        []
+        --
+        --Nothing ->
+        --    []
     in
     [ WebGL.entityWith
+        [ Blend.add Blend.one Blend.oneMinusSrcAlpha ]
+        textureVertexShader
+        textureFragmentShader
+        squareTextureMesh
+        { alpha = 1
+        , view = viewMatrix
+        , model =
+            Mat4.makeTranslate3 x (y + armOffset) 2
+                |> Mat4.scale3
+                    (case player.team of
+                        RedTeam ->
+                            -size
+
+                        BlueTeam ->
+                            size
+                    )
+                    (size * toFloat height / toFloat width)
+                    1
+        , texture = characterTextures.arms
+        }
+    , WebGL.entityWith
+        [ Blend.add Blend.one Blend.oneMinusSrcAlpha ]
+        textureVertexShader
+        textureFragmentShader
+        squareTextureMesh
+        { alpha = 1
+        , view = viewMatrix
+        , model =
+            Mat4.makeTranslate3 x (y + armOffset) 2
+                |> Mat4.scale3
+                    (case player.team of
+                        RedTeam ->
+                            -size
+
+                        BlueTeam ->
+                            size
+                    )
+                    (size * toFloat height / toFloat width)
+                    1
+        , texture = characterTextures.shadowArms
+        }
+    , WebGL.entityWith
         [ Blend.add Blend.one Blend.oneMinusSrcAlpha ]
         textureVertexShader
         textureFragmentShader
@@ -773,6 +906,7 @@ characterViewHelper alpha viewMatrix textures player character index =
         , texture = characterTextures.shadows
         }
     ]
+        ++ showGrumble
 
 
 view : Config a -> Model -> Ui.Element Msg

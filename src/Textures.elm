@@ -12,6 +12,12 @@ type alias Textures =
     , video0 : Texture
     , video1 : Texture
     , video2 : Texture
+    , grumble0 : Texture
+    , grumble1 : Texture
+    , grumble2 : Texture
+    , grumble3 : Texture
+    , grumble4 : Texture
+    , grumble5 : Texture
     , bones : CharacterTextures
     , charlotte : CharacterTextures
     }
@@ -21,6 +27,8 @@ type alias CharacterTextures =
     { base : Texture
     , shadows : Texture
     , eye : Texture
+    , arms : Texture
+    , shadowArms : Texture
     }
 
 
@@ -30,6 +38,12 @@ textureUrls =
     , "/video0.png"
     , "/video1.png"
     , "/video2.png"
+    , "/grumble0.png"
+    , "/grumble1.png"
+    , "/grumble2.png"
+    , "/grumble3.png"
+    , "/grumble4.png"
+    , "/grumble5.png"
     ]
         ++ List.concatMap
             (\a ->
@@ -40,6 +54,8 @@ textureUrls =
                 [ "/" ++ name ++ "/base.png"
                 , "/" ++ name ++ "/shadow.png"
                 , "/" ++ name ++ "/eye.png"
+                , "/" ++ name ++ "/arms.png"
+                , "/" ++ name ++ "/shadow_arms.png"
                 ]
             )
             Character.all
@@ -93,6 +109,8 @@ loadingFinished sounds =
                         |> loadTexture
                         |> loadTexture
                         |> loadTexture
+                        |> loadTexture
+                        |> loadTexture
                         |> (\( a, b ) ->
                                 ( a
                                 , case b of
@@ -108,6 +126,12 @@ loadingFinished sounds =
                     ( urlsLeft, Nothing )
     in
     ( textureUrls, Just Textures )
+        |> loadTexture
+        |> loadTexture
+        |> loadTexture
+        |> loadTexture
+        |> loadTexture
+        |> loadTexture
         |> loadTexture
         |> loadTexture
         |> loadTexture
