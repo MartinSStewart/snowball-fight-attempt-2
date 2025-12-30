@@ -699,6 +699,9 @@ characterViewHelper frameId alpha viewMatrix textures player character index =
                 Charlotte ->
                     textures.charlotte
 
+                Bot ->
+                    textures.bot
+
         x =
             case player.team of
                 RedTeam ->
@@ -748,6 +751,9 @@ characterViewHelper frameId alpha viewMatrix textures player character index =
 
                         Charlotte ->
                             0.2
+
+                        Bot ->
+                            0
                     )
                 |> (\offset -> toFloat (floor (offset / pixelSize)) * pixelSize)
 
@@ -760,7 +766,7 @@ characterViewHelper frameId alpha viewMatrix textures player character index =
                 Nothing ->
                     0
 
-        gumbleSize =
+        grumbleSize =
             2
 
         grumbleX =
@@ -787,12 +793,12 @@ characterViewHelper frameId alpha viewMatrix textures player character index =
                                     |> Mat4.scale3
                                         (case player.team of
                                             RedTeam ->
-                                                -gumbleSize
+                                                -grumbleSize
 
                                             BlueTeam ->
-                                                gumbleSize
+                                                grumbleSize
                                         )
-                                        (gumbleSize * toFloat grumbleHeight / toFloat grumbleWidth)
+                                        (grumbleSize * toFloat grumbleHeight / toFloat grumbleWidth)
                                         1
                             , texture =
                                 case frameTimeElapsed (Id.fromInt 0) frameId |> Duration.inSeconds |> (*) 15 |> round |> modBy 3 of
@@ -4131,7 +4137,7 @@ initMatchData serverTime newUserIds maybeTimelineCache =
                                 , { skinTone = playerData.skinTone
                                   , character =
                                         if isBot id then
-                                            Charlotte
+                                            Bot
 
                                         else
                                             playerData.character

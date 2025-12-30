@@ -20,6 +20,7 @@ type alias Textures =
     , grumble5 : Texture
     , bones : CharacterTextures
     , charlotte : CharacterTextures
+    , bot : CharacterTextures
     }
 
 
@@ -136,6 +137,7 @@ loadingFinished sounds =
         |> loadTexture
         |> loadTexture
         |> loadTexture
+        |> loadCharacterTexture
         |> loadCharacterTexture
         |> loadCharacterTexture
         |> Tuple.second

@@ -1,7 +1,6 @@
 module Character exposing
     ( Character(..)
     , all
-    , fromString
     , toString
     )
 
@@ -9,12 +8,14 @@ module Character exposing
 type Character
     = Bones
     | Charlotte
+    | Bot
 
 
 all : List Character
 all =
     [ Bones
     , Charlotte
+    , Bot
     ]
 
 
@@ -27,15 +28,5 @@ toString character =
         Charlotte ->
             "charlotte"
 
-
-fromString : String -> Maybe Character
-fromString str =
-    case str of
-        "Character1" ->
-            Just Bones
-
-        "Character2" ->
-            Just Charlotte
-
-        _ ->
-            Nothing
+        Bot ->
+            "bot"
