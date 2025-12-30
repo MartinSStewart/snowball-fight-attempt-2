@@ -718,7 +718,14 @@ characterViewHelper alpha viewMatrix textures player character index =
                 |> Maybe.withDefault Direction2d.x
                 |> Direction2d.yComponent
                 |> negate
-                |> (*) 0.2
+                |> (*)
+                    (case character of
+                        Bones ->
+                            0.1
+
+                        Charlotte ->
+                            0.2
+                    )
     in
     [ WebGL.entityWith
         [ Blend.add Blend.one Blend.oneMinusSrcAlpha ]
