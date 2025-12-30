@@ -2307,7 +2307,7 @@ snowballPlayerCollision snowball userId player =
 
 playerHeight : Length
 playerHeight =
-    Length.meters 1.5
+    Length.meters 1.3
 
 
 snowballPushableSnowballCollision : Match.Snowball -> Match.PushableSnowball -> Bool
