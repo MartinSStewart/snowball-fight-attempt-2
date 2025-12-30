@@ -772,55 +772,55 @@ characterViewHelper frameId alpha viewMatrix textures player character index =
                     18
 
         showGrumble =
-            --case player.isDead of
-            --    Just dead ->
-            --        if frameTimeElapsed dead.time frameId |> Quantity.lessThan (Duration.seconds 3) then
-            [ WebGL.entityWith
-                [ Blend.add Blend.one Blend.oneMinusSrcAlpha ]
-                textureVertexShader
-                textureFragmentShader
-                squareTextureMesh
-                { alpha = 1
-                , view = viewMatrix
-                , model =
-                    Mat4.makeTranslate3 grumbleX (y + 5) 2
-                        |> Mat4.scale3
-                            (case player.team of
-                                RedTeam ->
-                                    -gumbleSize
+            case player.isDead of
+                Just dead ->
+                    if frameTimeElapsed dead.time frameId |> Quantity.lessThan (Duration.seconds 3) then
+                        [ WebGL.entityWith
+                            [ Blend.add Blend.one Blend.oneMinusSrcAlpha ]
+                            textureVertexShader
+                            textureFragmentShader
+                            squareTextureMesh
+                            { alpha = 1
+                            , view = viewMatrix
+                            , model =
+                                Mat4.makeTranslate3 grumbleX (y + 5) 2
+                                    |> Mat4.scale3
+                                        (case player.team of
+                                            RedTeam ->
+                                                -gumbleSize
 
-                                BlueTeam ->
-                                    gumbleSize
-                            )
-                            (gumbleSize * toFloat grumbleHeight / toFloat grumbleWidth)
-                            1
-                , texture =
-                    case frameTimeElapsed (Id.fromInt 0) frameId |> Duration.inSeconds |> (*) 15 |> round |> modBy 3 of
-                        0 ->
-                            textures.grumble0
+                                            BlueTeam ->
+                                                gumbleSize
+                                        )
+                                        (gumbleSize * toFloat grumbleHeight / toFloat grumbleWidth)
+                                        1
+                            , texture =
+                                case frameTimeElapsed (Id.fromInt 0) frameId |> Duration.inSeconds |> (*) 15 |> round |> modBy 3 of
+                                    0 ->
+                                        textures.grumble0
 
-                        1 ->
-                            textures.grumble1
+                                    1 ->
+                                        textures.grumble1
 
-                        2 ->
-                            textures.grumble2
+                                    2 ->
+                                        textures.grumble2
 
-                        3 ->
-                            textures.grumble3
+                                    3 ->
+                                        textures.grumble3
 
-                        4 ->
-                            textures.grumble4
+                                    4 ->
+                                        textures.grumble4
 
-                        _ ->
-                            textures.grumble5
-                }
-            ]
+                                    _ ->
+                                        textures.grumble5
+                            }
+                        ]
 
-        --    else
-        --        []
-        --
-        --Nothing ->
-        --    []
+                    else
+                        []
+
+                Nothing ->
+                    []
     in
     [ WebGL.entityWith
         [ Blend.add Blend.one Blend.oneMinusSrcAlpha ]
