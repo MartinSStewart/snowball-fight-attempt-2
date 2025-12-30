@@ -39,6 +39,7 @@ textureUrls =
                 in
                 [ "/" ++ name ++ "/base.png"
                 , "/" ++ name ++ "/shadow.png"
+                , "/" ++ name ++ "/eye.png"
                 ]
             )
             Character.all

@@ -151,7 +151,7 @@ tryLoadedInit loading =
         (loadedInit loading)
         loading.time
         (Sounds.loadingFinished loading.sounds)
-        (Textures.loadingFinished (Debug.log "a" loading.textures))
+        (Textures.loadingFinished loading.textures)
         loading.initData
         |> Maybe.withDefault ( Loading loading, Command.none, Audio.cmdNone )
 

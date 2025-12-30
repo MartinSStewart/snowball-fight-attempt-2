@@ -653,24 +653,15 @@ characterView frameId viewMatrix textures match state =
         (\userId player ( redTeam, blueTeam ) ->
             case SeqDict.get userId match.userIds of
                 Just data ->
-                    let
-                        characterTextures =
-                            case data.character of
-                                Bones ->
-                                    textures.bones
-
-                                Charlotte ->
-                                    textures.charlotte
-                    in
                     case player.team of
                         RedTeam ->
-                            ( characterViewHelper alpha viewMatrix characterTextures player.team (List.length redTeam) ++ redTeam
+                            ( characterViewHelper alpha viewMatrix textures player data.character (List.length redTeam) ++ redTeam
                             , blueTeam
                             )
 
                         BlueTeam ->
                             ( redTeam
-                            , characterViewHelper alpha viewMatrix characterTextures player.team (List.length blueTeam) ++ blueTeam
+                            , characterViewHelper alpha viewMatrix textures player data.character (List.length blueTeam) ++ blueTeam
                             )
 
                 Nothing ->
@@ -681,11 +672,19 @@ characterView frameId viewMatrix textures match state =
         |> (\( a, b ) -> a ++ b)
 
 
-characterViewHelper : Float -> Mat4 -> CharacterTextures -> Team -> Int -> List WebGL.Entity
-characterViewHelper alpha viewMatrix textures team index =
+characterViewHelper : Float -> Mat4 -> Textures -> Player -> Character -> Int -> List WebGL.Entity
+characterViewHelper alpha viewMatrix textures player character index =
     let
+        characterTextures =
+            case character of
+                Bones ->
+                    textures.bones
+
+                Charlotte ->
+                    textures.charlotte
+
         x =
-            case team of
+            case player.team of
                 RedTeam ->
                     -20
 
@@ -696,10 +695,30 @@ characterViewHelper alpha viewMatrix textures team index =
             toFloat index * 3 + 1
 
         ( width, height ) =
-            Texture.size textures.base
+            Texture.size characterTextures.base
 
         size =
             3
+
+        matrix =
+            Mat4.makeTranslate3 x y 2
+                |> Mat4.scale3
+                    (case player.team of
+                        RedTeam ->
+                            -size
+
+                        BlueTeam ->
+                            size
+                    )
+                    (size * toFloat height / toFloat width)
+                    1
+
+        eyeOffset =
+            Direction2d.from player.position (Point2d.meters x y)
+                |> Maybe.withDefault Direction2d.x
+                |> Direction2d.yComponent
+                |> negate
+                |> (*) 0.2
     in
     [ WebGL.entityWith
         [ Blend.add Blend.one Blend.oneMinusSrcAlpha ]
@@ -708,10 +727,20 @@ characterViewHelper alpha viewMatrix textures team index =
         squareTextureMesh
         { alpha = 1
         , view = viewMatrix
+        , model = matrix
+        , texture = characterTextures.base
+        }
+    , WebGL.entityWith
+        [ Blend.add Blend.one Blend.oneMinusSrcAlpha ]
+        textureVertexShader
+        textureFragmentShader
+        squareTextureMesh
+        { alpha = 1
+        , view = viewMatrix
         , model =
-            Mat4.makeTranslate3 x y 2
+            Mat4.makeTranslate3 x (y + eyeOffset) 2
                 |> Mat4.scale3
-                    (case team of
+                    (case player.team of
                         RedTeam ->
                             -size
 
@@ -720,7 +749,7 @@ characterViewHelper alpha viewMatrix textures team index =
                     )
                     (size * toFloat height / toFloat width)
                     1
-        , texture = textures.base
+        , texture = characterTextures.eye
         }
     , WebGL.entityWith
         [ Blend.add Blend.one Blend.oneMinusSrcAlpha ]
@@ -729,19 +758,8 @@ characterViewHelper alpha viewMatrix textures team index =
         squareTextureMesh
         { alpha = alpha
         , view = viewMatrix
-        , model =
-            Mat4.makeTranslate3 x y 2
-                |> Mat4.scale3
-                    (case team of
-                        RedTeam ->
-                            -size
-
-                        BlueTeam ->
-                            size
-                    )
-                    (size * toFloat height / toFloat width)
-                    1
-        , texture = textures.shadows
+        , model = matrix
+        , texture = characterTextures.shadows
         }
     ]
 
@@ -2131,16 +2149,21 @@ wall : Polygon2d Meters WorldCoordinate
 wall =
     Polygon2d.withHoles
         []
-        [ Point2d.meters -14 -11
-        , Point2d.meters 14 -11
-        , Point2d.meters 14 11
-        , Point2d.meters -14 11
+        [ Point2d.meters -14 levelMinY
+        , Point2d.meters 14 levelMinY
+        , Point2d.meters 14 levelMaxY
+        , Point2d.meters -14 levelMaxY
         ]
 
 
-playerStart : Point2d Meters WorldCoordinate
-playerStart =
-    Point2d.fromMeters { x = 0, y = 0 }
+levelMinY : number
+levelMinY =
+    -11
+
+
+levelMaxY : number
+levelMaxY =
+    11
 
 
 wallSegments : List (LineSegment2d Meters WorldCoordinate)
