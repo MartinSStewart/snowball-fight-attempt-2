@@ -9,6 +9,7 @@ type Character
     = Bones
     | Charlotte
     | Bot
+    | Stana
 
 
 all : List Character
@@ -16,6 +17,7 @@ all =
     [ Bones
     , Charlotte
     , Bot
+    , Stana
     ]
 
 
@@ -30,3 +32,6 @@ toString character =
 
         Bot ->
             "bot"
+
+        Stana ->
+            "stana"

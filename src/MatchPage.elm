@@ -644,11 +644,6 @@ type WorldPixel
 
 characterView : Id FrameId -> Mat4 -> Textures -> MatchActiveLocal_ -> MatchState -> List WebGL.Entity
 characterView frameId viewMatrix textures match state =
-    let
-        alpha : Float
-        alpha =
-            Id.toInt frameId |> toFloat |> sin |> (*) 0.03 |> (+) 0.7
-    in
     SeqDict.foldr
         (\userId player ( redTeam, blueTeam ) ->
             case SeqDict.get userId match.userIds of
@@ -657,7 +652,6 @@ characterView frameId viewMatrix textures match state =
                         RedTeam ->
                             ( characterViewHelper
                                 frameId
-                                alpha
                                 viewMatrix
                                 textures
                                 player
@@ -671,7 +665,6 @@ characterView frameId viewMatrix textures match state =
                             ( redTeam
                             , characterViewHelper
                                 frameId
-                                alpha
                                 viewMatrix
                                 textures
                                 player
@@ -688,8 +681,8 @@ characterView frameId viewMatrix textures match state =
         |> (\( a, b ) -> a ++ b)
 
 
-characterViewHelper : Id FrameId -> Float -> Mat4 -> Textures -> Player -> Character -> Int -> List WebGL.Entity
-characterViewHelper frameId alpha viewMatrix textures player character index =
+characterViewHelper : Id FrameId -> Mat4 -> Textures -> Player -> Character -> Int -> List WebGL.Entity
+characterViewHelper frameId viewMatrix textures player character index =
     let
         characterTextures =
             case character of
@@ -701,6 +694,30 @@ characterViewHelper frameId alpha viewMatrix textures player character index =
 
                 Bot ->
                     textures.bot
+
+                Stana ->
+                    textures.stana
+
+        alpha : Float
+        alpha =
+            Id.toInt frameId
+                |> toFloat
+                |> sin
+                |> (*) 0.03
+                |> (+)
+                    (case character of
+                        Stana ->
+                            0.6
+
+                        Bones ->
+                            0.7
+
+                        Charlotte ->
+                            0.7
+
+                        Bot ->
+                            0.7
+                    )
 
         x =
             case player.team of
@@ -754,6 +771,9 @@ characterViewHelper frameId alpha viewMatrix textures player character index =
 
                         Bot ->
                             0
+
+                        Stana ->
+                            0.1
                     )
                 |> (\offset -> toFloat (floor (offset / pixelSize)) * pixelSize)
 
@@ -827,91 +847,116 @@ characterViewHelper frameId alpha viewMatrix textures player character index =
 
                 Nothing ->
                     []
+
+        armInFront =
+            case character of
+                Bones ->
+                    False
+
+                Charlotte ->
+                    False
+
+                Bot ->
+                    False
+
+                Stana ->
+                    True
+
+        arm =
+            [ WebGL.entityWith
+                [ Blend.add Blend.one Blend.oneMinusSrcAlpha ]
+                textureVertexShader
+                textureFragmentShader
+                squareTextureMesh
+                { alpha = 1
+                , view = viewMatrix
+                , model =
+                    Mat4.makeTranslate3 x (y + armOffset) 2
+                        |> Mat4.scale3
+                            (case player.team of
+                                RedTeam ->
+                                    -size
+
+                                BlueTeam ->
+                                    size
+                            )
+                            (size * toFloat height / toFloat width)
+                            1
+                , texture = characterTextures.arms
+                }
+            , WebGL.entityWith
+                [ Blend.add Blend.one Blend.oneMinusSrcAlpha ]
+                textureVertexShader
+                textureFragmentShader
+                squareTextureMesh
+                { alpha = alpha
+                , view = viewMatrix
+                , model =
+                    Mat4.makeTranslate3 x (y + armOffset) 2
+                        |> Mat4.scale3
+                            (case player.team of
+                                RedTeam ->
+                                    -size
+
+                                BlueTeam ->
+                                    size
+                            )
+                            (size * toFloat height / toFloat width)
+                            1
+                , texture = characterTextures.shadowArms
+                }
+            ]
+
+        base =
+            [ WebGL.entityWith
+                [ Blend.add Blend.one Blend.oneMinusSrcAlpha ]
+                textureVertexShader
+                textureFragmentShader
+                squareTextureMesh
+                { alpha = 1
+                , view = viewMatrix
+                , model = matrix
+                , texture = characterTextures.base
+                }
+            , WebGL.entityWith
+                [ Blend.add Blend.one Blend.oneMinusSrcAlpha ]
+                textureVertexShader
+                textureFragmentShader
+                squareTextureMesh
+                { alpha = 1
+                , view = viewMatrix
+                , model =
+                    Mat4.makeTranslate3 x (y + eyeOffset) 2
+                        |> Mat4.scale3
+                            (case player.team of
+                                RedTeam ->
+                                    -size
+
+                                BlueTeam ->
+                                    size
+                            )
+                            (size * toFloat height / toFloat width)
+                            1
+                , texture = characterTextures.eye
+                }
+            , WebGL.entityWith
+                [ Blend.add Blend.one Blend.oneMinusSrcAlpha ]
+                textureVertexShader
+                textureFragmentShader
+                squareTextureMesh
+                { alpha = alpha
+                , view = viewMatrix
+                , model = matrix
+                , texture = characterTextures.shadows
+                }
+            ]
     in
-    [ WebGL.entityWith
-        [ Blend.add Blend.one Blend.oneMinusSrcAlpha ]
-        textureVertexShader
-        textureFragmentShader
-        squareTextureMesh
-        { alpha = 1
-        , view = viewMatrix
-        , model =
-            Mat4.makeTranslate3 x (y + armOffset) 2
-                |> Mat4.scale3
-                    (case player.team of
-                        RedTeam ->
-                            -size
+    (if armInFront then
+        base ++ arm
 
-                        BlueTeam ->
-                            size
-                    )
-                    (size * toFloat height / toFloat width)
-                    1
-        , texture = characterTextures.arms
-        }
-    , WebGL.entityWith
-        [ Blend.add Blend.one Blend.oneMinusSrcAlpha ]
-        textureVertexShader
-        textureFragmentShader
-        squareTextureMesh
-        { alpha = 1
-        , view = viewMatrix
-        , model =
-            Mat4.makeTranslate3 x (y + armOffset) 2
-                |> Mat4.scale3
-                    (case player.team of
-                        RedTeam ->
-                            -size
-
-                        BlueTeam ->
-                            size
-                    )
-                    (size * toFloat height / toFloat width)
-                    1
-        , texture = characterTextures.shadowArms
-        }
-    , WebGL.entityWith
-        [ Blend.add Blend.one Blend.oneMinusSrcAlpha ]
-        textureVertexShader
-        textureFragmentShader
-        squareTextureMesh
-        { alpha = 1
-        , view = viewMatrix
-        , model = matrix
-        , texture = characterTextures.base
-        }
-    , WebGL.entityWith
-        [ Blend.add Blend.one Blend.oneMinusSrcAlpha ]
-        textureVertexShader
-        textureFragmentShader
-        squareTextureMesh
-        { alpha = 1
-        , view = viewMatrix
-        , model =
-            Mat4.makeTranslate3 x (y + eyeOffset) 2
-                |> Mat4.scale3
-                    (case player.team of
-                        RedTeam ->
-                            -size
-
-                        BlueTeam ->
-                            size
-                    )
-                    (size * toFloat height / toFloat width)
-                    1
-        , texture = characterTextures.eye
-        }
-    , WebGL.entityWith
-        [ Blend.add Blend.one Blend.oneMinusSrcAlpha ]
-        textureVertexShader
-        textureFragmentShader
-        squareTextureMesh
-        { alpha = alpha
-        , view = viewMatrix
-        , model = matrix
-        , texture = characterTextures.shadows
-        }
-    ]
+     else
+        arm ++ base
+    )
         ++ showGrumble
 
 

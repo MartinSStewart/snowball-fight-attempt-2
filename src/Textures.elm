@@ -21,6 +21,7 @@ type alias Textures =
     , bones : CharacterTextures
     , charlotte : CharacterTextures
     , bot : CharacterTextures
+    , stana : CharacterTextures
     }
 
 
@@ -137,6 +138,7 @@ loadingFinished sounds =
         |> loadTexture
         |> loadTexture
         |> loadTexture
+        |> loadCharacterTexture
         |> loadCharacterTexture
         |> loadCharacterTexture
         |> loadCharacterTexture
