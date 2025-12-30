@@ -1922,13 +1922,46 @@ handPosition leftHand frameId player =
         isMoving =
             speed > 0.01
 
+        -- Check if creating snowball
+        creationProgress : Maybe Float
+        creationProgress =
+            snowballCreationProgress frameId player
+
         swingAmount : Length
         swingAmount =
-            if isMoving then
-                sin (Duration.inSeconds timeElapsed * 10 + swingPhase) * 0.15 |> Length.meters
+            case creationProgress of
+                Just _ ->
+                    -- No swing during creation
+                    Quantity.zero
 
-            else
-                Quantity.zero
+                Nothing ->
+                    if isMoving then
+                        sin (Duration.inSeconds timeElapsed * 10 + swingPhase) * 0.15 |> Length.meters
+
+                    else
+                        Quantity.zero
+
+        -- Forward offset during snowball creation (hands move in front)
+        creationForwardOffset : Length
+        creationForwardOffset =
+            case creationProgress of
+                Just progress ->
+                    -- Move hands forward during creation
+                    Length.meters (0.4 * sin (progress * pi))
+
+                Nothing ->
+                    Quantity.zero
+
+        -- Side offset reduction during snowball creation (hands move closer together)
+        creationSideMultiplier : Float
+        creationSideMultiplier =
+            case creationProgress of
+                Just progress ->
+                    -- Reduce side offset to bring hands together
+                    1 - 0.6 * sin (progress * pi)
+
+                Nothing ->
+                    1
 
         -- Check if right hand is charging a throw
         chargeOffset : Length
@@ -1955,24 +1988,30 @@ handPosition leftHand frameId player =
 
         upOffset : Length
         upOffset =
-            if leftHand then
-                Length.meters 0.3
+            case creationProgress of
+                Just progress ->
+                    -- Lower hands during creation (down to pick up snow)
+                    Length.meters (0.3 - 0.25 * sin (progress * pi))
 
-            else
-                case player.clickStart of
-                    Just clickStart ->
-                        let
-                            elapsed =
-                                frameTimeElapsed clickStart.time frameId
-                        in
-                        if elapsed |> Quantity.greaterThanOrEqualTo chargeStartDelay then
-                            0.3 * (Length.inMeters snowballStartHeight - 0.3) * throwCharge elapsed |> Length.meters
-
-                        else
-                            Length.meters 0.3
-
-                    Nothing ->
+                Nothing ->
+                    if leftHand then
                         Length.meters 0.3
+
+                    else
+                        case player.clickStart of
+                            Just clickStart ->
+                                let
+                                    elapsed =
+                                        frameTimeElapsed clickStart.time frameId
+                                in
+                                if elapsed |> Quantity.greaterThanOrEqualTo chargeStartDelay then
+                                    0.3 * (Length.inMeters snowballStartHeight - 0.3) * throwCharge elapsed |> Length.meters
+
+                                else
+                                    Length.meters 0.3
+
+                            Nothing ->
+                                Length.meters 0.3
     in
     Point2d.translateIn
         (if leftHand then
@@ -1981,9 +2020,9 @@ handPosition leftHand frameId player =
          else
             Direction2d.rotateClockwise player.rotation
         )
-        (Length.meters 0.5)
+        (Length.meters (0.5 * creationSideMultiplier))
         player.position
-        |> Point2d.translateIn player.rotation (Quantity.plus swingAmount chargeOffset)
+        |> Point2d.translateIn player.rotation (Quantity.sum [ swingAmount, chargeOffset, creationForwardOffset ])
         |> point2To3 upOffset
 
 
@@ -2024,10 +2063,21 @@ drawPlayer frameId userId matchData viewMatrix player =
                 playerRadius_ =
                     Length.inMeters playerRadius
 
+                -- Extra forward lean when creating snowball
+                creationLean : Float
+                creationLean =
+                    case snowballCreationProgress frameId player of
+                        Just progress ->
+                            -- Lean forward more during creation (additional -0.5 radians at peak)
+                            -0.5 * sin (progress * pi)
+
+                        Nothing ->
+                            0
+
                 modelMatrix : Mat4
                 modelMatrix =
                     Mat4.makeScale3 playerRadius_ playerRadius_ playerRadius_
-                        |> Mat4.rotate -0.4 (Vec3.vec3 1 0 0)
+                        |> Mat4.rotate (-0.4 + creationLean) (Vec3.vec3 1 0 0)
                         |> Mat4.rotate rotation (Vec3.vec3 0 0 1)
                         |> (\mat ->
                                 case player.isDead of
@@ -2378,6 +2428,30 @@ chargeMaxDelay =
 clickTotalDelay : Duration
 clickTotalDelay =
     Quantity.plus chargeMaxDelay chargeStartDelay
+
+
+{-| Returns the snowball creation progress (0 to 1) if the player is in the creation phase,
+or Nothing if they're not creating a snowball.
+-}
+snowballCreationProgress : Id FrameId -> Player -> Maybe Float
+snowballCreationProgress frameId player =
+    case player.clickStart of
+        Just clickStart ->
+            let
+                elapsed =
+                    frameTimeElapsed clickStart.time frameId
+            in
+            if
+                (elapsed |> Quantity.greaterThanOrEqualTo clickMoveMaxDelay)
+                    && (elapsed |> Quantity.lessThan chargeStartDelay)
+            then
+                Just (Quantity.ratio (elapsed |> Quantity.minus clickMoveMaxDelay) snowballCreationDuration)
+
+            else
+                Nothing
+
+        Nothing ->
+            Nothing
 
 
 snowballPlayerCollision : Snowball -> Id UserId -> Player -> Bool
