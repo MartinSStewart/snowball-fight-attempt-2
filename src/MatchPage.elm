@@ -85,7 +85,6 @@ import SeqDict exposing (SeqDict)
 import SeqSet exposing (SeqSet)
 import Shape exposing (RenderableShape)
 import Size exposing (Size)
-import SkinTone exposing (SkinTone)
 import Sounds exposing (Sounds)
 import Speed exposing (MetersPerSecond)
 import TextMessage exposing (TextMessage)
@@ -110,10 +109,6 @@ import WebGL.Settings.DepthTest
 type Msg
     = PressedStartMatchSetup
     | PressedLeaveMatchSetup
-    | PressedPrimaryColor ColorIndex
-    | PressedSecondaryColor ColorIndex
-    | PressedDecal (Maybe Decal)
-    | PressedSkinTone SkinTone
     | PressedCharacter Character.Character
     | TypedMatchName String
     | PressedPlayerMode PlayerMode
@@ -185,7 +180,7 @@ type ScreenCoordinate
 
 type alias MatchActiveLocal_ =
     { timelineCache : Result Timeline.Error (TimelineCache MatchState)
-    , userIds : SeqDict (Id UserId) { skinTone : SkinTone, character : Character }
+    , userIds : SeqDict (Id UserId) { character : Character }
     , wallMesh : Mesh Vertex
     , touchPosition : Maybe (Point2d Pixels ScreenCoordinate)
     , previousTouchPosition : Maybe (Point2d Pixels ScreenCoordinate)
@@ -217,18 +212,6 @@ update config msg model =
 
         PressedLeaveMatchSetup ->
             matchSetupUpdate config.userId Match.LeaveMatchSetup model
-
-        PressedPrimaryColor colorIndex ->
-            matchSetupUpdate config.userId (Match.SetPrimaryColor colorIndex) model
-
-        PressedSecondaryColor colorIndex ->
-            matchSetupUpdate config.userId (Match.SetSecondaryColor colorIndex) model
-
-        PressedDecal decal ->
-            matchSetupUpdate config.userId (Match.SetDecal decal) model
-
-        PressedSkinTone skinTone ->
-            matchSetupUpdate config.userId (Match.SetSkinTone skinTone) model
 
         PressedCharacter character ->
             matchSetupUpdate config.userId (Match.SetCharacter character) model
@@ -1175,53 +1158,6 @@ matchSetupView config lobby matchSetupData currentPlayerData =
                     )
                 ]
                 [ Ui.column
-                    [ Ui.width Ui.shrink, Ui.spacing 4, Ui.Font.size 16, Ui.Font.bold ]
-                    [ Ui.text "Primary color"
-                    , colorSelector PressedPrimaryColor currentPlayerData.primaryColor
-                    ]
-                , Ui.column
-                    [ Ui.width Ui.shrink, Ui.spacing 4, Ui.Font.size 16, Ui.Font.bold ]
-                    [ Ui.text "Secondary color"
-                    , colorSelector PressedSecondaryColor currentPlayerData.secondaryColor
-                    ]
-                , Ui.column
-                    [ Ui.width Ui.shrink, Ui.spacing 4, Ui.Font.size 16, Ui.Font.bold ]
-                    [ Ui.text "Skin tone"
-                    , skinToneSelector PressedSkinTone currentPlayerData.skinTone
-                    ]
-                , Ui.column
-                    [ Ui.spacing 4 ]
-                    [ Ui.el [ Ui.width Ui.shrink, Ui.Font.size 16, Ui.Font.bold ] (Ui.text "Decal")
-                    , Nothing
-                        :: List.map Just (List.Nonempty.toList Decal.allDecals)
-                        |> List.map
-                            (\maybeDecal ->
-                                MyUi.button
-                                    (decalHtmlId maybeDecal)
-                                    [ Ui.paddingXY 4 4
-                                    , Ui.background
-                                        (if maybeDecal == currentPlayerData.decal then
-                                            Ui.rgb 153 179 255
-
-                                         else
-                                            Ui.rgb 204 204 204
-                                        )
-                                    ]
-                                    { onPress = PressedDecal maybeDecal
-                                    , label =
-                                        (case maybeDecal of
-                                            Just decal ->
-                                                Decal.toString decal
-
-                                            Nothing ->
-                                                "None"
-                                        )
-                                            |> Ui.text
-                                    }
-                            )
-                        |> Ui.row [ Ui.spacing 8 ]
-                    ]
-                , Ui.column
                     [ Ui.spacing 4 ]
                     [ Ui.el [ Ui.width Ui.shrink, Ui.Font.size 16, Ui.Font.bold ] (Ui.text "Character")
                     , Character.all
@@ -1258,68 +1194,22 @@ matchSetupView config lobby matchSetupData currentPlayerData =
             [ Ui.spacing 16, Ui.height Ui.fill ]
             [ Ui.column
                 [ Ui.width Ui.shrink, Ui.spacing 8, Ui.alignTop, Ui.Font.size 16 ]
-                [ Ui.text "Participants:"
-                , Ui.column
+                [ Ui.column
                     [ Ui.width Ui.shrink ]
-                    (List.map
-                        (\( userId, playerData ) ->
-                            "User "
-                                ++ String.fromInt (Id.toInt userId)
-                                ++ (case playerData.mode of
-                                        PlayerMode ->
-                                            ""
+                    [ Ui.text (String.fromInt (List.length users) ++ " players in the lobby")
+                    , case Match.botCount lobby of
+                        0 ->
+                            Ui.none
 
-                                        SpectatorMode ->
-                                            " (spectator)"
-                                   )
-                                |> Ui.text
-                        )
-                        users
-                        ++ (case Match.botCount lobby of
-                                0 ->
-                                    []
+                        1 ->
+                            Ui.text " (and 1 bot)"
 
-                                1 ->
-                                    [ Ui.text "(and 1 bot)" ]
-
-                                many ->
-                                    [ Ui.text ("(and " ++ String.fromInt many ++ " bots)") ]
-                           )
-                    )
+                        many ->
+                            Ui.text (" (and " ++ String.fromInt many ++ " bots)")
+                    ]
                 ]
-            , textChat matchSetupData lobby
             ]
         ]
-
-
-decalHtmlId : Maybe Decal -> HtmlId
-decalHtmlId maybeDecal =
-    "selectDecal_"
-        ++ (case maybeDecal of
-                Just decal ->
-                    case decal of
-                        Decal.Star ->
-                            "Star"
-
-                        Decal.Triangle ->
-                            "Triangle"
-
-                        Decal.Plus ->
-                            "Plus"
-
-                        Decal.Minus ->
-                            "Minus"
-
-                        Decal.Square ->
-                            "Square"
-
-                        Decal.HollowSquare ->
-                            "HollowSquare"
-
-                Nothing ->
-                    "noDecal"
-           )
-        |> Dom.id
 
 
 characterHtmlId : Character.Character -> HtmlId
@@ -2124,7 +2014,7 @@ matMul a b =
 drawPlayer : Id FrameId -> Id UserId -> MatchActiveLocal_ -> Mat4 -> Player -> List WebGL.Entity
 drawPlayer frameId userId matchData viewMatrix player =
     case SeqDict.get userId matchData.userIds of
-        Just { skinTone } ->
+        Just { character } ->
             let
                 rotation : Float
                 rotation =
@@ -2179,7 +2069,7 @@ drawPlayer frameId userId matchData viewMatrix player =
                 vertexShader
                 fragmentShader
                 playerHead
-                { ucolor = SkinTone.toVec3 skinTone
+                { ucolor = Character.skinTone character
                 , view = viewMatrix
                 , model = point2ToMatrix player.position |> matMul modelMatrix
                 }
@@ -2226,7 +2116,7 @@ drawPlayer frameId userId matchData viewMatrix player =
                     Nothing ->
                         playerEyes
                 )
-                { ucolor = Vec3.vec3 1 1 1
+                { ucolor = Character.eyeColor character
                 , view = viewMatrix
                 , model = point2ToMatrix player.position |> matMul modelMatrix
                 }
@@ -3182,10 +3072,10 @@ playerEyes : Mesh Vertex
 playerEyes =
     let
         leftEye =
-            sphere (Vec3.vec3 0.8 0.4 1.6) (Vec3.vec3 0.12 0.12 0.12) (Vec3.vec3 0 0 0) |> TriangularMesh.faceVertices
+            sphere (Vec3.vec3 0.8 0.4 1.6) (Vec3.vec3 0.12 0.12 0.12) (Vec3.vec3 1 1 1) |> TriangularMesh.faceVertices
 
         rightEye =
-            sphere (Vec3.vec3 0.8 -0.4 1.6) (Vec3.vec3 0.12 0.12 0.12) (Vec3.vec3 0 0 0) |> TriangularMesh.faceVertices
+            sphere (Vec3.vec3 0.8 -0.4 1.6) (Vec3.vec3 0.12 0.12 0.12) (Vec3.vec3 1 1 1) |> TriangularMesh.faceVertices
     in
     leftEye ++ rightEye |> WebGL.triangles
 
@@ -4179,8 +4069,7 @@ initMatchData serverTime newUserIds maybeTimelineCache =
                         PlayerMode ->
                             Just
                                 ( id
-                                , { skinTone = playerData.skinTone
-                                  , character =
+                                , { character =
                                         if isBot id then
                                             Bot
 
@@ -4621,57 +4510,6 @@ colorSelectorHtmlId colorIndex =
 
                 Yellow ->
                     "Yellow"
-           )
-        |> Dom.id
-
-
-skinToneSelector : (SkinTone -> msg) -> SkinTone -> Ui.Element msg
-skinToneSelector onSelect currentSkinTone =
-    List.Nonempty.toList SkinTone.allSkinTones
-        |> List.map
-            (\skinTone ->
-                MyUi.button
-                    (skinToneSelectorHtmlId currentSkinTone)
-                    [ Ui.width (Ui.px 36)
-                    , Ui.height (Ui.px 36)
-                    , Ui.border
-                        (if currentSkinTone == skinTone then
-                            3
-
-                         else
-                            0
-                        )
-                    , Ui.borderColor (Ui.rgb 255 255 255)
-                    , SkinTone.toElColor skinTone |> Ui.background
-                    ]
-                    { onPress = onSelect skinTone
-                    , label = Ui.none
-                    }
-            )
-        |> Ui.row [ Ui.width Ui.shrink, Ui.wrap ]
-
-
-skinToneSelectorHtmlId : SkinTone -> HtmlId
-skinToneSelectorHtmlId skinTone =
-    "matchPageSkinToneSelector_"
-        ++ (case skinTone of
-                SkinTone.Light ->
-                    "Light"
-
-                SkinTone.Fair ->
-                    "Fair"
-
-                SkinTone.Medium ->
-                    "Medium"
-
-                SkinTone.Tan ->
-                    "Tan"
-
-                SkinTone.Brown ->
-                    "Brown"
-
-                SkinTone.Dark ->
-                    "Dark"
            )
         |> Dom.id
 

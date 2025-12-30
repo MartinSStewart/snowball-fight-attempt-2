@@ -63,7 +63,6 @@ import Quantity
 import Random
 import SeqDict exposing (SeqDict)
 import SeqSet
-import SkinTone exposing (SkinTone)
 import Speed exposing (MetersPerSecond, Speed)
 import TextMessage exposing (TextMessage)
 import Time
@@ -180,11 +179,7 @@ type WorldCoordinate
 
 
 type alias PlayerData =
-    { primaryColor : ColorIndex
-    , secondaryColor : ColorIndex
-    , decal : Maybe Decal
-    , mode : PlayerMode
-    , skinTone : SkinTone
+    { mode : PlayerMode
     , character : Character
     }
 
@@ -213,10 +208,6 @@ type Action
 type Msg
     = JoinMatchSetup
     | LeaveMatchSetup
-    | SetPrimaryColor ColorIndex
-    | SetSecondaryColor ColorIndex
-    | SetDecal (Maybe Decal)
-    | SetSkinTone SkinTone
     | SetPlayerMode PlayerMode
     | SetCharacter Character
     | StartMatch ServerTime
@@ -291,31 +282,12 @@ initPlayerData : Id UserId -> PlayerData
 initPlayerData userId =
     let
         randomData =
-            Random.map4
-                (\( primary, secondary ) decal skinTone character ->
-                    { primaryColor = primary
-                    , secondaryColor = secondary
-                    , decal = Just decal
-                    , skinTone = skinTone
-                    , mode = PlayerMode
+            Random.map
+                (\character ->
+                    { mode = PlayerMode
                     , character = character
                     }
                 )
-                (List.Nonempty.sample ColorIndex.allColors
-                    |> Random.andThen
-                        (\primaryColor ->
-                            (case ColorIndex.allColors |> List.Nonempty.toList |> List.remove primaryColor of
-                                head :: rest ->
-                                    Random.uniform head rest
-
-                                [] ->
-                                    Random.constant Red
-                            )
-                                |> Random.map (\secondaryColor -> ( primaryColor, secondaryColor ))
-                        )
-                )
-                (List.Nonempty.sample Decal.allDecals)
-                (List.Nonempty.sample SkinTone.allSkinTones)
                 (case Character.all of
                     head :: rest ->
                         Random.uniform head rest
@@ -411,11 +383,7 @@ allUsersAndBots (Match lobby) =
                 |> List.map
                     (\index ->
                         ( Id.fromInt -index
-                        , { primaryColor = Blue
-                          , secondaryColor = Blue
-                          , decal = Nothing
-                          , skinTone = SkinTone.Medium
-                          , mode = PlayerMode
+                        , { mode = PlayerMode
                           , character = Character.Bones
                           }
                         )
@@ -442,18 +410,6 @@ matchSetupUpdate { userId, msg } match =
 
         LeaveMatchSetup ->
             leaveUser userId match |> Maybe.withDefault match
-
-        SetPrimaryColor colorIndex ->
-            updatePlayerData userId (\a -> { a | primaryColor = colorIndex }) match
-
-        SetSecondaryColor colorIndex ->
-            updatePlayerData userId (\a -> { a | secondaryColor = colorIndex }) match
-
-        SetDecal decal ->
-            updatePlayerData userId (\a -> { a | decal = decal }) match
-
-        SetSkinTone skinTone ->
-            updatePlayerData userId (\a -> { a | skinTone = skinTone }) match
 
         SetPlayerMode mode ->
             updatePlayerData userId (\a -> { a | mode = mode }) match
