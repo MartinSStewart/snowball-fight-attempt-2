@@ -22,6 +22,8 @@ type alias Textures =
     , charlotte : CharacterTextures
     , bot : CharacterTextures
     , stana : CharacterTextures
+    , knifery : CharacterTextures
+    , dael : CharacterTextures
     }
 
 
@@ -51,7 +53,7 @@ textureUrls =
             (\a ->
                 let
                     name =
-                        Character.toString a
+                        Character.folderName a
                 in
                 [ "/" ++ name ++ "/base.png"
                 , "/" ++ name ++ "/shadow.png"
@@ -138,6 +140,8 @@ loadingFinished sounds =
         |> loadTexture
         |> loadTexture
         |> loadTexture
+        |> loadCharacterTexture
+        |> loadCharacterTexture
         |> loadCharacterTexture
         |> loadCharacterTexture
         |> loadCharacterTexture

@@ -2,8 +2,8 @@ module Character exposing
     ( Character(..)
     , all
     , eyeColor
+    , folderName
     , skinTone
-    , toString
     )
 
 import Math.Vector3 as Vec3 exposing (Vec3)
@@ -14,6 +14,8 @@ type Character
     | Charlotte
     | Bot
     | Stana
+    | Knifery
+    | Dael
 
 
 all : List Character
@@ -22,11 +24,13 @@ all =
     , Charlotte
     , Bot
     , Stana
+    , Knifery
+    , Dael
     ]
 
 
-toString : Character -> String
-toString character =
+folderName : Character -> String
+folderName character =
     case character of
         Bones ->
             "bones"
@@ -39,6 +43,12 @@ toString character =
 
         Stana ->
             "stana"
+
+        Knifery ->
+            "knifery"
+
+        Dael ->
+            "dael"
 
 
 skinTone : Character -> Vec3
@@ -56,6 +66,12 @@ skinTone character =
         Stana ->
             Vec3.vec3 0.82 0.51 0.46
 
+        Knifery ->
+            Vec3.vec3 0 0 0
+
+        Dael ->
+            Vec3.vec3 0.46 0.26 0.11
+
 
 eyeColor : Character -> Vec3
 eyeColor character =
@@ -71,6 +87,12 @@ eyeColor character =
 
         Stana ->
             Vec3.vec3 0.95 0.86 0.76
+
+        Knifery ->
+            Vec3.vec3 1 1 1
+
+        Dael ->
+            Vec3.vec3 0.31 0.84 0.84
 
 
 

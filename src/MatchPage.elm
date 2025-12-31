@@ -681,6 +681,12 @@ characterViewHelper frameId viewMatrix textures player character index =
                 Stana ->
                     textures.stana
 
+                Knifery ->
+                    textures.knifery
+
+                Dael ->
+                    textures.dael
+
         alpha : Float
         alpha =
             Id.toInt frameId
@@ -699,6 +705,12 @@ characterViewHelper frameId viewMatrix textures player character index =
                             0.7
 
                         Bot ->
+                            0.7
+
+                        Knifery ->
+                            0.8
+
+                        Dael ->
                             0.7
                     )
 
@@ -769,6 +781,12 @@ characterViewHelper frameId viewMatrix textures player character index =
 
                         Stana ->
                             0.1
+
+                        Knifery ->
+                            0.2
+
+                        Dael ->
+                            0
                     )
                 |> (\offset -> toFloat (floor (offset / pixelSize)) * pixelSize)
 
@@ -855,6 +873,12 @@ characterViewHelper frameId viewMatrix textures player character index =
                     False
 
                 Stana ->
+                    True
+
+                Knifery ->
+                    True
+
+                Dael ->
                     True
 
         arm =
@@ -1193,7 +1217,7 @@ matchSetupView config lobby matchSetupData currentPlayerData =
                                             , Ui.height (Ui.px 100)
                                             ]
                                             { source = "/bones/base.png"
-                                            , description = Character.toString character
+                                            , description = Character.folderName character
                                             , onLoad = Nothing
                                             }
                                     }
@@ -1226,7 +1250,7 @@ matchSetupView config lobby matchSetupData currentPlayerData =
 
 characterHtmlId : Character.Character -> HtmlId
 characterHtmlId character =
-    "selectCharacter_" ++ Character.toString character |> Dom.id
+    "selectCharacter_" ++ Character.folderName character |> Dom.id
 
 
 textChat : MatchSetupLocal_ -> Match -> Ui.Element Msg
