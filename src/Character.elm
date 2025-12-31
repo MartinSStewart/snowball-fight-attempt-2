@@ -78,7 +78,7 @@ skinTone character =
             Vec3.vec3 0.46 0.26 0.11
 
         Tanis ->
-            Vec3.vec3 0.85 0.65 0.55
+            Vec3.vec3 0.89 0.8 0.74
 
 
 eyeColor : Character -> Vec3
@@ -103,7 +103,7 @@ eyeColor character =
             Vec3.vec3 0.31 0.84 0.84
 
         Tanis ->
-            Vec3.vec3 0.4 0.6 0.4
+            Vec3.vec3 0 0 0
 
 
 
