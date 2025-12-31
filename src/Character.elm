@@ -17,6 +17,7 @@ type Character
     | Knifery
     | Dael
     | Tanis
+    | Vael
 
 
 all : List Character
@@ -28,6 +29,7 @@ all =
     , Knifery
     , Dael
     , Tanis
+    , Vael
     ]
 
 
@@ -55,6 +57,9 @@ folderName character =
         Tanis ->
             "/tanis"
 
+        Vael ->
+            "vael"
+
 
 skinTone : Character -> Vec3
 skinTone character =
@@ -80,6 +85,9 @@ skinTone character =
         Tanis ->
             Vec3.vec3 0.89 0.8 0.74
 
+        Vael ->
+            Vec3.vec3 0.85 0.75 0.73
+
 
 eyeColor : Character -> Vec3
 eyeColor character =
@@ -103,6 +111,9 @@ eyeColor character =
             Vec3.vec3 0.31 0.84 0.84
 
         Tanis ->
+            Vec3.vec3 0 0 0
+
+        Vael ->
             Vec3.vec3 0 0 0
 
 
