@@ -723,6 +723,9 @@ characterAlpha frameId character =
         Crow ->
             a * 0.03 + 0.7
 
+        Emiko ->
+            a * 0.03 + 0.7
+
 
 characterViewHelper : Id FrameId -> Mat4 -> Textures -> Player -> Character -> Int -> List WebGL.Entity
 characterViewHelper frameId viewMatrix textures player character index =
@@ -761,6 +764,9 @@ characterViewHelper frameId viewMatrix textures player character index =
 
                 Crow ->
                     textures.crow
+
+                Emiko ->
+                    textures.emiko
 
         x =
             case player.team of
@@ -850,6 +856,9 @@ characterViewHelper frameId viewMatrix textures player character index =
 
                         Crow ->
                             0
+
+                        Emiko ->
+                            0.1
                     )
                 |> (\offset -> toFloat (floor (offset / pixelSize)) * pixelSize)
 
@@ -957,6 +966,9 @@ characterViewHelper frameId viewMatrix textures player character index =
                     True
 
                 Crow ->
+                    True
+
+                Emiko ->
                     True
 
         alpha =

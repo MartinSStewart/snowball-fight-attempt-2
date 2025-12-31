@@ -22,6 +22,7 @@ type Character
     | Roland
     | Eden
     | Crow
+    | Emiko
 
 
 all : List Character
@@ -37,6 +38,7 @@ all =
     , Roland
     , Eden
     , Crow
+    , Emiko
     ]
 
 
@@ -76,6 +78,9 @@ folderName character =
         Crow ->
             "/crow"
 
+        Emiko ->
+            "/emiko"
+
 
 name : Character -> String
 name character =
@@ -112,6 +117,9 @@ name character =
 
         Crow ->
             "A Crow"
+
+        Emiko ->
+            "Emiko"
 
 
 skinTone : Character -> Vec3
@@ -150,6 +158,9 @@ skinTone character =
         Crow ->
             Vec3.vec3 0.1 0.1 0.1
 
+        Emiko ->
+            Vec3.vec3 0.85 0.75 0.65
+
 
 eyeColor : Character -> Vec3
 eyeColor character =
@@ -185,6 +196,9 @@ eyeColor character =
             Vec3.vec3 0 0 0
 
         Crow ->
+            Vec3.vec3 0 0 0
+
+        Emiko ->
             Vec3.vec3 0 0 0
 
 
