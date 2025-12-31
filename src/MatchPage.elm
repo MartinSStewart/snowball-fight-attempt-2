@@ -687,9 +687,7 @@ characterAlpha : Id FrameId -> Character -> Float
 characterAlpha frameId character =
     let
         a =
-            Id.toInt frameId
-                |> toFloat
-                |> sin
+            Id.toInt frameId |> toFloat |> sin
     in
     case character of
         Stana ->
@@ -715,6 +713,12 @@ characterAlpha frameId character =
 
         Vael ->
             a * 0.01 + 0.7
+
+        Roland ->
+            a * 0.03 + 0.7
+
+        Eden ->
+            a * 0.03 + 0.7
 
 
 characterViewHelper : Id FrameId -> Mat4 -> Textures -> Player -> Character -> Int -> List WebGL.Entity
@@ -745,6 +749,12 @@ characterViewHelper frameId viewMatrix textures player character index =
 
                 Vael ->
                     textures.vael
+
+                Roland ->
+                    textures.roland
+
+                Eden ->
+                    textures.eden
 
         x =
             case player.team of
@@ -825,6 +835,12 @@ characterViewHelper frameId viewMatrix textures player character index =
 
                         Vael ->
                             0.1
+
+                        Roland ->
+                            0
+
+                        Eden ->
+                            0.2
                     )
                 |> (\offset -> toFloat (floor (offset / pixelSize)) * pixelSize)
 
@@ -923,6 +939,12 @@ characterViewHelper frameId viewMatrix textures player character index =
                     True
 
                 Vael ->
+                    True
+
+                Roland ->
+                    True
+
+                Eden ->
                     True
 
         alpha =

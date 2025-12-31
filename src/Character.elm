@@ -19,19 +19,25 @@ type Character
     | Dael
     | Tanis
     | Vael
+    | Roland
+    | Eden
 
 
 all : List Character
 all =
-    [ Bones
-    , Sheire
-    , Bot
-    , Stana
-    , Knifery
-    , Dael
-    , Tanis
-    , Vael
-    ]
+    List.sortBy
+        name
+        [ Bones
+        , Sheire
+        , Bot
+        , Stana
+        , Knifery
+        , Dael
+        , Tanis
+        , Vael
+        , Roland
+        , Eden
+        ]
 
 
 folderName : Character -> String
@@ -61,6 +67,12 @@ folderName character =
         Vael ->
             "/vael"
 
+        Roland ->
+            "/roland"
+
+        Eden ->
+            "/eden"
+
 
 name : Character -> String
 name character =
@@ -88,6 +100,12 @@ name character =
 
         Vael ->
             "Vael"
+
+        Roland ->
+            "Roland"
+
+        Eden ->
+            "Eden"
 
 
 skinTone : Character -> Vec3
@@ -117,6 +135,12 @@ skinTone character =
         Vael ->
             Vec3.vec3 0.84 0.75 0.73
 
+        Roland ->
+            Vec3.vec3 1 1 1
+
+        Eden ->
+            Vec3.vec3 0.7 0.7 0.7
+
 
 eyeColor : Character -> Vec3
 eyeColor character =
@@ -143,6 +167,12 @@ eyeColor character =
             Vec3.vec3 0 0 0
 
         Vael ->
+            Vec3.vec3 0 0 0
+
+        Roland ->
+            Vec3.vec3 0 0 0
+
+        Eden ->
             Vec3.vec3 0 0 0
 
 
