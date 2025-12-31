@@ -28,6 +28,7 @@ type alias Textures =
     , vael : CharacterTextures
     , roland : CharacterTextures
     , eden : CharacterTextures
+    , crow : CharacterTextures
     }
 
 
@@ -144,6 +145,7 @@ loadingFinished sounds =
         |> loadTexture
         |> loadTexture
         |> loadTexture
+        |> loadCharacterTexture
         |> loadCharacterTexture
         |> loadCharacterTexture
         |> loadCharacterTexture
