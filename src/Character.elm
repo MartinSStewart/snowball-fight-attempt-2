@@ -111,7 +111,7 @@ name character =
             "Eden"
 
         Crow ->
-            "Crow"
+            "A Crow"
 
 
 skinTone : Character -> Vec3
