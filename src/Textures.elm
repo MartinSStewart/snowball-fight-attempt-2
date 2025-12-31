@@ -24,6 +24,7 @@ type alias Textures =
     , stana : CharacterTextures
     , knifery : CharacterTextures
     , dael : CharacterTextures
+    , tanis : CharacterTextures
     }
 
 
@@ -140,6 +141,7 @@ loadingFinished sounds =
         |> loadTexture
         |> loadTexture
         |> loadTexture
+        |> loadCharacterTexture
         |> loadCharacterTexture
         |> loadCharacterTexture
         |> loadCharacterTexture
