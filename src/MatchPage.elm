@@ -720,6 +720,9 @@ characterAlpha frameId character =
         Eden ->
             a * 0.03 + 0.7
 
+        Crow ->
+            a * 0.03 + 0.7
+
 
 characterViewHelper : Id FrameId -> Mat4 -> Textures -> Player -> Character -> Int -> List WebGL.Entity
 characterViewHelper frameId viewMatrix textures player character index =
@@ -755,6 +758,9 @@ characterViewHelper frameId viewMatrix textures player character index =
 
                 Eden ->
                     textures.eden
+
+                Crow ->
+                    textures.crow
 
         x =
             case player.team of
@@ -841,6 +847,9 @@ characterViewHelper frameId viewMatrix textures player character index =
 
                         Eden ->
                             0.2
+
+                        Crow ->
+                            0
                     )
                 |> (\offset -> toFloat (floor (offset / pixelSize)) * pixelSize)
 
@@ -945,6 +954,9 @@ characterViewHelper frameId viewMatrix textures player character index =
                     True
 
                 Eden ->
+                    True
+
+                Crow ->
                     True
 
         alpha =
