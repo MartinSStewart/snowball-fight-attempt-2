@@ -25,19 +25,17 @@ type Character
 
 all : List Character
 all =
-    List.sortBy
-        name
-        [ Bones
-        , Sheire
-        , Bot
-        , Stana
-        , Knifery
-        , Dael
-        , Tanis
-        , Vael
-        , Roland
-        , Eden
-        ]
+    [ Bones
+    , Sheire
+    , Bot
+    , Stana
+    , Knifery
+    , Dael
+    , Tanis
+    , Vael
+    , Roland
+    , Eden
+    ]
 
 
 folderName : Character -> String

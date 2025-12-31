@@ -777,7 +777,7 @@ characterViewHelper frameId viewMatrix textures player character index =
                           )
 
         y =
-            toFloat index * 1 + levelMinY
+            toFloat index * 1 + levelMinY + 1
 
         ( width, height ) =
             Texture.size characterTextures.base
@@ -1445,7 +1445,7 @@ matchSetupView config lobby matchSetupData currentPlayerData =
                                                 Ui.none
                                         }
                                 )
-                                Character.all
+                                (List.sortBy Character.name Character.all)
                                 |> Ui.row [ Ui.spacing 32, Ui.wrap, Ui.widthMax 1180, Ui.centerX ]
                             ]
                         ]
