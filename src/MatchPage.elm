@@ -1085,6 +1085,19 @@ view config model =
             Ui.text "Loading..."
 
 
+winnerText : Ui.Color -> String -> Ui.Element msg
+winnerText color text =
+    Ui.el
+        [ Ui.Font.color color
+        , Ui.Font.size 64
+        , Ui.Font.bold
+        , Ui.Shadow.font { offset = ( 1, 1 ), blur = 3, color = color }
+        , Ui.width Ui.shrink
+        , Ui.centerX
+        ]
+        (Ui.text text)
+
+
 matchSetupView : Config a -> Match -> MatchSetupLocal_ -> PlayerData -> Ui.Element Msg
 matchSetupView config lobby matchSetupData currentPlayerData =
     let
@@ -1102,49 +1115,40 @@ matchSetupView config lobby matchSetupData currentPlayerData =
         preview =
             Match.preview lobby
     in
-    case Match.previousMatch lobby of
-        Just winner ->
+    case ( Match.previousMatch lobby, matchSetupData.closedRoundEnd ) of
+        ( Just winner, False ) ->
             Ui.column
-                [ Ui.centerX, Ui.centerY, Ui.width Ui.shrink, Ui.contentCenterX ]
+                [ Ui.centerY, Ui.spacing 32 ]
                 [ case winner of
                     BothWon ->
-                        Ui.el
-                            [ Ui.Font.color (Ui.rgb 200 200 200)
-                            , Ui.Font.size 64
-                            , Ui.Shadow.font { offset = ( 1, 1 ), blur = 3, color = Ui.rgb 255 255 255 }
-                            ]
-                            (Ui.text "Tied!")
+                        winnerText (Ui.rgb 200 200 200) "TIED"
 
                     RedWon ->
-                        Ui.el
-                            [ Ui.Font.color (Ui.rgb 255 100 90)
-                            , Ui.Font.size 64
-                            , Ui.Shadow.font { offset = ( 1, 1 ), blur = 3, color = Ui.rgb 255 255 255 }
-                            ]
-                            (Ui.text "Red team wins!")
+                        winnerText (Ui.rgb 255 100 90) "RED TEAM WINS"
 
                     BlueWon ->
-                        Ui.el
-                            [ Ui.Font.color (Ui.rgb 80 120 255)
-                            , Ui.Font.size 64
-                            , Ui.Shadow.font { offset = ( 1, 1 ), blur = 3, color = Ui.rgb 255 255 255 }
-                            ]
-                            (Ui.text "Blue team wins!")
-                , Ui.el
-                    [ Ui.Font.size 32 ]
-                    (Ui.text "Yup, that's all folks! Happy new year!")
-                , Ui.el
-                    [ Ui.Input.button PressedCloseMatchEnd
-                    , Ui.paddingXY 32 16
-                    , Ui.Font.size 20
-                    , Ui.background <| Ui.rgb 230 230 230
-                    , Ui.Font.color (Ui.rgb 0 0 0)
-                    , Ui.Font.bold
+                        winnerText (Ui.rgb 80 120 255) "BLUE TEAM WINS"
+                , Ui.column
+                    [ Ui.spacing 48 ]
+                    [ Ui.el
+                        [ Ui.Font.size 32, Ui.centerX ]
+                        (Ui.text "Yup, that's all folks! Happy new year!")
+                    , Ui.el
+                        [ Ui.Input.button PressedCloseMatchEnd
+                        , Ui.paddingXY 32 16
+                        , Ui.Font.size 20
+                        , Ui.background <| Ui.rgb 230 230 230
+                        , Ui.Font.color (Ui.rgb 0 0 0)
+                        , Ui.Font.bold
+                        , Ui.width Ui.shrink
+                        , Ui.centerX
+                        , Ui.rounded 4
+                        ]
+                        (Ui.text "Return to match lobby")
                     ]
-                    (Ui.text "Return to match lobby")
                 ]
 
-        Nothing ->
+        _ ->
             Ui.column
                 [ Ui.spacing 8
                 , Ui.padding (MyUi.ifMobile displayType 8 16)
