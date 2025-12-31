@@ -3,6 +3,7 @@ module Character exposing
     , all
     , eyeColor
     , folderName
+    , name
     , skinTone
     )
 
@@ -11,7 +12,7 @@ import Math.Vector3 as Vec3 exposing (Vec3)
 
 type Character
     = Bones
-    | Charlotte
+    | Sheire
     | Bot
     | Stana
     | Knifery
@@ -23,7 +24,7 @@ type Character
 all : List Character
 all =
     [ Bones
-    , Charlotte
+    , Sheire
     , Bot
     , Stana
     , Knifery
@@ -39,8 +40,8 @@ folderName character =
         Bones ->
             "/bones"
 
-        Charlotte ->
-            "/charlotte"
+        Sheire ->
+            "/sheire"
 
         Bot ->
             "/bot"
@@ -58,7 +59,35 @@ folderName character =
             "/tanis"
 
         Vael ->
-            "vael"
+            "/vael"
+
+
+name : Character -> String
+name character =
+    case character of
+        Bones ->
+            "Bones"
+
+        Sheire ->
+            "Sheire"
+
+        Bot ->
+            "AT2"
+
+        Stana ->
+            "Stana"
+
+        Knifery ->
+            "Knifery"
+
+        Dael ->
+            "Dael"
+
+        Tanis ->
+            "Tanis"
+
+        Vael ->
+            "Vael"
 
 
 skinTone : Character -> Vec3
@@ -67,7 +96,7 @@ skinTone character =
         Bones ->
             Vec3.vec3 0.78 0.77 0.49
 
-        Charlotte ->
+        Sheire ->
             Vec3.vec3 0.45 0.31 0.17
 
         Bot ->
@@ -86,7 +115,7 @@ skinTone character =
             Vec3.vec3 0.89 0.8 0.74
 
         Vael ->
-            Vec3.vec3 0.85 0.75 0.73
+            Vec3.vec3 0.84 0.75 0.73
 
 
 eyeColor : Character -> Vec3
@@ -95,7 +124,7 @@ eyeColor character =
         Bones ->
             Vec3.vec3 0 0 0
 
-        Charlotte ->
+        Sheire ->
             Vec3.vec3 0 0 0
 
         Bot ->

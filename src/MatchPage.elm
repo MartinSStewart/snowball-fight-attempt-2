@@ -92,10 +92,12 @@ import Textures exposing (CharacterTextures, Textures)
 import Timeline exposing (FrameId, TimelineCache, getOldestCachedState)
 import TriangularMesh exposing (TriangularMesh)
 import Ui
+import Ui.Anim
 import Ui.Events
 import Ui.Font
 import Ui.Input
 import Ui.Prose
+import Ui.Shadow
 import User exposing (UserId)
 import Vector2d exposing (Vector2d)
 import Vector3d exposing (Vector3d)
@@ -664,6 +666,40 @@ characterView frameId viewMatrix textures match state =
         |> (\( a, b ) -> a ++ b)
 
 
+characterAlpha : Id FrameId -> Character -> Float
+characterAlpha frameId character =
+    let
+        a =
+            Id.toInt frameId
+                |> toFloat
+                |> sin
+    in
+    case character of
+        Stana ->
+            a * 0.03 + 0.6
+
+        Bones ->
+            a * 0.03 + 0.7
+
+        Sheire ->
+            a * 0.03 + 0.7
+
+        Bot ->
+            a * 0.05 + 0.7
+
+        Knifery ->
+            a * 0.07 + 0.8
+
+        Dael ->
+            a * 0.09 + 0.7
+
+        Tanis ->
+            a * 0.01 + 0.7
+
+        Vael ->
+            a * 0.01 + 0.7
+
+
 characterViewHelper : Id FrameId -> Mat4 -> Textures -> Player -> Character -> Int -> List WebGL.Entity
 characterViewHelper frameId viewMatrix textures player character index =
     let
@@ -672,7 +708,7 @@ characterViewHelper frameId viewMatrix textures player character index =
                 Bones ->
                     textures.bones
 
-                Charlotte ->
+                Sheire ->
                     textures.charlotte
 
                 Bot ->
@@ -692,39 +728,6 @@ characterViewHelper frameId viewMatrix textures player character index =
 
                 Vael ->
                     textures.vael
-
-        alpha : Float
-        alpha =
-            Id.toInt frameId
-                |> toFloat
-                |> sin
-                |> (*) 0.03
-                |> (+)
-                    (case character of
-                        Stana ->
-                            0.6
-
-                        Bones ->
-                            0.7
-
-                        Charlotte ->
-                            0.7
-
-                        Bot ->
-                            0.7
-
-                        Knifery ->
-                            0.8
-
-                        Dael ->
-                            0.7
-
-                        Tanis ->
-                            0.7
-
-                        Vael ->
-                            0.7
-                    )
 
         x =
             case player.team of
@@ -785,7 +788,7 @@ characterViewHelper frameId viewMatrix textures player character index =
                         Bones ->
                             0
 
-                        Charlotte ->
+                        Sheire ->
                             0.2
 
                         Bot ->
@@ -884,7 +887,7 @@ characterViewHelper frameId viewMatrix textures player character index =
                 Bones ->
                     False
 
-                Charlotte ->
+                Sheire ->
                     False
 
                 Bot ->
@@ -904,6 +907,9 @@ characterViewHelper frameId viewMatrix textures player character index =
 
                 Vael ->
                     True
+
+        alpha =
+            characterAlpha frameId character
 
         arm =
             [ WebGL.entityWith
@@ -1082,7 +1088,6 @@ matchSetupView config lobby matchSetupData currentPlayerData =
     Ui.column
         [ Ui.spacing 8
         , Ui.padding (MyUi.ifMobile displayType 8 16)
-        , Ui.widthMax 800
         , Ui.height Ui.fill
         ]
         [ if Match.isOwner config.userId lobby then
@@ -1090,6 +1095,7 @@ matchSetupView config lobby matchSetupData currentPlayerData =
                 [ Ui.spacing 8 ]
                 (Ui.Input.text
                     [ Ui.padding 4
+                    , Ui.width (Ui.px 400)
                     , Ui.Font.color (Ui.rgb 0 0 0)
                     , if matchSetupData.matchName == "" then
                         Ui.Font.italic
@@ -1118,14 +1124,29 @@ matchSetupView config lobby matchSetupData currentPlayerData =
                 )
 
           else
-            Ui.row [ Ui.width Ui.shrink, Ui.Font.bold ]
-                [ Ui.text "Match: "
-                , if matchName == "" then
-                    Ui.el [ Ui.Font.italic ] (Ui.text "Unnamed match")
+            Ui.none
+        , Ui.row
+            [ Ui.width Ui.shrink, Ui.spacing 8 ]
+            [ if matchName == "" then
+                Ui.el [ Ui.Font.bold, Ui.Font.italic ] (Ui.text "Unnamed match")
 
-                  else
-                    Ui.text matchName
+              else
+                Ui.el [ Ui.Font.bold ] (Ui.text matchName)
+            , Ui.Prose.paragraph
+                []
+                [ Ui.text "("
+                , Ui.text (String.fromInt (List.length users) ++ " players in the lobby")
+                , case Match.botCount lobby of
+                    0 ->
+                        Ui.text ")"
+
+                    1 ->
+                        Ui.text " and 1 bot)"
+
+                    many ->
+                        Ui.text (" and " ++ String.fromInt many ++ " bots)")
                 ]
+            ]
         , if Match.isOwner config.userId lobby then
             let
                 label =
@@ -1205,10 +1226,9 @@ matchSetupView config lobby matchSetupData currentPlayerData =
                     MyUi.simpleButton (Dom.id "switchToPlayer") (PressedPlayerMode PlayerMode) (Ui.text "Switch to player")
             ]
         , Ui.column
-            [ Ui.width Ui.shrink, Ui.spacing 8 ]
+            [ Ui.spacing 8 ]
             [ Ui.column
-                [ Ui.width Ui.shrink
-                , Ui.spacing 8
+                [ Ui.spacing 8
                 , Ui.opacity
                     (case currentPlayerData.mode of
                         PlayerMode ->
@@ -1219,67 +1239,127 @@ matchSetupView config lobby matchSetupData currentPlayerData =
                     )
                 ]
                 [ Ui.column
-                    [ Ui.spacing 4 ]
-                    [ Ui.el [ Ui.width Ui.shrink, Ui.Font.size 16, Ui.Font.bold ] (Ui.text "Choose Your Character!")
-                    , Character.all
-                        |> List.map
-                            (\character ->
-                                MyUi.button
-                                    (characterHtmlId character)
-                                    [ Ui.paddingXY 8 8
-                                    , Ui.clip
-                                    , Ui.background
-                                        (if character == currentPlayerData.character then
-                                            Ui.rgb 153 179 255
+                    [ Ui.spacing 32 ]
+                    [ Ui.el
+                        [ Ui.width Ui.shrink
+                        , Ui.Font.size 48
+                        , Ui.Font.family [ Ui.Font.monospace ]
+                        , Ui.Font.bold
+                        , Ui.centerX
+                        ]
+                        (Ui.text "CHOOSE YOUR CHARACTER")
+                    , List.map
+                        (\character ->
+                            let
+                                alpha =
+                                    characterAlpha
+                                        (timeToFrameId config { startTime = ServerTime (Time.millisToPosix 0) })
+                                        character
 
-                                         else
-                                            Ui.rgb 204 204 204
-                                        )
-                                    , Ui.inFront
-                                        (Ui.image
-                                            [ Ui.width (Ui.px 200)
-                                            , Ui.height (Ui.px 200)
-                                            ]
-                                            { source = Character.folderName character ++ "/eye.png"
-                                            , description = Character.folderName character
-                                            , onLoad = Nothing
-                                            }
-                                        )
-                                    , Ui.inFront
-                                        (Ui.image
-                                            [ Ui.width (Ui.px 200)
-                                            , Ui.height (Ui.px 200)
-                                            ]
-                                            { source = Character.folderName character ++ "/base.png"
-                                            , description = Character.folderName character
-                                            , onLoad = Nothing
-                                            }
-                                        )
-                                    ]
-                                    { onPress = PressedCharacter character
-                                    , label = Ui.el [ Ui.width (Ui.px 150), Ui.height (Ui.px 100) ] Ui.none
-                                    }
-                            )
-                        |> Ui.row [ Ui.spacing 8, Ui.wrap ]
-                    ]
-                ]
-            ]
-        , Ui.column
-            [ Ui.spacing 16, Ui.height Ui.fill ]
-            [ Ui.column
-                [ Ui.width Ui.shrink, Ui.spacing 8, Ui.alignTop, Ui.Font.size 16 ]
-                [ Ui.column
-                    [ Ui.width Ui.shrink ]
-                    [ Ui.text (String.fromInt (List.length users) ++ " players in the lobby")
-                    , case Match.botCount lobby of
-                        0 ->
-                            Ui.none
+                                count =
+                                    List.count (\( _, data ) -> data.character == character) users
 
-                        1 ->
-                            Ui.text " (and 1 bot)"
+                                selected =
+                                    character == currentPlayerData.character
 
-                        many ->
-                            Ui.text (" (and " ++ String.fromInt many ++ " bots)")
+                                portraitHeight =
+                                    200
+                            in
+                            MyUi.button
+                                (characterHtmlId character)
+                                [ Ui.paddingXY 8 8
+                                , Ui.clip
+                                , Ui.rounded 4
+                                , if selected then
+                                    Ui.Shadow.inner { x = 0, y = 0, size = 2, blur = 10, color = Ui.rgb 255 255 255 }
+
+                                  else
+                                    Ui.noAttr
+                                , if selected then
+                                    Ui.borderColor (Ui.rgb 255 255 255)
+
+                                  else
+                                    Ui.borderColor (Ui.rgb 50 50 50)
+                                , Ui.inFront
+                                    (Ui.el
+                                        [ Ui.alignBottom
+                                        , if selected then
+                                            Ui.background (Ui.rgba 255 255 255 0.4)
+
+                                          else
+                                            Ui.background (Ui.rgba 0 0 0 0.5)
+                                        , Ui.Font.italic
+                                        , Ui.Shadow.font { offset = ( 1, 1 ), blur = 1, color = Ui.rgb 0 0 0 }
+                                        , Ui.Font.letterSpacing 3
+                                        , Ui.Font.bold
+                                        , if selected then
+                                            Ui.Font.color (Ui.rgb 255 255 255)
+
+                                          else
+                                            Ui.Font.color (Ui.rgb 200 200 200)
+                                        ]
+                                        (Ui.el [ Ui.paddingXY 8 0 ] (Ui.text (Character.name character)))
+                                    )
+                                , Ui.border 2
+                                , Ui.inFront
+                                    (if count > 0 then
+                                        String.fromInt count
+                                            |> Ui.text
+                                            |> Ui.el
+                                                [ Ui.Font.bold
+                                                , Ui.alignRight
+                                                , Ui.Font.family [ Ui.Font.monospace ]
+                                                , Ui.Font.size 20
+                                                , Ui.paddingXY 8 4
+                                                , Ui.Font.color (Ui.rgb 230 230 210)
+                                                ]
+
+                                     else
+                                        Ui.none
+                                    )
+                                , Ui.inFront
+                                    (Ui.image
+                                        [ Ui.width (Ui.px portraitHeight)
+                                        , Ui.height (Ui.px portraitHeight)
+                                        , Ui.opacity alpha
+                                        ]
+                                        { source = Character.folderName character ++ "/shadow.png"
+                                        , description = Character.folderName character
+                                        , onLoad = Nothing
+                                        }
+                                    )
+                                , Ui.inFront
+                                    (Ui.image
+                                        [ Ui.width (Ui.px portraitHeight)
+                                        , Ui.height (Ui.px portraitHeight)
+                                        ]
+                                        { source = Character.folderName character ++ "/eye.png"
+                                        , description = Character.folderName character
+                                        , onLoad = Nothing
+                                        }
+                                    )
+                                , Ui.inFront
+                                    (Ui.image
+                                        [ Ui.width (Ui.px portraitHeight)
+                                        , Ui.height (Ui.px portraitHeight)
+                                        ]
+                                        { source = Character.folderName character ++ "/base.png"
+                                        , description = Character.folderName character
+                                        , onLoad = Nothing
+                                        }
+                                    )
+                                ]
+                                { onPress = PressedCharacter character
+                                , label =
+                                    Ui.el
+                                        [ Ui.width (portraitHeight * 0.75 |> round |> Ui.px)
+                                        , Ui.height (Ui.px (portraitHeight // 2))
+                                        ]
+                                        Ui.none
+                                }
+                        )
+                        Character.all
+                        |> Ui.row [ Ui.spacing 32, Ui.wrap, Ui.widthMax 1180, Ui.centerX ]
                     ]
                 ]
             ]
@@ -4420,7 +4500,7 @@ countdownDelay =
     Duration.seconds 4
 
 
-timeToFrameId : Config a -> MatchActive -> Id FrameId
+timeToFrameId : Config a -> { b | startTime : ServerTime } -> Id FrameId
 timeToFrameId model match =
     timeToServerTime model
         |> Match.unwrapServerTime
@@ -4503,90 +4583,8 @@ desyncWarning maybeDesyncFrame =
             Ui.none
 
 
-timestamp_ : Duration -> String
-timestamp_ difference =
-    let
-        minutes =
-            Duration.inMinutes difference |> floor
-
-        minutesRemainder =
-            difference |> Quantity.minus (Duration.minutes (toFloat minutes))
-
-        seconds =
-            Duration.inSeconds minutesRemainder |> floor
-
-        secondsRemainder =
-            minutesRemainder |> Quantity.minus (Duration.seconds (toFloat seconds))
-
-        milliseconds =
-            Duration.inMilliseconds secondsRemainder |> floor
-    in
-    String.fromInt minutes
-        ++ ":"
-        ++ String.padLeft 2 '0' (String.fromInt seconds)
-        ++ "."
-        ++ String.padLeft 3 '0' (String.fromInt milliseconds)
-
-
 noPointerEvents =
     Ui.htmlAttribute (Html.Attributes.style "pointer-events" "none")
-
-
-colorSelector : (ColorIndex -> msg) -> ColorIndex -> Ui.Element msg
-colorSelector onSelect currentColor =
-    List.Nonempty.toList ColorIndex.allColors
-        |> List.map
-            (\colorIndex ->
-                MyUi.button
-                    (colorSelectorHtmlId currentColor)
-                    [ Ui.width (Ui.px 36)
-                    , Ui.height (Ui.px 36)
-                    , Ui.border
-                        (if currentColor == colorIndex then
-                            3
-
-                         else
-                            0
-                        )
-                    , Ui.borderColor (Ui.rgb 255 255 255)
-                    , ColorIndex.toElColor colorIndex |> Ui.background
-                    ]
-                    { onPress = onSelect colorIndex
-                    , label = Ui.none
-                    }
-            )
-        |> Ui.row [ Ui.width Ui.shrink, Ui.wrap ]
-
-
-colorSelectorHtmlId : ColorIndex -> HtmlId
-colorSelectorHtmlId colorIndex =
-    "matchPageColorSelector_"
-        ++ (case colorIndex of
-                Red ->
-                    "Red"
-
-                Green ->
-                    "Green"
-
-                Blue ->
-                    "Blue"
-
-                Orange ->
-                    "Orange"
-
-                Brown ->
-                    "Brown"
-
-                Purple ->
-                    "Purple"
-
-                Pink ->
-                    "Pink"
-
-                Yellow ->
-                    "Yellow"
-           )
-        |> Dom.id
 
 
 viewportHeight : Length
