@@ -1085,285 +1085,304 @@ matchSetupView config lobby matchSetupData currentPlayerData =
         preview =
             Match.preview lobby
     in
-    Ui.column
-        [ Ui.spacing 8
-        , Ui.padding (MyUi.ifMobile displayType 8 16)
-        , Ui.height Ui.fill
-        ]
-        [ if Match.isOwner config.userId lobby then
-            Ui.row
-                [ Ui.spacing 8 ]
-                (Ui.Input.text
-                    [ Ui.padding 4
-                    , Ui.width (Ui.px 400)
-                    , Ui.Font.color (Ui.rgb 0 0 0)
-                    , if matchSetupData.matchName == "" then
-                        Ui.Font.italic
+    case Match.previousMatch lobby of
+        Just winner ->
+            Ui.column
+                [ Ui.centerX, Ui.centerY, Ui.width Ui.shrink, Ui.contentCenterX ]
+                [ case winner of
+                    BothWon ->
+                        Ui.el [ Ui.Font.color (Ui.rgb 200 200 200), Ui.Font.size 64 ] (Ui.text "Tied!")
+
+                    RedWon ->
+                        Ui.el [ Ui.Font.color (Ui.rgb 255 100 90), Ui.Font.size 64 ] (Ui.text "Red team wins!")
+
+                    BlueWon ->
+                        Ui.el [ Ui.Font.color (Ui.rgb 80 120 255), Ui.Font.size 64 ] (Ui.text "Blue team wins!")
+                , Ui.el
+                    [ Ui.Font.size 32 ]
+                    (Ui.text "Yup, that's all folks! Happy new year!")
+                ]
+
+        Nothing ->
+            Ui.column
+                [ Ui.spacing 8
+                , Ui.padding (MyUi.ifMobile displayType 8 16)
+                , Ui.height Ui.fill
+                ]
+                [ if Match.isOwner config.userId lobby then
+                    Ui.row
+                        [ Ui.spacing 8 ]
+                        (Ui.Input.text
+                            [ Ui.padding 4
+                            , Ui.width (Ui.px 400)
+                            , Ui.Font.color (Ui.rgb 0 0 0)
+                            , if matchSetupData.matchName == "" then
+                                Ui.Font.italic
+
+                              else
+                                Ui.noAttr
+                            ]
+                            { onChange = TypedMatchName
+                            , text = matchSetupData.matchName
+                            , placeholder = Just "Unnamed match"
+                            , label = Ui.Input.labelHidden "Match name"
+                            }
+                            :: (if matchSetupData.matchName == matchName then
+                                    []
+
+                                else
+                                    MyUi.simpleButton (Dom.id "resetMatchName") PressedResetMatchName (Ui.text "Reset")
+                                        :: (case MatchName.fromString matchSetupData.matchName of
+                                                Ok matchName_ ->
+                                                    [ MyUi.simpleButton (Dom.id "saveMatchName") (PressedSaveMatchName matchName_) (Ui.text "Save") ]
+
+                                                _ ->
+                                                    []
+                                           )
+                               )
+                        )
+
+                  else
+                    Ui.none
+                , Ui.row
+                    [ Ui.width Ui.shrink, Ui.spacing 8 ]
+                    [ if matchName == "" then
+                        Ui.el [ Ui.Font.bold, Ui.Font.italic ] (Ui.text "Unnamed match")
 
                       else
-                        Ui.noAttr
+                        Ui.el [ Ui.Font.bold ] (Ui.text matchName)
+                    , Ui.Prose.paragraph
+                        []
+                        [ Ui.text "("
+                        , Ui.text (String.fromInt (List.length users) ++ " players in the lobby")
+                        , case Match.botCount lobby of
+                            0 ->
+                                Ui.text ")"
+
+                            1 ->
+                                Ui.text " and 1 bot)"
+
+                            many ->
+                                Ui.text (" and " ++ String.fromInt many ++ " bots)")
+                        ]
                     ]
-                    { onChange = TypedMatchName
-                    , text = matchSetupData.matchName
-                    , placeholder = Just "Unnamed match"
-                    , label = Ui.Input.labelHidden "Match name"
-                    }
-                    :: (if matchSetupData.matchName == matchName then
-                            []
+                , if Match.isOwner config.userId lobby then
+                    let
+                        label =
+                            Ui.Input.label "maxPlayers" [ Ui.width Ui.shrink ] (Ui.text "Max players")
+                    in
+                    Ui.row
+                        [ Ui.width Ui.shrink, Ui.spacing 8 ]
+                        (Ui.row
+                            [ Ui.spacing 4 ]
+                            [ label.element
+                            , Ui.Input.text
+                                [ Ui.width (Ui.px 50), Ui.padding 4, Ui.Font.alignRight, Ui.Font.color (Ui.rgb 0 0 0) ]
+                                { onChange = TypedMaxPlayers
+                                , text = matchSetupData.maxPlayers
+                                , placeholder = Nothing
+                                , label = label.id
+                                }
+                            ]
+                            :: (if matchSetupData.maxPlayers == String.fromInt preview.maxUserCount then
+                                    []
 
-                        else
-                            MyUi.simpleButton (Dom.id "resetMatchName") PressedResetMatchName (Ui.text "Reset")
-                                :: (case MatchName.fromString matchSetupData.matchName of
-                                        Ok matchName_ ->
-                                            [ MyUi.simpleButton (Dom.id "saveMatchName") (PressedSaveMatchName matchName_) (Ui.text "Save") ]
+                                else
+                                    MyUi.simpleButton (Dom.id "resetMaxPlayers") PressedResetMaxPlayers (Ui.text "Reset")
+                                        :: (case String.toInt matchSetupData.maxPlayers of
+                                                Just maxPlayers ->
+                                                    [ MyUi.simpleButton (Dom.id "saveMaxPlayers") (PressedSaveMaxPlayers maxPlayers) (Ui.text "Save") ]
 
-                                        _ ->
-                                            []
-                                   )
-                       )
-                )
+                                                Nothing ->
+                                                    []
+                                           )
+                               )
+                        )
 
-          else
-            Ui.none
-        , Ui.row
-            [ Ui.width Ui.shrink, Ui.spacing 8 ]
-            [ if matchName == "" then
-                Ui.el [ Ui.Font.bold, Ui.Font.italic ] (Ui.text "Unnamed match")
+                  else
+                    Ui.none
+                , if Match.isOwner config.userId lobby then
+                    let
+                        label =
+                            Ui.Input.label "maxPlayers" [ Ui.width Ui.shrink ] (Ui.text "Number of bots")
+                    in
+                    Ui.row
+                        [ Ui.width Ui.shrink, Ui.spacing 8 ]
+                        [ Ui.row
+                            [ Ui.spacing 4 ]
+                            [ label.element
+                            , Ui.Input.text
+                                [ Ui.width (Ui.px 50), Ui.padding 4, Ui.Font.alignRight, Ui.Font.color (Ui.rgb 0 0 0) ]
+                                { onChange = TypedBotCount
+                                , text = matchSetupData.botCount
+                                , placeholder = Nothing
+                                , label = label.id
+                                }
+                            ]
+                        , case validateBotCount matchSetupData.botCount of
+                            Ok _ ->
+                                Ui.none
 
-              else
-                Ui.el [ Ui.Font.bold ] (Ui.text matchName)
-            , Ui.Prose.paragraph
-                []
-                [ Ui.text "("
-                , Ui.text (String.fromInt (List.length users) ++ " players in the lobby")
-                , case Match.botCount lobby of
-                    0 ->
-                        Ui.text ")"
+                            Err error ->
+                                Ui.text error
+                        ]
 
-                    1 ->
-                        Ui.text " and 1 bot)"
+                  else
+                    Ui.none
+                , Ui.row
+                    [ Ui.width Ui.shrink, Ui.spacing 8 ]
+                    [ if Match.isOwner config.userId lobby then
+                        MyUi.simpleButton (Dom.id "startMatchSetup") PressedStartMatchSetup (Ui.text "Start match")
 
-                    many ->
-                        Ui.text (" and " ++ String.fromInt many ++ " bots)")
-                ]
-            ]
-        , if Match.isOwner config.userId lobby then
-            let
-                label =
-                    Ui.Input.label "maxPlayers" [ Ui.width Ui.shrink ] (Ui.text "Max players")
-            in
-            Ui.row
-                [ Ui.width Ui.shrink, Ui.spacing 8 ]
-                (Ui.row
-                    [ Ui.spacing 4 ]
-                    [ label.element
-                    , Ui.Input.text
-                        [ Ui.width (Ui.px 50), Ui.padding 4, Ui.Font.alignRight, Ui.Font.color (Ui.rgb 0 0 0) ]
-                        { onChange = TypedMaxPlayers
-                        , text = matchSetupData.maxPlayers
-                        , placeholder = Nothing
-                        , label = label.id
-                        }
-                    ]
-                    :: (if matchSetupData.maxPlayers == String.fromInt preview.maxUserCount then
-                            []
-
-                        else
-                            MyUi.simpleButton (Dom.id "resetMaxPlayers") PressedResetMaxPlayers (Ui.text "Reset")
-                                :: (case String.toInt matchSetupData.maxPlayers of
-                                        Just maxPlayers ->
-                                            [ MyUi.simpleButton (Dom.id "saveMaxPlayers") (PressedSaveMaxPlayers maxPlayers) (Ui.text "Save") ]
-
-                                        Nothing ->
-                                            []
-                                   )
-                       )
-                )
-
-          else
-            Ui.none
-        , if Match.isOwner config.userId lobby then
-            let
-                label =
-                    Ui.Input.label "maxPlayers" [ Ui.width Ui.shrink ] (Ui.text "Number of bots")
-            in
-            Ui.row
-                [ Ui.width Ui.shrink, Ui.spacing 8 ]
-                [ Ui.row
-                    [ Ui.spacing 4 ]
-                    [ label.element
-                    , Ui.Input.text
-                        [ Ui.width (Ui.px 50), Ui.padding 4, Ui.Font.alignRight, Ui.Font.color (Ui.rgb 0 0 0) ]
-                        { onChange = TypedBotCount
-                        , text = matchSetupData.botCount
-                        , placeholder = Nothing
-                        , label = label.id
-                        }
-                    ]
-                , case validateBotCount matchSetupData.botCount of
-                    Ok _ ->
+                      else
                         Ui.none
-
-                    Err error ->
-                        Ui.text error
-                ]
-
-          else
-            Ui.none
-        , Ui.row
-            [ Ui.width Ui.shrink, Ui.spacing 8 ]
-            [ if Match.isOwner config.userId lobby then
-                MyUi.simpleButton (Dom.id "startMatchSetup") PressedStartMatchSetup (Ui.text "Start match")
-
-              else
-                Ui.none
-            , MyUi.simpleButton (Dom.id "leaveMatchSetup") PressedLeaveMatchSetup (Ui.text "Leave")
-            , case currentPlayerData.mode of
-                PlayerMode ->
-                    MyUi.simpleButton (Dom.id "switchToSpectator") (PressedPlayerMode SpectatorMode) (Ui.text "Switch to spectator")
-
-                SpectatorMode ->
-                    MyUi.simpleButton (Dom.id "switchToPlayer") (PressedPlayerMode PlayerMode) (Ui.text "Switch to player")
-            ]
-        , Ui.column
-            [ Ui.spacing 8 ]
-            [ Ui.column
-                [ Ui.spacing 8
-                , Ui.opacity
-                    (case currentPlayerData.mode of
+                    , MyUi.simpleButton (Dom.id "leaveMatchSetup") PressedLeaveMatchSetup (Ui.text "Leave")
+                    , case currentPlayerData.mode of
                         PlayerMode ->
-                            1
+                            MyUi.simpleButton (Dom.id "switchToSpectator") (PressedPlayerMode SpectatorMode) (Ui.text "Switch to spectator")
 
                         SpectatorMode ->
-                            0.5
-                    )
-                ]
-                [ Ui.column
-                    [ Ui.spacing 32 ]
-                    [ Ui.el
-                        [ Ui.width Ui.shrink
-                        , Ui.Font.size 48
-                        , Ui.Font.family [ Ui.Font.monospace ]
-                        , Ui.Font.bold
-                        , Ui.centerX
+                            MyUi.simpleButton (Dom.id "switchToPlayer") (PressedPlayerMode PlayerMode) (Ui.text "Switch to player")
+                    ]
+                , Ui.column
+                    [ Ui.spacing 8 ]
+                    [ Ui.column
+                        [ Ui.spacing 8
+                        , Ui.opacity
+                            (case currentPlayerData.mode of
+                                PlayerMode ->
+                                    1
+
+                                SpectatorMode ->
+                                    0.5
+                            )
                         ]
-                        (Ui.text "CHOOSE YOUR CHARACTER")
-                    , List.map
-                        (\character ->
-                            let
-                                alpha =
-                                    characterAlpha
-                                        (timeToFrameId config { startTime = ServerTime (Time.millisToPosix 0) })
-                                        character
-
-                                count =
-                                    List.count (\( _, data ) -> data.character == character) users
-
-                                selected =
-                                    character == currentPlayerData.character
-
-                                portraitHeight =
-                                    200
-                            in
-                            MyUi.button
-                                (characterHtmlId character)
-                                [ Ui.paddingXY 8 8
-                                , Ui.clip
-                                , Ui.rounded 4
-                                , if selected then
-                                    Ui.Shadow.inner { x = 0, y = 0, size = 2, blur = 10, color = Ui.rgb 255 255 255 }
-
-                                  else
-                                    Ui.noAttr
-                                , if selected then
-                                    Ui.borderColor (Ui.rgb 255 255 255)
-
-                                  else
-                                    Ui.borderColor (Ui.rgb 50 50 50)
-                                , Ui.inFront
-                                    (Ui.el
-                                        [ Ui.alignBottom
-                                        , if selected then
-                                            Ui.background (Ui.rgba 255 255 255 0.4)
-
-                                          else
-                                            Ui.background (Ui.rgba 0 0 0 0.5)
-                                        , Ui.Font.italic
-                                        , Ui.Shadow.font { offset = ( 1, 1 ), blur = 1, color = Ui.rgb 0 0 0 }
-                                        , Ui.Font.letterSpacing 3
-                                        , Ui.Font.bold
-                                        , if selected then
-                                            Ui.Font.color (Ui.rgb 255 255 255)
-
-                                          else
-                                            Ui.Font.color (Ui.rgb 200 200 200)
-                                        ]
-                                        (Ui.el [ Ui.paddingXY 8 0 ] (Ui.text (Character.name character)))
-                                    )
-                                , Ui.border 2
-                                , Ui.inFront
-                                    (if count > 0 then
-                                        String.fromInt count
-                                            |> Ui.text
-                                            |> Ui.el
-                                                [ Ui.Font.bold
-                                                , Ui.alignRight
-                                                , Ui.Font.family [ Ui.Font.monospace ]
-                                                , Ui.Font.size 20
-                                                , Ui.paddingXY 8 4
-                                                , Ui.Font.color (Ui.rgb 230 230 210)
-                                                ]
-
-                                     else
-                                        Ui.none
-                                    )
-                                , Ui.inFront
-                                    (Ui.image
-                                        [ Ui.width (Ui.px portraitHeight)
-                                        , Ui.height (Ui.px portraitHeight)
-                                        , Ui.opacity alpha
-                                        ]
-                                        { source = Character.folderName character ++ "/shadow.png"
-                                        , description = Character.folderName character
-                                        , onLoad = Nothing
-                                        }
-                                    )
-                                , Ui.inFront
-                                    (Ui.image
-                                        [ Ui.width (Ui.px portraitHeight)
-                                        , Ui.height (Ui.px portraitHeight)
-                                        ]
-                                        { source = Character.folderName character ++ "/eye.png"
-                                        , description = Character.folderName character
-                                        , onLoad = Nothing
-                                        }
-                                    )
-                                , Ui.inFront
-                                    (Ui.image
-                                        [ Ui.width (Ui.px portraitHeight)
-                                        , Ui.height (Ui.px portraitHeight)
-                                        ]
-                                        { source = Character.folderName character ++ "/base.png"
-                                        , description = Character.folderName character
-                                        , onLoad = Nothing
-                                        }
-                                    )
+                        [ Ui.column
+                            [ Ui.spacing 32 ]
+                            [ Ui.el
+                                [ Ui.width Ui.shrink
+                                , Ui.Font.size 48
+                                , Ui.Font.family [ Ui.Font.monospace ]
+                                , Ui.Font.bold
+                                , Ui.centerX
                                 ]
-                                { onPress = PressedCharacter character
-                                , label =
-                                    Ui.el
-                                        [ Ui.width (portraitHeight * 0.75 |> round |> Ui.px)
-                                        , Ui.height (Ui.px (portraitHeight // 2))
+                                (Ui.text "CHOOSE YOUR CHARACTER")
+                            , List.map
+                                (\character ->
+                                    let
+                                        alpha =
+                                            characterAlpha
+                                                (timeToFrameId config { startTime = ServerTime (Time.millisToPosix 0) })
+                                                character
+
+                                        count =
+                                            List.count (\( _, data ) -> data.character == character) users
+
+                                        selected =
+                                            character == currentPlayerData.character
+
+                                        portraitHeight =
+                                            200
+                                    in
+                                    MyUi.button
+                                        (characterHtmlId character)
+                                        [ Ui.paddingXY 8 8
+                                        , Ui.clip
+                                        , Ui.rounded 4
+                                        , if selected then
+                                            Ui.Shadow.inner { x = 0, y = 0, size = 2, blur = 10, color = Ui.rgb 255 255 255 }
+
+                                          else
+                                            Ui.noAttr
+                                        , if selected then
+                                            Ui.borderColor (Ui.rgb 255 255 255)
+
+                                          else
+                                            Ui.borderColor (Ui.rgb 50 50 50)
+                                        , Ui.inFront
+                                            (Ui.el
+                                                [ Ui.alignBottom
+                                                , if selected then
+                                                    Ui.background (Ui.rgba 255 255 255 0.4)
+
+                                                  else
+                                                    Ui.background (Ui.rgba 0 0 0 0.5)
+                                                , Ui.Font.italic
+                                                , Ui.Shadow.font { offset = ( 1, 1 ), blur = 1, color = Ui.rgb 0 0 0 }
+                                                , Ui.Font.letterSpacing 3
+                                                , Ui.Font.bold
+                                                , if selected then
+                                                    Ui.Font.color (Ui.rgb 255 255 255)
+
+                                                  else
+                                                    Ui.Font.color (Ui.rgb 200 200 200)
+                                                ]
+                                                (Ui.el [ Ui.paddingXY 8 0 ] (Ui.text (Character.name character)))
+                                            )
+                                        , Ui.border 2
+                                        , Ui.inFront
+                                            (if count > 0 then
+                                                String.fromInt count
+                                                    |> Ui.text
+                                                    |> Ui.el
+                                                        [ Ui.Font.bold
+                                                        , Ui.alignRight
+                                                        , Ui.Font.family [ Ui.Font.monospace ]
+                                                        , Ui.Font.size 20
+                                                        , Ui.paddingXY 8 4
+                                                        , Ui.Font.color (Ui.rgb 230 230 210)
+                                                        ]
+
+                                             else
+                                                Ui.none
+                                            )
+                                        , Ui.inFront
+                                            (Ui.image
+                                                [ Ui.width (Ui.px portraitHeight)
+                                                , Ui.height (Ui.px portraitHeight)
+                                                , Ui.opacity alpha
+                                                ]
+                                                { source = Character.folderName character ++ "/shadow.png"
+                                                , description = Character.folderName character
+                                                , onLoad = Nothing
+                                                }
+                                            )
+                                        , Ui.inFront
+                                            (Ui.image
+                                                [ Ui.width (Ui.px portraitHeight)
+                                                , Ui.height (Ui.px portraitHeight)
+                                                ]
+                                                { source = Character.folderName character ++ "/eye.png"
+                                                , description = Character.folderName character
+                                                , onLoad = Nothing
+                                                }
+                                            )
+                                        , Ui.inFront
+                                            (Ui.image
+                                                [ Ui.width (Ui.px portraitHeight)
+                                                , Ui.height (Ui.px portraitHeight)
+                                                ]
+                                                { source = Character.folderName character ++ "/base.png"
+                                                , description = Character.folderName character
+                                                , onLoad = Nothing
+                                                }
+                                            )
                                         ]
-                                        Ui.none
-                                }
-                        )
-                        Character.all
-                        |> Ui.row [ Ui.spacing 32, Ui.wrap, Ui.widthMax 1180, Ui.centerX ]
+                                        { onPress = PressedCharacter character
+                                        , label =
+                                            Ui.el
+                                                [ Ui.width (portraitHeight * 0.75 |> round |> Ui.px)
+                                                , Ui.height (Ui.px (portraitHeight // 2))
+                                                ]
+                                                Ui.none
+                                        }
+                                )
+                                Character.all
+                                |> Ui.row [ Ui.spacing 32, Ui.wrap, Ui.widthMax 1180, Ui.centerX ]
+                            ]
+                        ]
                     ]
                 ]
-            ]
-        ]
 
 
 characterHtmlId : Character.Character -> HtmlId

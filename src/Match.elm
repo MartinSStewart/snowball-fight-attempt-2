@@ -38,6 +38,7 @@ module Match exposing
     , messagesOldestToNewest
     , name
     , preview
+    , previousMatch
     , serverTimeAdd
     , serverTimeToFrameId
     , unwrapServerTime
@@ -467,6 +468,11 @@ matchFinished placements (Match matchSetup) =
             matchSetup
     )
         |> Match
+
+
+previousMatch : Match -> Maybe Winner
+previousMatch (Match match) =
+    match.previousMatch
 
 
 sendTextMessage : Id UserId -> TextMessage -> Match -> Match

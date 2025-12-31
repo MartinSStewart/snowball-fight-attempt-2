@@ -604,7 +604,7 @@ updateLoadedFromBackend msg model =
 
 view : AudioData -> FrontendModel_ -> Browser.Document FrontendMsg_
 view _ model =
-    { title = "Air Hockey Racing"
+    { title = "Memo Snowball Fight"
     , body =
         [ case model of
             Loading loading ->
@@ -680,9 +680,8 @@ loadedView model =
                                 Nothing ->
                                     Ui.noAttr
                             ]
-                            [ Ui.el [ Ui.width Ui.shrink, Ui.Font.bold ] (Ui.text "Air Hockey Racing")
+                            [ Ui.el [ Ui.width Ui.shrink, Ui.Font.bold ] (Ui.text "Memo Snowball Fight!")
                             , MyUi.simpleButton (Dom.id "createNewMatch") PressedCreateLobby (Ui.text "Create new match")
-                            , MyUi.simpleButton (Dom.id "openLevelEditor") PressedOpenLevelEditor (Ui.text "Open level editor")
                             , Ui.column
                                 [ Ui.height Ui.fill, Ui.spacing 8 ]
                                 [ Ui.text "Or join existing match"
@@ -730,10 +729,10 @@ lobbyRowView evenRow ( lobbyId, lobby ) =
     Ui.row
         [ Ui.background
             (if evenRow then
-                Ui.rgb 255 255 255
+                Ui.rgb 0 0 0
 
              else
-                Ui.rgb 242 242 242
+                Ui.rgb 20 20 20
             )
         , Ui.padding 4
         ]
@@ -747,8 +746,9 @@ lobbyRowView evenRow ( lobbyId, lobby ) =
             [ Ui.text <| String.fromInt lobby.userCount ++ " / " ++ String.fromInt lobby.maxUserCount
             , Ui.el
                 [ Ui.link (Route.encode (Route.InMatchRoute lobbyId))
-                , Ui.background <| Ui.rgb 230 230 217
-                , Ui.padding 4
+                , Ui.background <| Ui.rgb 50 50 50
+                , Ui.paddingXY 32 4
+                , Ui.Font.bold
                 ]
                 (Ui.text "Join")
             ]
