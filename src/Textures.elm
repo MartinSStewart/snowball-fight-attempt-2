@@ -56,11 +56,11 @@ textureUrls =
                     name =
                         Character.folderName a
                 in
-                [ "/" ++ name ++ "/base.png"
-                , "/" ++ name ++ "/shadow.png"
-                , "/" ++ name ++ "/eye.png"
-                , "/" ++ name ++ "/arms.png"
-                , "/" ++ name ++ "/shadow_arms.png"
+                [ name ++ "/base.png"
+                , name ++ "/shadow.png"
+                , name ++ "/eye.png"
+                , name ++ "/arms.png"
+                , name ++ "/shadow_arms.png"
                 ]
             )
             Character.all

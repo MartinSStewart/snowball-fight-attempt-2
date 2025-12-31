@@ -643,7 +643,7 @@ loadedView model =
             MyUi.displayType model.windowSize
     in
     Ui.layout
-        [ Ui.clip, Ui.Font.family [ Ui.Font.sansSerif ], Ui.height Ui.fill ]
+        [ Ui.clip, Ui.Font.family [ Ui.Font.sansSerif ], Ui.height Ui.fill, Ui.background (Ui.rgb 0 0 0), Ui.Font.color (Ui.rgb 255 255 255) ]
         (case model.page of
             MatchPage matchSetup ->
                 MatchPage.view model matchSetup |> Ui.map MatchPageMsg

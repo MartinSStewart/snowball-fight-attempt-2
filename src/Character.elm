@@ -35,25 +35,25 @@ folderName : Character -> String
 folderName character =
     case character of
         Bones ->
-            "bones"
+            "/bones"
 
         Charlotte ->
-            "charlotte"
+            "/charlotte"
 
         Bot ->
-            "bot"
+            "/bot"
 
         Stana ->
-            "stana"
+            "/stana"
 
         Knifery ->
-            "knifery"
+            "/knifery"
 
         Dael ->
-            "dael"
+            "/dael"
 
         Tanis ->
-            "tanis"
+            "/tanis"
 
 
 skinTone : Character -> Vec3

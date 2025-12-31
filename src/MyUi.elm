@@ -13,6 +13,7 @@ import Pixels
 import Quantity
 import Size exposing (Size)
 import Ui
+import Ui.Font
 import Ui.Input
 
 
@@ -29,6 +30,7 @@ simpleButton htmlId onPress label =
         htmlId
         [ Ui.background <| Ui.rgb 230 230 217
         , Ui.padding 4
+        , Ui.Font.color (Ui.rgb 0 0 0)
         ]
         { onPress = onPress
         , label = label

@@ -1078,6 +1078,7 @@ matchSetupView config lobby matchSetupData currentPlayerData =
                 [ Ui.spacing 8 ]
                 (Ui.Input.text
                     [ Ui.padding 4
+                    , Ui.Font.color (Ui.rgb 0 0 0)
                     , if matchSetupData.matchName == "" then
                         Ui.Font.italic
 
@@ -1124,7 +1125,7 @@ matchSetupView config lobby matchSetupData currentPlayerData =
                     [ Ui.spacing 4 ]
                     [ label.element
                     , Ui.Input.text
-                        [ Ui.width (Ui.px 50), Ui.padding 4, Ui.Font.alignRight ]
+                        [ Ui.width (Ui.px 50), Ui.padding 4, Ui.Font.alignRight, Ui.Font.color (Ui.rgb 0 0 0) ]
                         { onChange = TypedMaxPlayers
                         , text = matchSetupData.maxPlayers
                         , placeholder = Nothing
@@ -1159,7 +1160,7 @@ matchSetupView config lobby matchSetupData currentPlayerData =
                     [ Ui.spacing 4 ]
                     [ label.element
                     , Ui.Input.text
-                        [ Ui.width (Ui.px 50), Ui.padding 4, Ui.Font.alignRight ]
+                        [ Ui.width (Ui.px 50), Ui.padding 4, Ui.Font.alignRight, Ui.Font.color (Ui.rgb 0 0 0) ]
                         { onChange = TypedBotCount
                         , text = matchSetupData.botCount
                         , placeholder = Nothing
@@ -1207,13 +1208,14 @@ matchSetupView config lobby matchSetupData currentPlayerData =
                 ]
                 [ Ui.column
                     [ Ui.spacing 4 ]
-                    [ Ui.el [ Ui.width Ui.shrink, Ui.Font.size 16, Ui.Font.bold ] (Ui.text "Character")
+                    [ Ui.el [ Ui.width Ui.shrink, Ui.Font.size 16, Ui.Font.bold ] (Ui.text "Choose Your Character!")
                     , Character.all
                         |> List.map
                             (\character ->
                                 MyUi.button
                                     (characterHtmlId character)
                                     [ Ui.paddingXY 8 8
+                                    , Ui.clip
                                     , Ui.background
                                         (if character == currentPlayerData.character then
                                             Ui.rgb 153 179 255
@@ -1221,17 +1223,29 @@ matchSetupView config lobby matchSetupData currentPlayerData =
                                          else
                                             Ui.rgb 204 204 204
                                         )
-                                    ]
-                                    { onPress = PressedCharacter character
-                                    , label =
-                                        Ui.image
-                                            [ Ui.width (Ui.px 100)
-                                            , Ui.height (Ui.px 100)
+                                    , Ui.inFront
+                                        (Ui.image
+                                            [ Ui.width (Ui.px 200)
+                                            , Ui.height (Ui.px 200)
                                             ]
-                                            { source = "/bones/base.png"
+                                            { source = Character.folderName character ++ "/eye.png"
                                             , description = Character.folderName character
                                             , onLoad = Nothing
                                             }
+                                        )
+                                    , Ui.inFront
+                                        (Ui.image
+                                            [ Ui.width (Ui.px 200)
+                                            , Ui.height (Ui.px 200)
+                                            ]
+                                            { source = Character.folderName character ++ "/base.png"
+                                            , description = Character.folderName character
+                                            , onLoad = Nothing
+                                            }
+                                        )
+                                    ]
+                                    { onPress = PressedCharacter character
+                                    , label = Ui.el [ Ui.width (Ui.px 150), Ui.height (Ui.px 100) ] Ui.none
                                     }
                             )
                         |> Ui.row [ Ui.spacing 8, Ui.wrap ]
@@ -1302,6 +1316,7 @@ textChat matchSetupData lobby =
                 ]
         , Ui.Input.text
             (Ui.Font.size 16
+                :: Ui.Font.color (Ui.rgb 0 0 0)
                 :: Ui.padding 8
                 :: (case TextMessage.fromString matchSetupData.message of
                         Ok message ->
