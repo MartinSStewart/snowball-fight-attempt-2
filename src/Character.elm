@@ -19,6 +19,8 @@ type Character
     | Dael
     | Tanis
     | Vael
+    | Roland
+    | Eden
 
 
 all : List Character
@@ -31,6 +33,8 @@ all =
     , Dael
     , Tanis
     , Vael
+    , Roland
+    , Eden
     ]
 
 
@@ -61,6 +65,12 @@ folderName character =
         Vael ->
             "/vael"
 
+        Roland ->
+            "/roland"
+
+        Eden ->
+            "/eden"
+
 
 name : Character -> String
 name character =
@@ -88,6 +98,12 @@ name character =
 
         Vael ->
             "Vael"
+
+        Roland ->
+            "Roland"
+
+        Eden ->
+            "Eden"
 
 
 skinTone : Character -> Vec3
@@ -117,6 +133,12 @@ skinTone character =
         Vael ->
             Vec3.vec3 0.84 0.75 0.73
 
+        Roland ->
+            Vec3.vec3 0.85 0.65 0.5
+
+        Eden ->
+            Vec3.vec3 0.75 0.6 0.45
+
 
 eyeColor : Character -> Vec3
 eyeColor character =
@@ -144,6 +166,12 @@ eyeColor character =
 
         Vael ->
             Vec3.vec3 0 0 0
+
+        Roland ->
+            Vec3.vec3 0.4 0.25 0.15
+
+        Eden ->
+            Vec3.vec3 0.2 0.5 0.3
 
 
 
