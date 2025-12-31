@@ -690,6 +690,9 @@ characterViewHelper frameId viewMatrix textures player character index =
                 Tanis ->
                     textures.tanis
 
+                Vael ->
+                    textures.vael
+
         alpha : Float
         alpha =
             Id.toInt frameId
@@ -717,6 +720,9 @@ characterViewHelper frameId viewMatrix textures player character index =
                             0.7
 
                         Tanis ->
+                            0.7
+
+                        Vael ->
                             0.7
                     )
 
@@ -795,6 +801,9 @@ characterViewHelper frameId viewMatrix textures player character index =
                             0
 
                         Tanis ->
+                            0.1
+
+                        Vael ->
                             0.1
                     )
                 |> (\offset -> toFloat (floor (offset / pixelSize)) * pixelSize)
@@ -891,6 +900,9 @@ characterViewHelper frameId viewMatrix textures player character index =
                     True
 
                 Tanis ->
+                    True
+
+                Vael ->
                     True
 
         arm =
