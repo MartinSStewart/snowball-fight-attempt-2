@@ -28,9 +28,10 @@ simpleButton : HtmlId -> msg -> Ui.Element msg -> Ui.Element msg
 simpleButton htmlId onPress label =
     button
         htmlId
-        [ Ui.background <| Ui.rgb 230 230 217
-        , Ui.padding 4
+        [ Ui.background <| Ui.rgb 230 230 230
+        , Ui.paddingXY 16 8
         , Ui.Font.color (Ui.rgb 0 0 0)
+        , Ui.Font.bold
         ]
         { onPress = onPress
         , label = label

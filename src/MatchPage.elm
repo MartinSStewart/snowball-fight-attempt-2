@@ -128,6 +128,7 @@ type Msg
     | PointerMoved Html.Events.Extra.Pointer.Event
     | PressedLeaveMatch
     | TypedBotCount String
+    | PressedCloseMatchEnd
 
 
 type MatchId
@@ -173,7 +174,7 @@ init lobbyId lobby maybeCache =
 
 
 type alias MatchSetupLocal_ =
-    { matchName : String, message : String, maxPlayers : String, botCount : String }
+    { matchName : String, message : String, maxPlayers : String, botCount : String, closedRoundEnd : Bool }
 
 
 type ScreenCoordinate
@@ -454,6 +455,22 @@ update config msg model =
 
                 Err _ ->
                     ( model2, Command.none )
+
+        PressedCloseMatchEnd ->
+            ( { model
+                | matchData =
+                    case model.matchData of
+                        MatchActiveLocal _ ->
+                            model.matchData
+
+                        MatchSetupLocal matchSetupData ->
+                            { matchSetupData | closedRoundEnd = True } |> MatchSetupLocal
+
+                        MatchError ->
+                            MatchError
+              }
+            , Command.none
+            )
 
 
 validateBotCount : String -> Result String Int
@@ -1091,16 +1108,40 @@ matchSetupView config lobby matchSetupData currentPlayerData =
                 [ Ui.centerX, Ui.centerY, Ui.width Ui.shrink, Ui.contentCenterX ]
                 [ case winner of
                     BothWon ->
-                        Ui.el [ Ui.Font.color (Ui.rgb 200 200 200), Ui.Font.size 64 ] (Ui.text "Tied!")
+                        Ui.el
+                            [ Ui.Font.color (Ui.rgb 200 200 200)
+                            , Ui.Font.size 64
+                            , Ui.Shadow.font { offset = ( 1, 1 ), blur = 3, color = Ui.rgb 255 255 255 }
+                            ]
+                            (Ui.text "Tied!")
 
                     RedWon ->
-                        Ui.el [ Ui.Font.color (Ui.rgb 255 100 90), Ui.Font.size 64 ] (Ui.text "Red team wins!")
+                        Ui.el
+                            [ Ui.Font.color (Ui.rgb 255 100 90)
+                            , Ui.Font.size 64
+                            , Ui.Shadow.font { offset = ( 1, 1 ), blur = 3, color = Ui.rgb 255 255 255 }
+                            ]
+                            (Ui.text "Red team wins!")
 
                     BlueWon ->
-                        Ui.el [ Ui.Font.color (Ui.rgb 80 120 255), Ui.Font.size 64 ] (Ui.text "Blue team wins!")
+                        Ui.el
+                            [ Ui.Font.color (Ui.rgb 80 120 255)
+                            , Ui.Font.size 64
+                            , Ui.Shadow.font { offset = ( 1, 1 ), blur = 3, color = Ui.rgb 255 255 255 }
+                            ]
+                            (Ui.text "Blue team wins!")
                 , Ui.el
                     [ Ui.Font.size 32 ]
                     (Ui.text "Yup, that's all folks! Happy new year!")
+                , Ui.el
+                    [ Ui.Input.button PressedCloseMatchEnd
+                    , Ui.paddingXY 32 16
+                    , Ui.Font.size 20
+                    , Ui.background <| Ui.rgb 230 230 230
+                    , Ui.Font.color (Ui.rgb 0 0 0)
+                    , Ui.Font.bold
+                    ]
+                    (Ui.text "Return to match lobby")
                 ]
 
         Nothing ->
@@ -1265,6 +1306,7 @@ matchSetupView config lobby matchSetupData currentPlayerData =
                                 , Ui.Font.family [ Ui.Font.monospace ]
                                 , Ui.Font.bold
                                 , Ui.centerX
+                                , Ui.Shadow.font { offset = ( 1, 1 ), blur = 3, color = Ui.rgb 255 255 255 }
                                 ]
                                 (Ui.text "CHOOSE YOUR CHARACTER")
                             , List.map
@@ -1276,10 +1318,10 @@ matchSetupView config lobby matchSetupData currentPlayerData =
                                                 character
 
                                         count =
-                                            List.count (\( _, data ) -> data.character == character) users
+                                            List.count (\( _, data ) -> data.character == character && data.mode == PlayerMode) users
 
                                         selected =
-                                            character == currentPlayerData.character
+                                            character == currentPlayerData.character && currentPlayerData.mode == PlayerMode
 
                                         portraitHeight =
                                             200
@@ -4557,6 +4599,7 @@ initMatchSetupData lobby =
     , message = ""
     , maxPlayers = String.fromInt preview.maxUserCount
     , botCount = Match.botCount lobby |> String.fromInt
+    , closedRoundEnd = False
     }
 
 
