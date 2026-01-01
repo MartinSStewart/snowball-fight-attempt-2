@@ -4337,8 +4337,9 @@ initMatchData serverTime newUserIds maybeTimelineCache =
                                 ( id
                                 , { character =
                                         if isBot id then
-                                            List.getAt (Id.toInt id |> modBy (List.length Character.all)) Character.all
-                                                |> Maybe.withDefault Bot
+                                            Bot
+                                            --List.getAt (Id.toInt id |> modBy (List.length Character.all)) Character.all
+                                            --    |> Maybe.withDefault Bot
 
                                         else
                                             playerData.character
