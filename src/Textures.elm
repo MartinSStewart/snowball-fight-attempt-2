@@ -30,6 +30,7 @@ type alias Textures =
     , eden : CharacterTextures
     , crow : CharacterTextures
     , emiko : CharacterTextures
+    , dahlia : CharacterTextures
     }
 
 
@@ -146,6 +147,7 @@ loadingFinished sounds =
         |> loadTexture
         |> loadTexture
         |> loadTexture
+        |> loadCharacterTexture
         |> loadCharacterTexture
         |> loadCharacterTexture
         |> loadCharacterTexture

@@ -24,6 +24,7 @@ type Character
     | Eden
     | Crow
     | Emiko
+    | Dahlia
 
 
 all : List Character
@@ -40,6 +41,7 @@ all =
     , Eden
     , Crow
     , Emiko
+    , Dahlia
     ]
 
 
@@ -82,6 +84,9 @@ folderName character =
         Emiko ->
             "/emiko"
 
+        Dahlia ->
+            "/dahlia"
+
 
 name : Character -> String
 name character =
@@ -121,6 +126,9 @@ name character =
 
         Emiko ->
             "Emiko"
+
+        Dahlia ->
+            "Dahlia"
 
 
 skinTone : Character -> Vec3
@@ -162,6 +170,9 @@ skinTone character =
         Emiko ->
             Vec3.vec3 1 0.91 0.84
 
+        Dahlia ->
+            Vec3.vec3 0.8 0.84 0.85
+
 
 pitch : Character -> Float
 pitch character =
@@ -202,6 +213,9 @@ pitch character =
         Emiko ->
             1.2
 
+        Dahlia ->
+            1
+
 
 eyeColor : Character -> Vec3
 eyeColor character =
@@ -241,6 +255,9 @@ eyeColor character =
 
         Emiko ->
             Vec3.vec3 0 0 0
+
+        Dahlia ->
+            Vec3.vec3 1 1 1
 
 
 
