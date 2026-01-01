@@ -726,6 +726,9 @@ characterAlpha frameId character =
         Emiko ->
             a * 0.03 + 0.7
 
+        Dahlia ->
+            a * 0.03 + 0.7
+
 
 characterViewHelper : Id FrameId -> Mat4 -> Textures -> Player -> Character -> Int -> List WebGL.Entity
 characterViewHelper frameId viewMatrix textures player character index =
@@ -767,6 +770,9 @@ characterViewHelper frameId viewMatrix textures player character index =
 
                 Emiko ->
                     textures.emiko
+
+                Dahlia ->
+                    textures.dahlia
 
         x =
             case player.team of
@@ -859,6 +865,9 @@ characterViewHelper frameId viewMatrix textures player character index =
 
                         Emiko ->
                             0.1
+
+                        Dahlia ->
+                            0
                     )
                 |> (\offset -> toFloat (floor (offset / pixelSize)) * pixelSize)
 
@@ -969,6 +978,9 @@ characterViewHelper frameId viewMatrix textures player character index =
                     True
 
                 Emiko ->
+                    True
+
+                Dahlia ->
                     True
 
         alpha =
