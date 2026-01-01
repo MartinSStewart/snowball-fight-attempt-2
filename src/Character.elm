@@ -1,6 +1,7 @@
 module Character exposing
     ( Character(..)
     , all
+    , characterDescription
     , eyeColor
     , folderName
     , name
@@ -258,6 +259,49 @@ eyeColor character =
 
         Dahlia ->
             Vec3.vec3 1 1 1
+
+
+characterDescription : Character -> List String
+characterDescription character =
+    case character of
+        Stana ->
+            [ "TT1", "Sets stuff on fire" ]
+
+        Bones ->
+            [ "TT4" ]
+
+        Sheire ->
+            [ "TUD", "Pacifist" ]
+
+        Bot ->
+            [ "..." ]
+
+        Knifery ->
+            [ "Knifery Shankefellow", "TT2", "Is an octopus" ]
+
+        Dael ->
+            [ "Dael ‘Action’ Harker", "TT3", "Has a gun" ]
+
+        Tanis ->
+            [ "Tanis Silverhand", "GO", "Has a Robot Arm" ]
+
+        Vael ->
+            [ "Vael Blackbolt", "JAMM", "Angry" ]
+
+        Roland ->
+            [ "Roland Hawk", "CS", "Also has a gun" ]
+
+        Eden ->
+            [ "JRPG", "Bleeds black smoke" ]
+
+        Crow ->
+            [ "A crow" ]
+
+        Emiko ->
+            [ "Emiko Yamato", "SE" ]
+
+        Dahlia ->
+            [ "Dahlia Daugaard", "JAMM" ]
 
 
 

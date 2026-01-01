@@ -1484,6 +1484,10 @@ matchSetupView config lobby matchSetupData currentPlayerData =
                                 (List.sortBy Character.name Character.all)
                                 |> Ui.row [ Ui.spacing 32, Ui.wrap, Ui.widthMax 1180, Ui.centerX ]
                             ]
+                        , List.map
+                            (\text -> Ui.text ("- " ++ text))
+                            (Character.characterDescription currentPlayerData.character)
+                            |> Ui.column [ Ui.spacing 4 ]
                         ]
                     ]
                 ]
