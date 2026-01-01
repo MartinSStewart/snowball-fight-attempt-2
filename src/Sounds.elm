@@ -31,6 +31,18 @@ type alias Sounds =
     , railToggle : Audio.Source
     , throw1 : Audio.Source
     , throw2 : Audio.Source
+    , throw3 : Audio.Source
+    , throw4 : Audio.Source
+    , throw5 : Audio.Source
+    , throw6 : Audio.Source
+    , throw7 : Audio.Source
+    , throw8 : Audio.Source
+    , throw9 : Audio.Source
+    , throw10 : Audio.Source
+    , throw11 : Audio.Source
+    , throw12 : Audio.Source
+    , throw13 : Audio.Source
+    , throw14 : Audio.Source
     , whoosh : Audio.Source
     }
 
@@ -61,8 +73,20 @@ soundUrls =
     , "/page-turn.mp3"
     , "/pop.mp3"
     , "/rail-toggle.mp3"
-    , "/throw1.mp3"
-    , "/throw2.mp3"
+    , "/throw1.ogg"
+    , "/throw2.ogg"
+    , "/throw3.ogg"
+    , "/throw4.ogg"
+    , "/throw5.ogg"
+    , "/throw6.ogg"
+    , "/throw7.ogg"
+    , "/throw8.ogg"
+    , "/throw9.ogg"
+    , "/throw10.ogg"
+    , "/throw11.ogg"
+    , "/throw12.ogg"
+    , "/throw13.ogg"
+    , "/throw14.ogg"
     , "/whoosh.mp3"
     ]
 
@@ -90,6 +114,18 @@ loadingFinished sounds =
                     ( [], Nothing )
     in
     ( soundUrls, Just Sounds )
+        |> loadSound
+        |> loadSound
+        |> loadSound
+        |> loadSound
+        |> loadSound
+        |> loadSound
+        |> loadSound
+        |> loadSound
+        |> loadSound
+        |> loadSound
+        |> loadSound
+        |> loadSound
         |> loadSound
         |> loadSound
         |> loadSound

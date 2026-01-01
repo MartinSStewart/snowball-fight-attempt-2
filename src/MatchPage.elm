@@ -723,6 +723,9 @@ characterAlpha frameId character =
         Crow ->
             a * 0.03 + 0.7
 
+        Emiko ->
+            a * 0.03 + 0.7
+
 
 characterViewHelper : Id FrameId -> Mat4 -> Textures -> Player -> Character -> Int -> List WebGL.Entity
 characterViewHelper frameId viewMatrix textures player character index =
@@ -761,6 +764,9 @@ characterViewHelper frameId viewMatrix textures player character index =
 
                 Crow ->
                     textures.crow
+
+                Emiko ->
+                    textures.emiko
 
         x =
             case player.team of
@@ -850,6 +856,9 @@ characterViewHelper frameId viewMatrix textures player character index =
 
                         Crow ->
                             0
+
+                        Emiko ->
+                            0.1
                     )
                 |> (\offset -> toFloat (floor (offset / pixelSize)) * pixelSize)
 
@@ -957,6 +966,9 @@ characterViewHelper frameId viewMatrix textures player character index =
                     True
 
                 Crow ->
+                    True
+
+                Emiko ->
                     True
 
         alpha =
@@ -4325,7 +4337,8 @@ initMatchData serverTime newUserIds maybeTimelineCache =
                                 ( id
                                 , { character =
                                         if isBot id then
-                                            Bot
+                                            List.getAt (Id.toInt id |> modBy (List.length Character.all)) Character.all
+                                                |> Maybe.withDefault Bot
 
                                         else
                                             playerData.character
@@ -4851,27 +4864,26 @@ audio loaded matchPage =
                                         |> (\a -> Duration.subtractFrom a (pingOffset loaded))
                                         |> (\a -> Duration.subtractFrom a loaded.debugTimeOffset)
 
-                                chargeSounds : List Audio
-                                chargeSounds =
-                                    List.filterMap
-                                        (\player ->
-                                            case player.clickStart of
-                                                Just clickStart ->
-                                                    let
-                                                        sound =
-                                                            if modBy 2 (Id.toInt clickStart.time) == 0 then
-                                                                loaded.sounds.charge
-
-                                                            else
-                                                                loaded.sounds.charge2
-                                                    in
-                                                    Audio.audio sound (frameToTime clickStart.time) |> Just
-
-                                                Nothing ->
-                                                    Nothing
-                                        )
-                                        (SeqDict.values state.players)
-
+                                --chargeSounds : List Audio
+                                --chargeSounds =
+                                --    List.filterMap
+                                --        (\player ->
+                                --            case player.clickStart of
+                                --                Just clickStart ->
+                                --                    let
+                                --                        sound =
+                                --                            if modBy 2 (Id.toInt clickStart.time) == 0 then
+                                --                                loaded.sounds.charge
+                                --
+                                --                            else
+                                --                                loaded.sounds.charge2
+                                --                    in
+                                --                    Audio.audio sound (frameToTime clickStart.time) |> Just
+                                --
+                                --                Nothing ->
+                                --                    Nothing
+                                --        )
+                                --        (SeqDict.values state.players)
                                 footstepSounds : Audio
                                 footstepSounds =
                                     List.map
@@ -4900,15 +4912,27 @@ audio loaded matchPage =
                                         )
                                         (SeqDict.toList state.players)
 
-                                throwSounds : List Audio
+                                throwSounds : Audio
                                 throwSounds =
                                     List.map
                                         (\snowball ->
-                                            Audio.audio
+                                            Audio.audioWithConfig
+                                                { loop = Nothing
+                                                , playbackRate =
+                                                    case SeqDict.get snowball.thrownBy matchData.userIds of
+                                                        Just { character } ->
+                                                            Character.pitch character
+
+                                                        Nothing ->
+                                                            1
+                                                , startAt = Quantity.zero
+                                                }
                                                 (throwSound loaded snowball.thrownAt)
                                                 (frameToTime snowball.thrownAt)
                                         )
                                         state.snowballs
+                                        |> Audio.group
+                                        |> Audio.scaleVolume 0.8
 
                                 whooshSounds : List Audio
                                 whooshSounds =
@@ -4973,10 +4997,10 @@ audio loaded matchPage =
                             in
                             footstepSounds
                                 :: hitSounds
-                                :: chargeSounds
-                                ++ deadSounds
+                                --:: chargeSounds
+                                :: deadSounds
                                 ++ throwSounds
-                                ++ whooshSounds
+                                :: whooshSounds
                                 ++ countdownSounds
                                 ++ pointAdded
                                 |> Audio.group
@@ -5040,8 +5064,45 @@ deadSound loaded userId =
 
 throwSound : Config a -> Id FrameId -> Audio.Source
 throwSound loaded frameId =
-    if modBy 2 (Id.toInt frameId) == 0 then
-        loaded.sounds.throw1
+    case modBy 14 (Id.toInt frameId) of
+        0 ->
+            loaded.sounds.throw1
 
-    else
-        loaded.sounds.throw2
+        1 ->
+            loaded.sounds.throw2
+
+        2 ->
+            loaded.sounds.throw3
+
+        3 ->
+            loaded.sounds.throw4
+
+        4 ->
+            loaded.sounds.throw5
+
+        5 ->
+            loaded.sounds.throw6
+
+        6 ->
+            loaded.sounds.throw7
+
+        7 ->
+            loaded.sounds.throw8
+
+        8 ->
+            loaded.sounds.throw9
+
+        9 ->
+            loaded.sounds.throw10
+
+        10 ->
+            loaded.sounds.throw11
+
+        11 ->
+            loaded.sounds.throw12
+
+        12 ->
+            loaded.sounds.throw13
+
+        _ ->
+            loaded.sounds.throw14
