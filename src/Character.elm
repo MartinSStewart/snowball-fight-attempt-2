@@ -4,6 +4,7 @@ module Character exposing
     , eyeColor
     , folderName
     , name
+    , pitch
     , skinTone
     )
 
@@ -159,7 +160,47 @@ skinTone character =
             Vec3.vec3 0.1 0.1 0.1
 
         Emiko ->
-            Vec3.vec3 0.85 0.75 0.65
+            Vec3.vec3 1 0.91 0.84
+
+
+pitch : Character -> Float
+pitch character =
+    case character of
+        Bones ->
+            1
+
+        Sheire ->
+            1.2
+
+        Bot ->
+            1
+
+        Stana ->
+            1.2
+
+        Knifery ->
+            0.8
+
+        Dael ->
+            0.8
+
+        Tanis ->
+            1
+
+        Vael ->
+            1.2
+
+        Roland ->
+            0.8
+
+        Eden ->
+            1.2
+
+        Crow ->
+            1
+
+        Emiko ->
+            1.2
 
 
 eyeColor : Character -> Vec3
