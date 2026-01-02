@@ -647,40 +647,30 @@ type WorldPixel
 characterView : Id FrameId -> Mat4 -> Textures -> MatchActiveLocal_ -> MatchState -> List WebGL.Entity
 characterView frameId viewMatrix textures match state =
     SeqDict.foldr
-        (\userId player ( redTeam, blueTeam ) ->
+        (\userId player ( entities, redIndex, blueIndex ) ->
             case SeqDict.get userId match.userIds of
                 Just data ->
                     case player.team of
                         RedTeam ->
-                            ( characterViewHelper
-                                frameId
-                                viewMatrix
-                                textures
-                                player
-                                data.character
-                                (List.length redTeam)
-                                ++ redTeam
-                            , blueTeam
+                            ( characterViewHelper frameId viewMatrix textures player data.character redIndex
+                                ++ entities
+                            , redIndex + 1
+                            , blueIndex
                             )
 
                         BlueTeam ->
-                            ( redTeam
-                            , characterViewHelper
-                                frameId
-                                viewMatrix
-                                textures
-                                player
-                                data.character
-                                (List.length blueTeam)
-                                ++ blueTeam
+                            ( characterViewHelper frameId viewMatrix textures player data.character blueIndex
+                                ++ entities
+                            , redIndex
+                            , blueIndex + 1
                             )
 
                 Nothing ->
-                    ( redTeam, blueTeam )
+                    ( entities, redIndex, blueIndex )
         )
-        ( [], [] )
+        ( [], 0, 0 )
         state.players
-        |> (\( a, b ) -> a ++ b)
+        |> (\( a, _, _ ) -> a)
 
 
 characterAlpha : Id FrameId -> Character -> Float
@@ -795,7 +785,7 @@ characterViewHelper frameId viewMatrix textures player character index =
                           )
 
         y =
-            toFloat index * 1 + levelMinY + 1
+            toFloat index * 5 + levelMinY + 1
 
         ( width, height ) =
             Texture.size characterTextures.base
