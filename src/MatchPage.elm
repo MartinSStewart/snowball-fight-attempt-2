@@ -602,7 +602,7 @@ updateFromBackend msg matchSetup =
                             case Timeline.getStateAt gameUpdate frameId timelineCache matchActive.timeline of
                                 Ok ( _, ok ) ->
                                     ( matchSetup
-                                    , CurrentCache matchId frameId { ok | footsteps = [], mergedFootsteps = [] }
+                                    , CurrentCache matchId frameId ok
                                         |> Effect.Lamdera.sendToBackend
                                     )
 
@@ -892,55 +892,50 @@ characterViewHelper frameId viewMatrix textures player character index =
                     18
 
         showGrumble =
-            case player.isDead of
-                Just dead ->
-                    if frameTimeElapsed dead.time frameId |> Quantity.lessThan (Duration.seconds 3) then
-                        [ WebGL.entityWith
-                            [ Blend.add Blend.one Blend.oneMinusSrcAlpha ]
-                            textureVertexShader
-                            textureFragmentShader
-                            squareTextureMesh
-                            { alpha = 1
-                            , view = viewMatrix
-                            , model =
-                                Mat4.makeTranslate3 grumbleX (y + 5) 2
-                                    |> Mat4.scale3
-                                        (case player.team of
-                                            RedTeam ->
-                                                -grumbleSize
+            if Id.toInt frameId |> modBy 2 |> (==) 0 then
+                [ WebGL.entityWith
+                    [ Blend.add Blend.one Blend.oneMinusSrcAlpha ]
+                    textureVertexShader
+                    textureFragmentShader
+                    squareTextureMesh
+                    { alpha = 1
+                    , view = viewMatrix
+                    , model =
+                        Mat4.makeTranslate3 grumbleX (y + 5) 2
+                            |> Mat4.scale3
+                                (case player.team of
+                                    RedTeam ->
+                                        -grumbleSize
 
-                                            BlueTeam ->
-                                                grumbleSize
-                                        )
-                                        (grumbleSize * toFloat grumbleHeight / toFloat grumbleWidth)
-                                        1
-                            , texture =
-                                case frameTimeElapsed (Id.fromInt 0) frameId |> Duration.inSeconds |> (*) 15 |> round |> modBy 3 of
-                                    0 ->
-                                        textures.grumble0
+                                    BlueTeam ->
+                                        grumbleSize
+                                )
+                                (grumbleSize * toFloat grumbleHeight / toFloat grumbleWidth)
+                                1
+                    , texture =
+                        case frameTimeElapsed (Id.fromInt 0) frameId |> Duration.inSeconds |> (*) 15 |> round |> modBy 3 of
+                            0 ->
+                                textures.grumble0
 
-                                    1 ->
-                                        textures.grumble1
+                            1 ->
+                                textures.grumble1
 
-                                    2 ->
-                                        textures.grumble2
+                            2 ->
+                                textures.grumble2
 
-                                    3 ->
-                                        textures.grumble3
+                            3 ->
+                                textures.grumble3
 
-                                    4 ->
-                                        textures.grumble4
+                            4 ->
+                                textures.grumble4
 
-                                    _ ->
-                                        textures.grumble5
-                            }
-                        ]
+                            _ ->
+                                textures.grumble5
+                    }
+                ]
 
-                    else
-                        []
-
-                Nothing ->
-                    []
+            else
+                []
 
         armInFront =
             case character of
@@ -1989,32 +1984,6 @@ canvasViewHelper model matchSetup canvasSize =
                                    ]
                                 ++ drawScoreNumber RedTeam viewMatrix frameId state.score.redTeam state.roundEndTime
                                 ++ drawScoreNumber BlueTeam viewMatrix frameId state.score.blueTeam state.roundEndTime
-                                ++ List.map
-                                    (\footstepMesh2 ->
-                                        WebGL.entityWith
-                                            [ WebGL.Settings.cullFace WebGL.Settings.back, WebGL.Settings.DepthTest.default ]
-                                            vertexShader
-                                            fragmentShader
-                                            footstepMesh2.mesh
-                                            { ucolor = Vec3.vec3 1 1 1
-                                            , view = viewMatrix
-                                            , model = Mat4.identity
-                                            }
-                                    )
-                                    state.footsteps
-                                ++ List.map
-                                    (\footstepMesh2 ->
-                                        WebGL.entityWith
-                                            [ WebGL.Settings.cullFace WebGL.Settings.back, WebGL.Settings.DepthTest.default ]
-                                            vertexShader
-                                            fragmentShader
-                                            footstepMesh2
-                                            { ucolor = Vec3.vec3 1 1 1
-                                            , view = viewMatrix
-                                            , model = Mat4.identity
-                                            }
-                                    )
-                                    state.mergedFootsteps
                                 ++ List.concatMap
                                     (\( userId, player ) ->
                                         drawPlayer
@@ -2702,52 +2671,6 @@ updatePlayer inputs2 frameId userId player model =
                 model.snowballs
                 |> Tuple.mapSecond List.reverse
 
-        ( lastStep, footsteps, mergedFootsteps ) =
-            if
-                Point2d.distanceFrom player.lastStep.position player.position
-                    |> Quantity.greaterThan (Length.meters 0.6)
-            then
-                let
-                    newFootstep : List ( Vertex, Vertex, Vertex )
-                    newFootstep =
-                        footstepMesh player.position player.rotation player.lastStep.stepCount
-
-                    merge =
-                        List.length model.footsteps > 20
-                in
-                ( { position = player.position
-                  , time = frameId
-                  , stepCount = player.lastStep.stepCount + 1
-                  }
-                , if merge then
-                    []
-
-                  else
-                    { position = player.position
-                    , rotation = player.rotation
-                    , stepCount = player.lastStep.stepCount
-                    , mesh = WebGL.triangles newFootstep
-                    }
-                        :: model.footsteps
-                , if merge then
-                    WebGL.triangles
-                        (newFootstep
-                            ++ List.concatMap
-                                (\footstep ->
-                                    footstepMesh footstep.position footstep.rotation footstep.stepCount
-                                )
-                                model.footsteps
-                        )
-                        :: model.mergedFootsteps
-                        |> List.take 100
-
-                  else
-                    model.mergedFootsteps
-                )
-
-            else
-                ( player.lastStep, model.footsteps, model.mergedFootsteps )
-
         players : SeqDict (Id UserId) Player
         players =
             SeqDict.insert
@@ -2882,7 +2805,6 @@ updatePlayer inputs2 frameId userId player model =
 
                             Nothing ->
                                 player.isDead
-                    , lastStep = lastStep
                 }
                 model.players
     in
@@ -2987,8 +2909,6 @@ updatePlayer inputs2 frameId userId player model =
 
                 Nothing ->
                     model.particles
-        , footsteps = footsteps
-        , mergedFootsteps = mergedFootsteps
         , roundEndTime =
             case hitBySnowball of
                 Just _ ->
@@ -3119,8 +3039,6 @@ gameUpdate frameId inputs model =
                 , pushableSnowballs =
                     updatePushableSnowballs finalPlayers (model2.pushableSnowballs ++ newPushableSnowballs)
                 , particles = particles
-                , footsteps = model2.footsteps
-                , mergedFootsteps = model2.mergedFootsteps
                 , score = model2.score
                 , roundEndTime = model2.roundEndTime
                 , snowballImpacts = snowballImpacts
@@ -3131,8 +3049,6 @@ gameUpdate frameId inputs model =
                 , snowballs = []
                 , pushableSnowballs = model2.pushableSnowballs
                 , particles = []
-                , footsteps = model2.footsteps
-                , mergedFootsteps = model2.mergedFootsteps
                 , score =
                     case roundEnd.winner of
                         BothWon ->
@@ -3163,8 +3079,6 @@ gameUpdate frameId inputs model =
             , pushableSnowballs =
                 updatePushableSnowballs finalPlayers (model2.pushableSnowballs ++ newPushableSnowballs)
             , particles = particles
-            , footsteps = model2.footsteps
-            , mergedFootsteps = model2.mergedFootsteps
             , score = model2.score
             , roundEndTime = model2.roundEndTime
             , snowballImpacts = snowballImpacts
@@ -4471,8 +4385,6 @@ initMatch startTime users =
     , snowballs = []
     , pushableSnowballs = []
     , particles = []
-    , footsteps = []
-    , mergedFootsteps = []
     , score = { redTeam = 0, blueTeam = 0 }
     , roundEndTime = Nothing
     , snowballImpacts = []

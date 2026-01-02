@@ -108,14 +108,6 @@ type alias MatchState =
     , snowballs : List Snowball
     , pushableSnowballs : List PushableSnowball
     , particles : List Particle
-    , footsteps :
-        List
-            { position : Point2d Meters WorldCoordinate
-            , rotation : Direction2d WorldCoordinate
-            , stepCount : Int
-            , mesh : Mesh Vertex
-            }
-    , mergedFootsteps : List (Mesh Vertex)
     , score : { redTeam : Int, blueTeam : Int }
     , roundEndTime : Maybe { winner : Winner, time : Id FrameId }
     , snowballImpacts : List (Id FrameId)
