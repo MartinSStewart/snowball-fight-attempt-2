@@ -338,7 +338,7 @@ checkPlayersInSync delay =
                                                                     (\( frameId, state ) ->
                                                                         { matchId = matchPage.lobbyId
                                                                         , frameId = frameId
-                                                                        , state = state
+                                                                        , state = { state | footsteps = [], mergedFootsteps = [] }
                                                                         }
                                                                     )
                                                                     (List.Nonempty.toList cache.cache)
@@ -359,12 +359,24 @@ checkPlayersInSync delay =
                                         []
                             )
             in
-            if
-                List.Extra.gatherEqualsBy (\a -> ( a.matchId, a.frameId )) frontendMatchData
-                    |> List.all (\( head, rest ) -> List.all (\a -> a == head) rest)
-            then
-                Ok ()
+            case
+                List.filterMap
+                    (\( head, rest ) ->
+                        if List.all (\a -> a == head) rest then
+                            Nothing
 
-            else
-                Err "Players are no longer in sync"
+                        else
+                            Just (Id.toString head.frameId)
+                    )
+                    (List.Extra.gatherEqualsBy (\a -> ( a.matchId, a.frameId )) frontendMatchData)
+            of
+                [] ->
+                    Ok ()
+
+                rest ->
+                    "The "
+                        ++ String.fromInt (SeqDict.size data.frontends)
+                        ++ " connected players are no longer in sync for frames "
+                        ++ String.join ", " rest
+                        |> Err
         )
