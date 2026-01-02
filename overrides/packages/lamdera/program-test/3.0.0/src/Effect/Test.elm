@@ -376,14 +376,16 @@ type alias ToBackendData toBackend =
 
 {-| -}
 type alias BackendPendingEffect toFrontend backendMsg =
-    { cmds : Command BackendOnly toFrontend backendMsg
+    { cmds : List (FlattenedCommand BackendOnly toFrontend backendMsg)
+    , createdAt : Time.Posix
     , stepIndex : Int
     }
 
 
 {-| -}
 type alias FrontendPendingEffect toBackend frontendMsg =
-    { cmds : Command FrontendOnly toBackend frontendMsg
+    { cmds : List (FlattenedCommand FrontendOnly toBackend frontendMsg)
+    , createdAt : Time.Posix
     , stepIndex : Int
     }
 
@@ -394,6 +396,7 @@ type alias State toBackend frontendMsg frontendModel toFrontend backendMsg backe
     , frontendApp : FrontendApp toBackend frontendMsg frontendModel toFrontend
     , backendApp : BackendApp toBackend toFrontend backendMsg backendModel
     , model : backendModel
+    , backendHttpLatency : Duration
     , history : Array (Event toBackend frontendMsg frontendModel toFrontend backendMsg backendModel)
     , pendingEffects : Array (BackendPendingEffect toFrontend backendMsg)
     , frontends : SeqDict ClientId (FrontendState toBackend frontendMsg frontendModel toFrontend)
@@ -934,6 +937,8 @@ type alias FrontendState toBackend frontendMsg frontendModel toFrontend =
     , timers : SeqDict Duration { startTime : Time.Posix }
     , navigation : NavigationHistory
     , windowSize : { width : Int, height : Int }
+    , latencyToBackend : Duration
+    , latencyToFrontend : Duration
     }
 
 
@@ -1297,8 +1302,9 @@ start testName startTime2 config actions =
             , frontendApp = config.frontendApp
             , backendApp = config.backendApp
             , model = backend
+            , backendHttpLatency = Duration.seconds 0.5
             , history = Array.empty
-            , pendingEffects = Array.fromList [ { cmds = cmd, stepIndex = 0 } ]
+            , pendingEffects = Array.fromList [ { cmds = flattenEffects SeqDict.empty cmd, createdAt = startTime2, stepIndex = 0 } ]
             , frontends = SeqDict.empty
             , counter = 0
             , elapsedTime = Quantity.zero
@@ -1510,7 +1516,17 @@ connectFrontend delay sessionId url windowSize andThenFunc =
                                             clientId
                                             { model = frontend
                                             , sessionId = sessionId
-                                            , pendingEffects = Array.fromList [ { cmds = cmd, stepIndex = Array.length state.history } ]
+                                            , pendingEffects =
+                                                Array.fromList
+                                                    [ { cmds =
+                                                            flattenEffects
+                                                                -- This frontends doesn't include the one we are just now connecting but it shouldn't matter since it's only used for flattening backend broadcasts
+                                                                state.frontends
+                                                                cmd
+                                                      , createdAt = currentTime state
+                                                      , stepIndex = Array.length state.history
+                                                      }
+                                                    ]
                                             , toFrontend = []
                                             , timers = getTimers subscriptions |> SeqDict.map (\_ _ -> { startTime = currentTime state })
                                             , navigation =
@@ -1519,6 +1535,8 @@ connectFrontend delay sessionId url windowSize andThenFunc =
                                                 , forwardUrls = []
                                                 }
                                             , windowSize = windowSize
+                                            , latencyToBackend = Duration.seconds 0.5
+                                            , latencyToFrontend = Duration.seconds 0.5
                                             }
                                             state.frontends
                                     , counter = state.counter + 1
@@ -1708,7 +1726,10 @@ handleFrontendUpdate clientId currentTime2 msg state =
                             | model = newModel
                             , pendingEffects =
                                 Array.push
-                                    { cmds = cmd, stepIndex = Array.length state.history }
+                                    { cmds = flattenEffects state.frontends cmd
+                                    , createdAt = currentTime state
+                                    , stepIndex = Array.length state.history
+                                    }
                                     frontend.pendingEffects
                             , timers =
                                 SeqDict.merge
@@ -1751,7 +1772,10 @@ handleBackendUpdate currentTime2 app msg state =
         | model = newModel
         , pendingEffects =
             Array.push
-                { cmds = cmd, stepIndex = Array.length state.history }
+                { cmds = flattenEffects state.frontends cmd
+                , createdAt = currentTime state
+                , stepIndex = Array.length state.history
+                }
                 state.pendingEffects
         , timers =
             SeqDict.merge
@@ -1800,7 +1824,10 @@ handleUpdateFromBackend clientId currentTime2 { toFrontend, stepIndex } state =
                             | model = newModel
                             , pendingEffects =
                                 Array.push
-                                    { cmds = cmd, stepIndex = Array.length state.history }
+                                    { cmds = flattenEffects state.frontends cmd
+                                    , createdAt = currentTime state
+                                    , stepIndex = Array.length state.history
+                                    }
                                     frontendState.pendingEffects
                             , timers =
                                 SeqDict.merge
@@ -1849,7 +1876,10 @@ handleUpdateFromFrontend { sessionId, clientId, toBackend, stepIndex } state =
         | model = newModel
         , pendingEffects =
             Array.push
-                { cmds = cmd, stepIndex = Array.length state.history }
+                { cmds = flattenEffects state.frontends cmd
+                , createdAt = currentTime state
+                , stepIndex = Array.length state.history
+                }
                 state.pendingEffects
         , timers =
             SeqDict.merge
@@ -2996,7 +3026,7 @@ hasPendingEffects state =
     let
         hasEffectsHelper pendingEffects =
             Array.foldl
-                (\{ cmds } hasEffects -> hasEffects || not (List.isEmpty (flattenEffects cmds)))
+                (\{ cmds } hasEffects -> hasEffects || not (List.isEmpty cmds))
                 False
                 pendingEffects
     in
@@ -3205,9 +3235,106 @@ runNetwork state =
 {-| -}
 clearBackendEffects :
     State toBackend frontendMsg frontendModel toFrontend backendMsg backendModel
-    -> State toBackend frontendMsg frontendModel toFrontend backendMsg backendModel
+    ->
+        ( Array (BackendPendingEffect toFrontend backendMsg)
+        , State toBackend frontendMsg frontendModel toFrontend backendMsg backendModel
+        )
 clearBackendEffects state =
     { state | pendingEffects = Array.empty }
+
+
+backendReadyEffects :
+    State toBackend frontendMsg frontendModel toFrontend backendMsg backendModel
+    -> Time.Posix
+    -> Command r toFrontend backendMsg
+    -> { stillPending : List (Command r toFrontend backendMsg), ready : List (Command r toFrontend backendMsg) }
+backendReadyEffects state createdAt effect =
+    case effect of
+        Batch effects ->
+            List.foldl
+                (\effect2 { stillPending, ready } ->
+                    let
+                        a : { stillPending : List (Command r toFrontend backendMsg), ready : List (Command r toFrontend backendMsg) }
+                        a =
+                            backendReadyEffects state createdAt effect2
+                    in
+                    { stillPending = stillPending ++ a.stillPending, ready = ready ++ a.ready }
+                )
+                { stillPending = [], ready = [] }
+                effects
+
+        None ->
+            { stillPending = [], ready = [] }
+
+        SendToBackend _ ->
+            { stillPending = [], ready = [ effect ] }
+
+        NavigationPushUrl navigationKey string ->
+            { stillPending = [], ready = [ effect ] }
+
+        NavigationReplaceUrl navigationKey string ->
+            { stillPending = [], ready = [ effect ] }
+
+        NavigationBack navigationKey int ->
+            { stillPending = [], ready = [ effect ] }
+
+        NavigationForward navigationKey int ->
+            { stillPending = [], ready = [ effect ] }
+
+        NavigationLoad string ->
+            { stillPending = [], ready = [ effect ] }
+
+        NavigationReload ->
+            { stillPending = [], ready = [ effect ] }
+
+        NavigationReloadAndSkipCache ->
+            { stillPending = [], ready = [ effect ] }
+
+        Task task ->
+            { stillPending = [], ready = [ effect ] }
+
+        Port string function value ->
+            { stillPending = [], ready = [ effect ] }
+
+        SendToFrontend (Effect.Internal.ClientId clientId) toMsg ->
+            case SeqDict.get (Effect.Lamdera.clientIdFromString clientId) state.frontends of
+                Just frontend ->
+                    if Duration.from createdAt (currentTime state) |> Quantity.lessThan frontend.latencyToFrontend then
+                        { stillPending = [ effect ], ready = [] }
+
+                    else
+                        { stillPending = [], ready = [ effect ] }
+
+                Nothing ->
+                    { stillPending = [], ready = [] }
+
+        SendToFrontends (Effect.Internal.SessionId sessionId) toMsg ->
+            -- Shouldn't happen because we replace SendToFrontends with SendToFrontend
+            { stillPending = [], ready = [] }
+
+        Broadcast toMsg ->
+            { stillPending = [], ready = [ effect ] }
+
+        FileDownloadUrl record ->
+            { stillPending = [], ready = [ effect ] }
+
+        FileDownloadString record ->
+            { stillPending = [], ready = [ effect ] }
+
+        FileDownloadBytes record ->
+            { stillPending = [], ready = [ effect ] }
+
+        FileSelectFile strings function ->
+            { stillPending = [], ready = [ effect ] }
+
+        FileSelectFiles strings function ->
+            { stillPending = [], ready = [ effect ] }
+
+        HttpCancel string ->
+            { stillPending = [], ready = [ effect ] }
+
+        Passthrough cmd ->
+            { stillPending = [], ready = [ effect ] }
 
 
 {-| -}
@@ -3600,17 +3727,106 @@ getWindowResizeSubscriptions subscription =
 
 
 {-| -}
-flattenEffects : Command restriction toBackend frontendMsg -> List (Command restriction toBackend frontendMsg)
-flattenEffects effect =
+flattenEffects :
+    SeqDict ClientId (FrontendState a b c d)
+    -> Command restriction toBackend frontendMsg
+    -> List (FlattenedCommand restriction toBackend frontendMsg)
+flattenEffects frontends effect =
     case effect of
         Batch effects ->
-            List.concatMap flattenEffects effects
+            List.concatMap (flattenEffects frontends) effects
 
         None ->
             []
 
-        _ ->
-            [ effect ]
+        SendToFrontends (Effect.Internal.SessionId sessionId) toMsg ->
+            List.filterMap
+                (\( clientId, frontend ) ->
+                    if Effect.Lamdera.sessionIdToString frontend.sessionId == sessionId then
+                        Just (FlattenedCommand_SendToFrontend clientId toMsg)
+
+                    else
+                        Nothing
+                )
+                (SeqDict.toList frontends)
+
+        SendToBackend toMsg ->
+            [ FlattenedCommand_SendToBackend toMsg ]
+
+        NavigationPushUrl navigationKey string ->
+            [ FlattenedCommand_NavigationPushUrl navigationKey string ]
+
+        NavigationReplaceUrl navigationKey string ->
+            [ FlattenedCommand_NavigationReplaceUrl navigationKey string ]
+
+        NavigationBack navigationKey int ->
+            [ FlattenedCommand_NavigationBack navigationKey int ]
+
+        NavigationForward navigationKey int ->
+            [ FlattenedCommand_NavigationForward navigationKey int ]
+
+        NavigationLoad string ->
+            [ FlattenedCommand_NavigationLoad string ]
+
+        NavigationReload ->
+            [ FlattenedCommand_NavigationReload ]
+
+        NavigationReloadAndSkipCache ->
+            [ FlattenedCommand_NavigationReloadAndSkipCache ]
+
+        Task task ->
+            [ FlattenedCommand_Task task ]
+
+        Port string function value ->
+            [ FlattenedCommand_Port string function value ]
+
+        SendToFrontend (Effect.Internal.ClientId clientId) toMsg ->
+            [ FlattenedCommand_SendToFrontend (Effect.Lamdera.clientIdFromString clientId) toMsg ]
+
+        Broadcast toMsg ->
+            List.map (\( clientId, _ ) -> FlattenedCommand_SendToFrontend clientId toMsg) (SeqDict.toList frontends)
+
+        FileDownloadUrl record ->
+            [ FlattenedCommand_FileDownloadUrl record ]
+
+        FileDownloadString record ->
+            [ FlattenedCommand_FileDownloadString record ]
+
+        FileDownloadBytes record ->
+            [ FlattenedCommand_FileDownloadBytes record ]
+
+        FileSelectFile strings function ->
+            [ FlattenedCommand_FileSelectFile strings function ]
+
+        FileSelectFiles strings function ->
+            [ FlattenedCommand_FileSelectFiles strings function ]
+
+        HttpCancel string ->
+            [ FlattenedCommand_HttpCancel string ]
+
+        Passthrough cmd ->
+            [ FlattenedCommand_Passthrough cmd ]
+
+
+type FlattenedCommand restriction toMsg msg
+    = FlattenedCommand_SendToBackend toMsg
+    | FlattenedCommand_NavigationPushUrl NavigationKey String
+    | FlattenedCommand_NavigationReplaceUrl NavigationKey String
+    | FlattenedCommand_NavigationBack NavigationKey Int
+    | FlattenedCommand_NavigationForward NavigationKey Int
+    | FlattenedCommand_NavigationLoad String
+    | FlattenedCommand_NavigationReload
+    | FlattenedCommand_NavigationReloadAndSkipCache
+    | FlattenedCommand_Task (Task restriction msg msg)
+    | FlattenedCommand_Port String (Json.Encode.Value -> Cmd msg) Json.Encode.Value
+    | FlattenedCommand_SendToFrontend ClientId toMsg
+    | FlattenedCommand_FileDownloadUrl { href : String }
+    | FlattenedCommand_FileDownloadString { name : String, mimeType : String, content : String }
+    | FlattenedCommand_FileDownloadBytes { name : String, mimeType : String, content : Bytes }
+    | FlattenedCommand_FileSelectFile (List String) (File -> msg)
+    | FlattenedCommand_FileSelectFiles (List String) (File -> List File -> msg)
+    | FlattenedCommand_HttpCancel String
+    | FlattenedCommand_Passthrough (Cmd msg)
 
 
 {-| -}
