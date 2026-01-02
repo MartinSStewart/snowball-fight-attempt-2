@@ -34,14 +34,7 @@ import User exposing (UserId)
 setup : T.ViewerWith (List (T.EndToEndTest ToBackend FrontendMsg FrontendModel ToFrontend BackendMsg BackendModel))
 setup =
     T.viewerWith tests
-        |> T.addTextureWithOptions Textures.textureOptions "/vignette.png"
-        |> T.addTextureWithOptions Textures.textureOptions "/video0.png"
-        |> T.addTextureWithOptions Textures.textureOptions "/video1.png"
-        |> T.addTextureWithOptions Textures.textureOptions "/video2.png"
-        |> T.addTextureWithOptions Textures.textureOptions "/bones/base.png"
-        |> T.addTextureWithOptions Textures.textureOptions "/bones/shadow.png"
-        |> T.addTextureWithOptions Textures.textureOptions "/charlotte/base.png"
-        |> T.addTextureWithOptions Textures.textureOptions "/charlotte/shadow.png"
+        |> T.addTexturesWithOptions Textures.textureOptions Textures.textureUrls
         |> T.addBytesFiles (Dict.values fileRequests)
 
 
@@ -159,18 +152,14 @@ hasNotText user texts =
 
 
 tests :
-    Texture
-    -> Texture
-    -> Texture
-    -> Texture
-    -> Texture
-    -> Texture
-    -> Texture
-    -> Texture
+    Dict String Texture
     -> Dict String Bytes
     -> List (T.EndToEndTest ToBackend FrontendMsg FrontendModel ToFrontend BackendMsg BackendModel)
-tests vignette video0 video1 video2 bonesBase bonesShadow charlotteBase charlotteShadow fileData =
+tests textures fileData =
     let
+        _ =
+            Debug.log "textures" textures
+
         handleHttpRequests : Dict String String -> { currentRequest : HttpRequest, data : T.Data FrontendModel BackendModel } -> HttpResponse
         handleHttpRequests overrides requestAndData =
             let
@@ -190,32 +179,11 @@ tests vignette video0 video1 video2 bonesBase bonesShadow charlotteBase charlott
                         Nothing ->
                             UnhandledHttpRequest
             in
-            case key of
-                "GET_/vignette.png" ->
-                    TextureHttpResponse okMetadata vignette
+            case Dict.get requestAndData.currentRequest.url textures of
+                Just texture ->
+                    TextureHttpResponse okMetadata texture
 
-                "GET_/video0.png" ->
-                    TextureHttpResponse okMetadata video0
-
-                "GET_/video1.png" ->
-                    TextureHttpResponse okMetadata video1
-
-                "GET_/video2.png" ->
-                    TextureHttpResponse okMetadata video2
-
-                "GET_/bones/base.png" ->
-                    TextureHttpResponse okMetadata bonesBase
-
-                "GET_/bones/shadow.png" ->
-                    TextureHttpResponse okMetadata bonesShadow
-
-                "GET_/charlotte/base.png" ->
-                    TextureHttpResponse okMetadata charlotteBase
-
-                "GET_/charlotte/shadow.png" ->
-                    TextureHttpResponse okMetadata charlotteShadow
-
-                _ ->
+                Nothing ->
                     case ( Dict.get key overrides, Dict.get key fileRequests ) of
                         ( Just path, _ ) ->
                             getData path
