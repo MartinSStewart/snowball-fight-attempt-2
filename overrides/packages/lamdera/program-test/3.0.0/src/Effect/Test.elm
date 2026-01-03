@@ -3195,6 +3195,18 @@ runEffects :
     -> State toBackend frontendMsg frontendModel toFrontend backendMsg backendModel
 runEffects state =
     let
+        b =
+            Array.foldl
+                (\a c ->
+                    let
+                        { stillPending, ready } =
+                            readyEffects state6 a.createdAt a.cmds
+                    in
+                    state6
+                )
+                { stillPending = Array.empty, ready = [] }
+                state.pendingEffects
+
         state2 : State toBackend frontendMsg frontendModel toFrontend backendMsg backendModel
         state2 =
             Array.foldl (\a state6 -> runBackendEffects a.stepIndex a.cmds state6) (clearBackendEffects state) state.pendingEffects
@@ -3232,109 +3244,85 @@ runNetwork state =
         state2.frontends
 
 
-{-| -}
-clearBackendEffects :
-    State toBackend frontendMsg frontendModel toFrontend backendMsg backendModel
-    ->
-        ( Array (BackendPendingEffect toFrontend backendMsg)
-        , State toBackend frontendMsg frontendModel toFrontend backendMsg backendModel
-        )
-clearBackendEffects state =
-    { state | pendingEffects = Array.empty }
-
-
-backendReadyEffects :
-    State toBackend frontendMsg frontendModel toFrontend backendMsg backendModel
+readyEffects :
+    { a
+        | frontends : SeqDict ClientId { b | latencyToFrontend : Quantity.Quantity Float Duration.Seconds }
+        , elapsedTime : Duration
+        , startTime : Time.Posix
+    }
     -> Time.Posix
-    -> Command r toFrontend backendMsg
-    -> { stillPending : List (Command r toFrontend backendMsg), ready : List (Command r toFrontend backendMsg) }
-backendReadyEffects state createdAt effect =
-    case effect of
-        Batch effects ->
-            List.foldl
-                (\effect2 { stillPending, ready } ->
-                    let
-                        a : { stillPending : List (Command r toFrontend backendMsg), ready : List (Command r toFrontend backendMsg) }
-                        a =
-                            backendReadyEffects state createdAt effect2
-                    in
-                    { stillPending = stillPending ++ a.stillPending, ready = ready ++ a.ready }
-                )
-                { stillPending = [], ready = [] }
-                effects
+    -> List (FlattenedCommand r toMsg msg)
+    -> { stillPending : List (FlattenedCommand r toMsg msg), ready : List (FlattenedCommand r toMsg msg) }
+readyEffects state createdAt effects =
+    List.foldl
+        (\effect { stillPending, ready } ->
+            case effect of
+                FlattenedCommand_SendToBackend _ ->
+                    { stillPending = stillPending, ready = effect :: ready }
 
-        None ->
-            { stillPending = [], ready = [] }
+                FlattenedCommand_NavigationPushUrl navigationKey string ->
+                    { stillPending = stillPending, ready = effect :: ready }
 
-        SendToBackend _ ->
-            { stillPending = [], ready = [ effect ] }
+                FlattenedCommand_NavigationReplaceUrl navigationKey string ->
+                    { stillPending = stillPending, ready = effect :: ready }
 
-        NavigationPushUrl navigationKey string ->
-            { stillPending = [], ready = [ effect ] }
+                FlattenedCommand_NavigationBack navigationKey int ->
+                    { stillPending = stillPending, ready = effect :: ready }
 
-        NavigationReplaceUrl navigationKey string ->
-            { stillPending = [], ready = [ effect ] }
+                FlattenedCommand_NavigationForward navigationKey int ->
+                    { stillPending = stillPending, ready = effect :: ready }
 
-        NavigationBack navigationKey int ->
-            { stillPending = [], ready = [ effect ] }
+                FlattenedCommand_NavigationLoad string ->
+                    { stillPending = stillPending, ready = effect :: ready }
 
-        NavigationForward navigationKey int ->
-            { stillPending = [], ready = [ effect ] }
+                FlattenedCommand_NavigationReload ->
+                    { stillPending = stillPending, ready = effect :: ready }
 
-        NavigationLoad string ->
-            { stillPending = [], ready = [ effect ] }
+                FlattenedCommand_NavigationReloadAndSkipCache ->
+                    { stillPending = stillPending, ready = effect :: ready }
 
-        NavigationReload ->
-            { stillPending = [], ready = [ effect ] }
+                FlattenedCommand_Task task ->
+                    { stillPending = stillPending, ready = effect :: ready }
 
-        NavigationReloadAndSkipCache ->
-            { stillPending = [], ready = [ effect ] }
+                FlattenedCommand_Port string function value ->
+                    { stillPending = stillPending, ready = effect :: ready }
 
-        Task task ->
-            { stillPending = [], ready = [ effect ] }
+                FlattenedCommand_SendToFrontend clientId toMsg ->
+                    case SeqDict.get clientId state.frontends of
+                        Just frontend ->
+                            if Duration.from createdAt (currentTime state) |> Quantity.lessThan frontend.latencyToFrontend then
+                                { stillPending = effect :: stillPending, ready = ready }
 
-        Port string function value ->
-            { stillPending = [], ready = [ effect ] }
+                            else
+                                { stillPending = stillPending, ready = effect :: ready }
 
-        SendToFrontend (Effect.Internal.ClientId clientId) toMsg ->
-            case SeqDict.get (Effect.Lamdera.clientIdFromString clientId) state.frontends of
-                Just frontend ->
-                    if Duration.from createdAt (currentTime state) |> Quantity.lessThan frontend.latencyToFrontend then
-                        { stillPending = [ effect ], ready = [] }
+                        Nothing ->
+                            { stillPending = stillPending, ready = ready }
 
-                    else
-                        { stillPending = [], ready = [ effect ] }
+                FlattenedCommand_FileDownloadUrl record ->
+                    { stillPending = stillPending, ready = effect :: ready }
 
-                Nothing ->
-                    { stillPending = [], ready = [] }
+                FlattenedCommand_FileDownloadString record ->
+                    { stillPending = stillPending, ready = effect :: ready }
 
-        SendToFrontends (Effect.Internal.SessionId sessionId) toMsg ->
-            -- Shouldn't happen because we replace SendToFrontends with SendToFrontend
-            { stillPending = [], ready = [] }
+                FlattenedCommand_FileDownloadBytes record ->
+                    { stillPending = stillPending, ready = effect :: ready }
 
-        Broadcast toMsg ->
-            { stillPending = [], ready = [ effect ] }
+                FlattenedCommand_FileSelectFile strings function ->
+                    { stillPending = stillPending, ready = effect :: ready }
 
-        FileDownloadUrl record ->
-            { stillPending = [], ready = [ effect ] }
+                FlattenedCommand_FileSelectFiles strings function ->
+                    { stillPending = stillPending, ready = effect :: ready }
 
-        FileDownloadString record ->
-            { stillPending = [], ready = [ effect ] }
+                FlattenedCommand_HttpCancel string ->
+                    { stillPending = stillPending, ready = effect :: ready }
 
-        FileDownloadBytes record ->
-            { stillPending = [], ready = [ effect ] }
-
-        FileSelectFile strings function ->
-            { stillPending = [], ready = [ effect ] }
-
-        FileSelectFiles strings function ->
-            { stillPending = [], ready = [ effect ] }
-
-        HttpCancel string ->
-            { stillPending = [], ready = [ effect ] }
-
-        Passthrough cmd ->
-            { stillPending = [], ready = [ effect ] }
+                FlattenedCommand_Passthrough cmd ->
+                    { stillPending = stillPending, ready = effect :: ready }
+        )
+        { stillPending = [], ready = [] }
+        effects
+        |> (\{ stillPending, ready } -> { stillPending = List.reverse stillPending, ready = List.reverse ready })
 
 
 {-| -}
@@ -3832,19 +3820,16 @@ type FlattenedCommand restriction toMsg msg
 {-| -}
 runBackendEffects :
     Int
-    -> Command BackendOnly toFrontend backendMsg
+    -> FlattenedCommand BackendOnly toFrontend backendMsg
     -> State toBackend frontendMsg frontendModel toFrontend backendMsg backendModel
     -> State toBackend frontendMsg frontendModel toFrontend backendMsg backendModel
 runBackendEffects stepIndex effect state =
     case effect of
-        Batch effects ->
-            List.foldl (runBackendEffects stepIndex) state effects
-
-        SendToFrontend (Effect.Internal.ClientId clientId) toFrontend ->
+        FlattenedCommand_SendToFrontend clientId toFrontend ->
             { state
                 | frontends =
                     SeqDict.updateIfExists
-                        (Effect.Lamdera.clientIdFromString clientId)
+                        clientId
                         (\frontend ->
                             { frontend
                                 | toFrontend =
@@ -3855,93 +3840,60 @@ runBackendEffects stepIndex effect state =
                         state.frontends
             }
 
-        SendToFrontends (Effect.Internal.SessionId sessionId) toFrontend ->
-            let
-                sessionId_ =
-                    Effect.Lamdera.sessionIdFromString sessionId
-            in
-            { state
-                | frontends =
-                    SeqDict.map
-                        (\_ frontend ->
-                            if frontend.sessionId == sessionId_ then
-                                { frontend
-                                    | toFrontend =
-                                        frontend.toFrontend
-                                            ++ [ { toFrontend = toFrontend, stepIndex = stepIndex } ]
-                                }
-
-                            else
-                                frontend
-                        )
-                        state.frontends
-            }
-
-        None ->
-            state
-
-        Task task ->
+        FlattenedCommand_Task task ->
             let
                 ( state2, msg ) =
                     runTask Nothing state task
             in
             handleBackendUpdate (currentTime state2) state2.backendApp msg state2
 
-        SendToBackend _ ->
+        FlattenedCommand_SendToBackend _ ->
             state
 
-        NavigationPushUrl _ _ ->
+        FlattenedCommand_NavigationPushUrl _ _ ->
             state
 
-        NavigationReplaceUrl _ _ ->
+        FlattenedCommand_NavigationReplaceUrl _ _ ->
             state
 
-        NavigationLoad _ ->
+        FlattenedCommand_NavigationLoad _ ->
             state
 
-        NavigationBack _ _ ->
+        FlattenedCommand_NavigationBack _ _ ->
             state
 
-        NavigationForward _ _ ->
+        FlattenedCommand_NavigationForward _ _ ->
             state
 
-        NavigationReload ->
+        FlattenedCommand_NavigationReload ->
             state
 
-        NavigationReloadAndSkipCache ->
+        FlattenedCommand_NavigationReloadAndSkipCache ->
             state
 
-        Port _ _ _ ->
+        FlattenedCommand_Port _ _ _ ->
             state
 
-        FileDownloadUrl _ ->
+        FlattenedCommand_FileDownloadUrl _ ->
             state
 
-        FileDownloadString _ ->
+        FlattenedCommand_FileDownloadString _ ->
             state
 
-        FileDownloadBytes _ ->
+        FlattenedCommand_FileDownloadBytes _ ->
             state
 
-        FileSelectFile _ _ ->
+        FlattenedCommand_FileSelectFile _ _ ->
             state
 
-        FileSelectFiles _ _ ->
+        FlattenedCommand_FileSelectFiles _ _ ->
             state
 
-        Broadcast toFrontend ->
-            { state
-                | frontends =
-                    SeqDict.map
-                        (\_ frontend -> { frontend | toFrontend = frontend.toFrontend ++ [ { toFrontend = toFrontend, stepIndex = stepIndex } ] })
-                        state.frontends
-            }
-
-        HttpCancel _ ->
+        FlattenedCommand_HttpCancel _ ->
             -- TODO
             state
 
-        Passthrough _ ->
+        FlattenedCommand_Passthrough _ ->
             state
 
 
