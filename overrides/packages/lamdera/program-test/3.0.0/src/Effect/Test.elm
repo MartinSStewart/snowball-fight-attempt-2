@@ -1302,7 +1302,7 @@ start testName startTime2 config actions =
             , frontendApp = config.frontendApp
             , backendApp = config.backendApp
             , model = backend
-            , backendHttpLatency = Duration.seconds 0.5
+            , backendHttpLatency = Quantity.zero
             , history = Array.empty
             , pendingEffects = Array.fromList [ { cmds = flattenEffects SeqDict.empty cmd, createdAt = startTime2, stepIndex = 0 } ]
             , frontends = SeqDict.empty
@@ -3196,7 +3196,7 @@ runEffects :
 runEffects state =
     let
         { stillPending, ready } =
-            readyEffects state.pendingEffects state
+            readyEffects Nothing state.pendingEffects state
 
         state2 : State toBackend frontendMsg frontendModel toFrontend backendMsg backendModel
         state2 =
@@ -3209,7 +3209,7 @@ runEffects state =
         (\clientId frontend state3 ->
             let
                 pending =
-                    readyEffects frontend.pendingEffects state
+                    readyEffects (Just clientId) frontend.pendingEffects state
 
                 frontend2 : FrontendState toBackend frontendMsg frontendModel toFrontend
                 frontend2 =
@@ -3233,20 +3233,21 @@ type alias PendingEffect r toMsg msg =
 
 
 readyEffects :
-    Array (PendingEffect r toMsg msg)
+    Maybe ClientId
+    -> Array (PendingEffect r toMsg msg)
     ->
         { a
-            | frontends : SeqDict ClientId { b | latencyToFrontend : Duration }
+            | frontends : SeqDict ClientId { b | latencyToFrontend : Duration, latencyToBackend : Duration }
             , elapsedTime : Duration
             , startTime : Time.Posix
         }
     -> { stillPending : Array (PendingEffect r toMsg msg), ready : Array (PendingEffect r toMsg msg) }
-readyEffects pendingEffects state =
+readyEffects maybeClientId pendingEffects state =
     Array.foldl
         (\pendingEffect c ->
             let
                 { stillPending, ready } =
-                    readyEffectsHelper state pendingEffect.createdAt pendingEffect.cmds
+                    readyEffectsHelper maybeClientId state pendingEffect.createdAt pendingEffect.cmds
             in
             case stillPending of
                 [] ->
@@ -3262,20 +3263,36 @@ readyEffects pendingEffects state =
 
 
 readyEffectsHelper :
-    { a
-        | frontends : SeqDict ClientId { b | latencyToFrontend : Duration }
-        , elapsedTime : Duration
-        , startTime : Time.Posix
-    }
+    Maybe ClientId
+    ->
+        { a
+            | frontends : SeqDict ClientId { b | latencyToFrontend : Duration, latencyToBackend : Duration }
+            , elapsedTime : Duration
+            , startTime : Time.Posix
+        }
     -> Time.Posix
     -> List (FlattenedCommand r toMsg msg)
     -> { stillPending : List (FlattenedCommand r toMsg msg), ready : List (FlattenedCommand r toMsg msg) }
-readyEffectsHelper state createdAt effects =
+readyEffectsHelper maybeClientId state createdAt effects =
     List.foldl
         (\effect { stillPending, ready } ->
             case effect of
                 FlattenedCommand_SendToBackend _ ->
-                    { stillPending = stillPending, ready = effect :: ready }
+                    case maybeClientId of
+                        Just clientId ->
+                            case SeqDict.get clientId state.frontends of
+                                Just frontend ->
+                                    if Duration.from createdAt (currentTime state) |> Quantity.lessThan frontend.latencyToBackend then
+                                        { stillPending = effect :: stillPending, ready = ready }
+
+                                    else
+                                        { stillPending = stillPending, ready = effect :: ready }
+
+                                Nothing ->
+                                    { stillPending = stillPending, ready = ready }
+
+                        Nothing ->
+                            { stillPending = stillPending, ready = ready }
 
                 FlattenedCommand_NavigationPushUrl navigationKey string ->
                     { stillPending = stillPending, ready = effect :: ready }
