@@ -3195,65 +3195,82 @@ runEffects :
     -> State toBackend frontendMsg frontendModel toFrontend backendMsg backendModel
 runEffects state =
     let
-        b =
-            Array.foldl
-                (\a c ->
-                    let
-                        { stillPending, ready } =
-                            readyEffects state6 a.createdAt a.cmds
-                    in
-                    state6
-                )
-                { stillPending = Array.empty, ready = [] }
-                state.pendingEffects
+        { stillPending, ready } =
+            readyEffects state.pendingEffects state
 
         state2 : State toBackend frontendMsg frontendModel toFrontend backendMsg backendModel
         state2 =
-            Array.foldl (\a state6 -> runBackendEffects a.stepIndex a.cmds state6) (clearBackendEffects state) state.pendingEffects
+            Array.foldl
+                (\a state6 -> List.foldl (runBackendEffects a.stepIndex) state6 a.cmds)
+                { state | pendingEffects = stillPending }
+                ready
     in
     SeqDict.foldl
-        (\clientId { sessionId, pendingEffects } state3 ->
+        (\clientId frontend state3 ->
+            let
+                pending =
+                    readyEffects frontend.pendingEffects state
+
+                frontend2 : FrontendState toBackend frontendMsg frontendModel toFrontend
+                frontend2 =
+                    { frontend | pendingEffects = pending.stillPending }
+            in
             Array.foldl
-                (\a state6 -> runFrontendEffects sessionId clientId a.stepIndex a.cmds state6)
-                (clearFrontendEffects clientId state3)
-                pendingEffects
+                (\a state6 -> List.foldl (runFrontendEffects frontend2.sessionId clientId a.stepIndex) state6 a.cmds)
+                { state3 | frontends = SeqDict.insert clientId frontend2 state3.frontends }
+                pending.ready
         )
         state2
         state2.frontends
         |> runNetwork
 
 
-{-| -}
-runNetwork :
-    State toBackend frontendMsg frontendModel toFrontend backendMsg backendModel
-    -> State toBackend frontendMsg frontendModel toFrontend backendMsg backendModel
-runNetwork state =
-    let
-        state2 : State toBackend frontendMsg frontendModel toFrontend backendMsg backendModel
-        state2 =
-            List.foldl handleUpdateFromFrontend state state.toBackend
-    in
-    SeqDict.foldl
-        (\clientId frontend state4 ->
-            List.foldl
-                (handleUpdateFromBackend clientId (currentTime state4))
-                { state4 | frontends = SeqDict.insert clientId { frontend | toFrontend = [] } state4.frontends }
-                frontend.toFrontend
-        )
-        { state2 | toBackend = [] }
-        state2.frontends
+type alias PendingEffect r toMsg msg =
+    { cmds : List (FlattenedCommand r toMsg msg)
+    , createdAt : Time.Posix
+    , stepIndex : Int
+    }
 
 
 readyEffects :
+    Array (PendingEffect r toMsg msg)
+    ->
+        { a
+            | frontends : SeqDict ClientId { b | latencyToFrontend : Duration }
+            , elapsedTime : Duration
+            , startTime : Time.Posix
+        }
+    -> { stillPending : Array (PendingEffect r toMsg msg), ready : Array (PendingEffect r toMsg msg) }
+readyEffects pendingEffects state =
+    Array.foldl
+        (\pendingEffect c ->
+            let
+                { stillPending, ready } =
+                    readyEffectsHelper state pendingEffect.createdAt pendingEffect.cmds
+            in
+            case stillPending of
+                [] ->
+                    { stillPending = c.stillPending, ready = Array.push { pendingEffect | cmds = ready } c.ready }
+
+                _ ->
+                    { stillPending = Array.push { pendingEffect | cmds = stillPending } c.stillPending
+                    , ready = Array.push { pendingEffect | cmds = ready } c.ready
+                    }
+        )
+        { stillPending = Array.empty, ready = Array.empty }
+        pendingEffects
+
+
+readyEffectsHelper :
     { a
-        | frontends : SeqDict ClientId { b | latencyToFrontend : Quantity.Quantity Float Duration.Seconds }
+        | frontends : SeqDict ClientId { b | latencyToFrontend : Duration }
         , elapsedTime : Duration
         , startTime : Time.Posix
     }
     -> Time.Posix
     -> List (FlattenedCommand r toMsg msg)
     -> { stillPending : List (FlattenedCommand r toMsg msg), ready : List (FlattenedCommand r toMsg msg) }
-readyEffects state createdAt effects =
+readyEffectsHelper state createdAt effects =
     List.foldl
         (\effect { stillPending, ready } ->
             case effect of
@@ -3326,18 +3343,24 @@ readyEffects state createdAt effects =
 
 
 {-| -}
-clearFrontendEffects :
-    ClientId
+runNetwork :
+    State toBackend frontendMsg frontendModel toFrontend backendMsg backendModel
     -> State toBackend frontendMsg frontendModel toFrontend backendMsg backendModel
-    -> State toBackend frontendMsg frontendModel toFrontend backendMsg backendModel
-clearFrontendEffects clientId state =
-    { state
-        | frontends =
-            SeqDict.updateIfExists
-                clientId
-                (\frontend -> { frontend | pendingEffects = Array.empty })
-                state.frontends
-    }
+runNetwork state =
+    let
+        state2 : State toBackend frontendMsg frontendModel toFrontend backendMsg backendModel
+        state2 =
+            List.foldl handleUpdateFromFrontend state state.toBackend
+    in
+    SeqDict.foldl
+        (\clientId frontend state4 ->
+            List.foldl
+                (handleUpdateFromBackend clientId (currentTime state4))
+                { state4 | frontends = SeqDict.insert clientId { frontend | toFrontend = [] } state4.frontends }
+                frontend.toFrontend
+        )
+        { state2 | toBackend = [] }
+        state2.frontends
 
 
 type alias NavigationHistory =
@@ -3392,15 +3415,12 @@ runFrontendEffects :
     SessionId
     -> ClientId
     -> Int
-    -> Command FrontendOnly toBackend frontendMsg
+    -> FlattenedCommand FrontendOnly toBackend frontendMsg
     -> State toBackend frontendMsg frontendModel toFrontend backendMsg backendModel
     -> State toBackend frontendMsg frontendModel toFrontend backendMsg backendModel
 runFrontendEffects sessionId clientId stepIndex effectsToPerform state =
     case effectsToPerform of
-        Batch nestedEffectsToPerform ->
-            List.foldl (runFrontendEffects sessionId clientId stepIndex) state nestedEffectsToPerform
-
-        SendToBackend toBackend ->
+        FlattenedCommand_SendToBackend toBackend ->
             { state
                 | toBackend =
                     state.toBackend
@@ -3412,7 +3432,7 @@ runFrontendEffects sessionId clientId stepIndex effectsToPerform state =
                            ]
             }
 
-        NavigationPushUrl _ urlText ->
+        FlattenedCommand_NavigationPushUrl _ urlText ->
             case normalizeUrl state.domain urlText of
                 Just url ->
                     let
@@ -3442,7 +3462,7 @@ runFrontendEffects sessionId clientId stepIndex effectsToPerform state =
                 Nothing ->
                     addEvent (EffectFailedEvent (Just clientId) PushUrlFailed) (InvalidBrowserNavigationUrl urlText |> Just) state
 
-        NavigationReplaceUrl _ urlText ->
+        FlattenedCommand_NavigationReplaceUrl _ urlText ->
             case normalizeUrl state.domain urlText of
                 Just url ->
                     let
@@ -3466,11 +3486,11 @@ runFrontendEffects sessionId clientId stepIndex effectsToPerform state =
                 Nothing ->
                     addEvent (EffectFailedEvent (Just clientId) ReplaceUrlFailed) (InvalidBrowserNavigationUrl urlText |> Just) state
 
-        NavigationLoad _ ->
+        FlattenedCommand_NavigationLoad _ ->
             -- TODO
             state
 
-        NavigationBack _ steps ->
+        FlattenedCommand_NavigationBack _ steps ->
             case SeqDict.get clientId state.frontends of
                 Just frontend ->
                     let
@@ -3497,7 +3517,7 @@ runFrontendEffects sessionId clientId stepIndex effectsToPerform state =
                 Nothing ->
                     state
 
-        NavigationForward _ steps ->
+        FlattenedCommand_NavigationForward _ steps ->
             case SeqDict.get clientId state.frontends of
                 Just frontend ->
                     let
@@ -3524,25 +3544,22 @@ runFrontendEffects sessionId clientId stepIndex effectsToPerform state =
                 Nothing ->
                     state
 
-        NavigationReload ->
+        FlattenedCommand_NavigationReload ->
             -- TODO
             state
 
-        NavigationReloadAndSkipCache ->
+        FlattenedCommand_NavigationReloadAndSkipCache ->
             -- TODO
             state
 
-        None ->
-            state
-
-        Task task ->
+        FlattenedCommand_Task task ->
             let
                 ( newState, msg ) =
                     runTask (Just clientId) state task
             in
             handleFrontendUpdate clientId (currentTime newState) msg newState
 
-        Port portName _ value ->
+        FlattenedCommand_Port portName _ value ->
             let
                 portRequest =
                     { clientId = clientId, portName = portName, value = value }
@@ -3581,17 +3598,14 @@ runFrontendEffects sessionId clientId stepIndex effectsToPerform state =
                 Nothing ->
                     newState
 
-        SendToFrontend _ _ ->
+        FlattenedCommand_SendToFrontend _ _ ->
             state
 
-        SendToFrontends _ _ ->
-            state
-
-        FileDownloadUrl _ ->
+        FlattenedCommand_FileDownloadUrl _ ->
             -- TODO
             state
 
-        FileDownloadString data ->
+        FlattenedCommand_FileDownloadString data ->
             { state
                 | downloads =
                     { filename = data.name
@@ -3602,7 +3616,7 @@ runFrontendEffects sessionId clientId stepIndex effectsToPerform state =
                         :: state.downloads
             }
 
-        FileDownloadBytes data ->
+        FlattenedCommand_FileDownloadBytes data ->
             { state
                 | downloads =
                     { filename = data.name
@@ -3613,7 +3627,7 @@ runFrontendEffects sessionId clientId stepIndex effectsToPerform state =
                         :: state.downloads
             }
 
-        FileSelectFile mimeTypes msg ->
+        FlattenedCommand_FileSelectFile mimeTypes msg ->
             let
                 fileUpload : FileUpload
                 fileUpload =
@@ -3637,7 +3651,7 @@ runFrontendEffects sessionId clientId stepIndex effectsToPerform state =
                 UnhandledFileUpload ->
                     addEvent (EffectFailedEvent (Just clientId) FileSelectFailed) (Just FileUploadNotHandled) state2
 
-        FileSelectFiles mimeTypes msg ->
+        FlattenedCommand_FileSelectFiles mimeTypes msg ->
             let
                 fileUpload : MultipleFilesUpload
                 fileUpload =
@@ -3671,14 +3685,11 @@ runFrontendEffects sessionId clientId stepIndex effectsToPerform state =
                         (Just MultipleFilesUploadNotHandled)
                         state2
 
-        Broadcast _ ->
-            state
-
-        HttpCancel _ ->
+        FlattenedCommand_HttpCancel _ ->
             -- TODO
             state
 
-        Passthrough _ ->
+        FlattenedCommand_Passthrough _ ->
             state
 
 
