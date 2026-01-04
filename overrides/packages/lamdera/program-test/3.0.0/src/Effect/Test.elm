@@ -6,6 +6,7 @@ module Effect.Test exposing
     , startHeadless, HeadlessMsg
     , Button(..), WheelOptions(..), DeltaMode(..), CurrentTimeline, EventFrontend, EventType, FileLoadError, FileLoadErrorType, MouseEvent, OverlayPosition, TestError, Touch, TouchEvent
     , configForApplication, configForDocument, configForElement, configForSandbox
+    , Latency
     )
 
 {-|
@@ -937,8 +938,8 @@ type alias FrontendState toBackend frontendMsg frontendModel toFrontend =
     , timers : SeqDict Duration { startTime : Time.Posix }
     , navigation : NavigationHistory
     , windowSize : { width : Int, height : Int }
-    , latencyToBackend : Duration
-    , latencyToFrontend : Duration
+    , toBackendLatency : Duration
+    , toFrontendLatency : Duration
     }
 
 
@@ -1199,7 +1200,37 @@ type alias FrontendActions toBackend frontendMsg frontendModel toFrontend backen
         -> Action toBackend frontendMsg frontendModel toFrontend backendMsg backendModel
     , navigateBack : DelayInMs -> Action toBackend frontendMsg frontendModel toFrontend backendMsg backendModel
     , navigateForward : DelayInMs -> Action toBackend frontendMsg frontendModel toFrontend backendMsg backendModel
+    , setNetworkLatency : DelayInMs -> Latency -> Action toBackend frontendMsg frontendModel toFrontend backendMsg backendModel
     }
+
+
+setNetworkLatency : ClientId -> DelayInMs -> Latency -> Action toBackend frontendMsg frontendModel toFrontend backendMsg backendModel
+setNetworkLatency clientId delay latency =
+    Action
+        (\instructions ->
+            wait (Duration.milliseconds delay) instructions
+                |> NextStep
+                    (\state ->
+                        case SeqDict.get clientId state.frontends of
+                            Just frontend ->
+                                addEvent
+                                    (SetLatency clientId latency)
+                                    Nothing
+                                    { state
+                                        | frontends =
+                                            SeqDict.insert
+                                                clientId
+                                                { frontend
+                                                    | toBackendLatency = Duration.milliseconds latency.toBackendLatency
+                                                    , toFrontendLatency = Duration.milliseconds latency.toFrontendLatency
+                                                }
+                                                state.frontends
+                                    }
+
+                            Nothing ->
+                                addEvent (SetLatency clientId latency) (ClientIdNotFound clientId |> Just) state
+                    )
+        )
 
 
 {-| -}
@@ -1535,8 +1566,8 @@ connectFrontend delay sessionId url windowSize andThenFunc =
                                                 , forwardUrls = []
                                                 }
                                             , windowSize = windowSize
-                                            , latencyToBackend = Duration.seconds 0.5
-                                            , latencyToFrontend = Duration.seconds 0.5
+                                            , toBackendLatency = Quantity.zero
+                                            , toFrontendLatency = Quantity.zero
                                             }
                                             state.frontends
                                     , counter = state.counter + 1
@@ -1594,6 +1625,7 @@ connectFrontend delay sessionId url windowSize andThenFunc =
                                     , portEvent = portEvent clientId
                                     , navigateForward = navigateForwardAction clientId
                                     , navigateBack = navigateBackAction clientId
+                                    , setNetworkLatency = setNetworkLatency clientId
                                     }
                         in
                         getClientConnectSubs (state2.backendApp.subscriptions state2.model)
@@ -1646,6 +1678,11 @@ type EventType toBackend frontendMsg frontendModel toFrontend backendMsg backend
     | EffectFailedEvent (Maybe ClientId) FailedEffect
     | NavigateBack ClientId
     | NavigateForward ClientId
+    | SetLatency ClientId Latency
+
+
+type alias Latency =
+    { toBackendLatency : DelayInMs, toFrontendLatency : DelayInMs }
 
 
 type FailedEffect
@@ -3237,7 +3274,7 @@ readyEffects :
     -> Array (PendingEffect r toMsg msg)
     ->
         { a
-            | frontends : SeqDict ClientId { b | latencyToFrontend : Duration, latencyToBackend : Duration }
+            | frontends : SeqDict ClientId { b | toFrontendLatency : Duration, toBackendLatency : Duration }
             , elapsedTime : Duration
             , startTime : Time.Posix
         }
@@ -3266,7 +3303,7 @@ readyEffectsHelper :
     Maybe ClientId
     ->
         { a
-            | frontends : SeqDict ClientId { b | latencyToFrontend : Duration, latencyToBackend : Duration }
+            | frontends : SeqDict ClientId { b | toFrontendLatency : Duration, toBackendLatency : Duration }
             , elapsedTime : Duration
             , startTime : Time.Posix
         }
@@ -3282,7 +3319,7 @@ readyEffectsHelper maybeClientId state createdAt effects =
                         Just clientId ->
                             case SeqDict.get clientId state.frontends of
                                 Just frontend ->
-                                    if Duration.from createdAt (currentTime state) |> Quantity.lessThan frontend.latencyToBackend then
+                                    if Duration.from createdAt (currentTime state) |> Quantity.lessThan frontend.toBackendLatency then
                                         { stillPending = effect :: stillPending, ready = ready }
 
                                     else
@@ -3324,7 +3361,7 @@ readyEffectsHelper maybeClientId state createdAt effects =
                 FlattenedCommand_SendToFrontend clientId toMsg ->
                     case SeqDict.get clientId state.frontends of
                         Just frontend ->
-                            if Duration.from createdAt (currentTime state) |> Quantity.lessThan frontend.latencyToFrontend then
+                            if Duration.from createdAt (currentTime state) |> Quantity.lessThan frontend.toFrontendLatency then
                                 { stillPending = effect :: stillPending, ready = ready }
 
                             else
@@ -5078,6 +5115,9 @@ eventTypeToTimelineType eventType =
         NavigateForward clientId ->
             FrontendTimeline clientId
 
+        SetLatency clientId record ->
+            FrontendTimeline clientId
+
 
 {-| -}
 isSkippable : EventType toBackend frontendMsg frontendModel toFrontend backendMsg backendModel -> Bool
@@ -5126,6 +5166,9 @@ isSkippable eventType =
             True
 
         NavigateForward _ ->
+            True
+
+        SetLatency clientId record ->
             True
 
 
@@ -5350,6 +5393,9 @@ checkCachedElmValueHelper event state =
                     Nothing
 
                 NavigateForward _ ->
+                    Nothing
+
+                SetLatency clientId record ->
                     Nothing
     }
 
@@ -5951,6 +5997,12 @@ currentStepText currentStep testView_ =
 
                 NavigateForward _ ->
                     "Pressed browser navigate backward button"
+
+                SetLatency clientId { toBackendLatency, toFrontendLatency } ->
+                    "Changed network latency toBackend:"
+                        ++ String.fromFloat toBackendLatency
+                        ++ " toFrontend:"
+                        ++ String.fromFloat toFrontendLatency
     in
     Html.div
         [ Html.Attributes.style "padding" "4px", Html.Attributes.title fullMsg ]
@@ -6085,6 +6137,9 @@ addTimelineEvent currentTimelineIndex { previousStep, currentStep } event state 
                     []
 
                 NavigateForward _ ->
+                    []
+
+                SetLatency clientId record ->
                     []
     in
     { columnIndex = state.columnIndex + 1
@@ -6611,6 +6666,9 @@ eventIcon color event columnIndex rowIndex =
             [ circleHelper "big-circle" ]
 
         NavigateForward _ ->
+            [ circleHelper "big-circle" ]
+
+        SetLatency clientId record ->
             [ circleHelper "big-circle" ]
     )
         ++ (if noErrors then

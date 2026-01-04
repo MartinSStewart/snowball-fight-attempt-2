@@ -214,7 +214,8 @@ tests textures fileData =
             "/"
             desktopWindow
             (\userA ->
-                [ handleAudioPorts userA
+                [ userA.setNetworkLatency 0 { toBackendLatency = 50, toFrontendLatency = 50 }
+                , handleAudioPorts userA
                 , userA.click 500 (Dom.id "createNewMatch")
                 , T.connectFrontend
                     100
