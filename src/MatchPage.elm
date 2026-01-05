@@ -98,7 +98,7 @@ import Ui.Font
 import Ui.Input
 import Ui.Prose
 import Ui.Shadow
-import User exposing (UserId)
+import User exposing (BackendUser, UserId)
 import Vector2d exposing (Vector2d)
 import Vector3d exposing (Vector3d)
 import Viewpoint3d
@@ -129,9 +129,6 @@ type Msg
     | PressedLeaveMatch
     | TypedBotCount String
     | PressedCloseMatchEnd
-    | TypedPlayerName String
-    | PressedSavePlayerName String
-    | PressedResetPlayerName
 
 
 type MatchId
@@ -151,8 +148,8 @@ type alias Model =
     }
 
 
-init : String -> Id MatchId -> Match -> Maybe ( Id FrameId, MatchState ) -> ( Model, Command FrontendOnly toMsg Msg )
-init playerName lobbyId lobby maybeCache =
+init : Id MatchId -> Match -> Maybe ( Id FrameId, MatchState ) -> ( Model, Command FrontendOnly toMsg Msg )
+init lobbyId lobby maybeCache =
     let
         networkModel : NetworkModel { userId : Id UserId, msg : Match.Msg } Match
         networkModel =
@@ -167,7 +164,7 @@ init playerName lobbyId lobby maybeCache =
                         |> MatchActiveLocal
 
                 ( Nothing, Nothing ) ->
-                    initMatchSetupData playerName lobby |> MatchSetupLocal
+                    initMatchSetupData lobby |> MatchSetupLocal
 
                 _ ->
                     MatchError
@@ -177,7 +174,7 @@ init playerName lobbyId lobby maybeCache =
 
 
 type alias MatchSetupLocal_ =
-    { matchName : String, message : String, maxPlayers : String, botCount : String, closedRoundEnd : Bool, playerName : String }
+    { matchName : String, message : String, maxPlayers : String, botCount : String, closedRoundEnd : Bool }
 
 
 type ScreenCoordinate
@@ -264,28 +261,6 @@ update config msg model =
               }
             , Command.none
             )
-
-        TypedPlayerName playerName ->
-            ( { model
-                | matchData =
-                    case model.matchData of
-                        MatchActiveLocal _ ->
-                            model.matchData
-
-                        MatchSetupLocal matchSetupData ->
-                            { matchSetupData | playerName = playerName } |> MatchSetupLocal
-
-                        MatchError ->
-                            MatchError
-              }
-            , Command.none
-            )
-
-        PressedSavePlayerName playerName ->
-            matchSetupUpdate config.userId (Match.SetPlayerName playerName) model
-
-        PressedResetPlayerName ->
-            ( model, Command.none )
 
         TypedTextMessage text ->
             ( { model
@@ -655,6 +630,8 @@ type alias Config a =
         , currentMouse : Mouse
         , devicePixelRatio : Quantity Float (Rate WorldPixel Pixels)
         , textures : Textures
+        , currentUser : BackendUser
+        , users : SeqDict (Id UserId) BackendUser
     }
 
 
@@ -1263,24 +1240,6 @@ matchSetupView config lobby matchSetupData currentPlayerData =
                   else
                     Ui.none
                 , Ui.row
-                    [ Ui.spacing 8 ]
-                    [ Ui.Input.text
-                        [ Ui.padding 4
-                        , Ui.width (Ui.px 300)
-                        , Ui.Font.color (Ui.rgb 0 0 0)
-                        ]
-                        { onChange = TypedPlayerName
-                        , text = matchSetupData.playerName
-                        , placeholder = Just "Player name"
-                        , label = Ui.Input.labelHidden "Player name"
-                        }
-                    , if String.trim matchSetupData.playerName /= "" then
-                        MyUi.simpleButton (Dom.id "savePlayerName") (PressedSavePlayerName matchSetupData.playerName) (Ui.text "Save")
-
-                      else
-                        Ui.none
-                    ]
-                , Ui.row
                     [ Ui.width Ui.shrink, Ui.spacing 8 ]
                     [ if matchName == "" then
                         Ui.el [ Ui.Font.bold, Ui.Font.italic ] (Ui.text "Unnamed match")
@@ -1412,10 +1371,31 @@ matchSetupView config lobby matchSetupData currentPlayerData =
                                                 (timeToFrameId config { startTime = ServerTime (Time.millisToPosix 0) })
                                                 character
 
-                                        count =
-                                            List.count (\( _, data ) -> data.character == character && data.mode == PlayerMode) users
+                                        selectedBy : List (Ui.Element msg)
+                                        selectedBy =
+                                            List.filterMap
+                                                (\( userId, data ) ->
+                                                    if data.character == character && data.mode == PlayerMode then
+                                                        case User.getUser userId config of
+                                                            Just user ->
+                                                                Ui.el
+                                                                    [ Ui.alignRight
+                                                                    , Ui.Font.family [ Ui.Font.monospace ]
+                                                                    , Ui.Font.size 16
+                                                                    , Ui.Font.color (Ui.rgb 230 230 210)
+                                                                    ]
+                                                                    (Ui.text user.name)
+                                                                    |> Just
 
-                                        selected =
+                                                            Nothing ->
+                                                                Nothing
+
+                                                    else
+                                                        Nothing
+                                                )
+                                                users
+
+                                        selectedByCurrentUser =
                                             character == currentPlayerData.character && currentPlayerData.mode == PlayerMode
 
                                         portraitHeight =
@@ -1426,12 +1406,12 @@ matchSetupView config lobby matchSetupData currentPlayerData =
                                         [ Ui.paddingXY 8 8
                                         , Ui.clip
                                         , Ui.rounded 4
-                                        , if selected then
+                                        , if selectedByCurrentUser then
                                             Ui.Shadow.inner { x = 0, y = 0, size = 2, blur = 10, color = Ui.rgb 255 255 255 }
 
                                           else
                                             Ui.noAttr
-                                        , if selected then
+                                        , if selectedByCurrentUser then
                                             Ui.borderColor (Ui.rgb 255 255 255)
 
                                           else
@@ -1439,7 +1419,7 @@ matchSetupView config lobby matchSetupData currentPlayerData =
                                         , Ui.inFront
                                             (Ui.el
                                                 [ Ui.alignBottom
-                                                , if selected then
+                                                , if selectedByCurrentUser then
                                                     Ui.background (Ui.rgba 255 255 255 0.4)
 
                                                   else
@@ -1448,7 +1428,7 @@ matchSetupView config lobby matchSetupData currentPlayerData =
                                                 , Ui.Shadow.font { offset = ( 1, 1 ), blur = 1, color = Ui.rgb 0 0 0 }
                                                 , Ui.Font.letterSpacing 3
                                                 , Ui.Font.bold
-                                                , if selected then
+                                                , if selectedByCurrentUser then
                                                     Ui.Font.color (Ui.rgb 255 255 255)
 
                                                   else
@@ -1458,20 +1438,13 @@ matchSetupView config lobby matchSetupData currentPlayerData =
                                             )
                                         , Ui.border 2
                                         , Ui.inFront
-                                            (if count > 0 then
-                                                String.fromInt count
-                                                    |> Ui.text
-                                                    |> Ui.el
-                                                        [ Ui.Font.bold
-                                                        , Ui.alignRight
-                                                        , Ui.Font.family [ Ui.Font.monospace ]
-                                                        , Ui.Font.size 20
-                                                        , Ui.paddingXY 8 4
-                                                        , Ui.Font.color (Ui.rgb 230 230 210)
-                                                        ]
+                                            (if List.isEmpty selectedBy then
+                                                Ui.none
 
                                              else
-                                                Ui.none
+                                                Ui.column
+                                                    [ Ui.paddingXY 8 4, Ui.spacing 4 ]
+                                                    selectedBy
                                             )
                                         , Ui.inFront
                                             (Ui.image
@@ -4452,16 +4425,7 @@ updateMatchData newMsg newNetworkModel oldNetworkModel oldMatchData =
             initMatchData newMatch.startTime (Match.allUsersAndBots newMatchState) Nothing |> MatchActiveLocal
 
         ( Nothing, Just _ ) ->
-            let
-                playerName =
-                    case oldMatchData of
-                        MatchSetupLocal setupData ->
-                            setupData.playerName
-
-                        _ ->
-                            "Player"
-            in
-            initMatchSetupData playerName newMatchState |> MatchSetupLocal
+            initMatchSetupData newMatchState |> MatchSetupLocal
 
         ( Nothing, Nothing ) ->
             oldMatchData
@@ -4698,8 +4662,8 @@ pingOffset model =
             Quantity.zero
 
 
-initMatchSetupData : String -> Match -> MatchSetupLocal_
-initMatchSetupData playerName lobby =
+initMatchSetupData : Match -> MatchSetupLocal_
+initMatchSetupData lobby =
     let
         preview : LobbyPreview
         preview =
@@ -4710,7 +4674,6 @@ initMatchSetupData playerName lobby =
     , maxPlayers = String.fromInt preview.maxUserCount
     , botCount = Match.botCount lobby |> String.fromInt
     , closedRoundEnd = False
-    , playerName = playerName
     }
 
 
