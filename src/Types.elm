@@ -29,7 +29,7 @@ import Keyboard
 import Length exposing (Meters)
 import List.Nonempty exposing (Nonempty)
 import Match exposing (LobbyPreview, Match, MatchState, ServerTime, WorldCoordinate)
-import MatchPage exposing (MatchId, Mouse, ScreenCoordinate, WorldPixel)
+import MatchPage exposing (MatchId, Mouse, PlayerPositions, ScreenCoordinate, WorldPixel)
 import NonemptySet exposing (NonemptySet)
 import PingData exposing (PingData)
 import Pixels exposing (Pixels)
@@ -116,7 +116,7 @@ type alias BackendModel =
     , joiningActiveMatch : SeqDict ( Id MatchId, Id FrameId ) (NonemptySet ClientId)
     , dummyChange : Float
     , counter : Int
-    , playerPositions : SeqDict (Id MatchId) (SeqDict (Id FrameId) (SeqDict (Id UserId) (Point2d Meters WorldCoordinate)))
+    , playerPositions : SeqDict (Id MatchId) (SeqDict (Id FrameId) (SeqDict PlayerPositions (SeqSet (Id UserId))))
     }
 
 

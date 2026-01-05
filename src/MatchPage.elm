@@ -1,9 +1,11 @@
 module MatchPage exposing
-    ( MatchId
+    ( Desync
+    , MatchId
     , MatchLocalOnly(..)
     , Model
     , Mouse
     , Msg
+    , PlayerPositions
     , ScreenCoordinate
     , ToBackend(..)
     , ToFrontend(..)
@@ -62,7 +64,7 @@ import Length exposing (Length, Meters)
 import LineSegment2d exposing (LineSegment2d)
 import List.Extra as List
 import List.Nonempty exposing (Nonempty)
-import Match exposing (Action(..), Emote(..), Input, LobbyPreview, Match, MatchActive, MatchState, Particle, Player, PlayerData, PlayerMode(..), ServerTime(..), Snowball, Team(..), TextureVertex, TimelineEvent, Vertex, Winner(..), WorldCoordinate)
+import Match exposing (Action(..), Emote(..), Input, LobbyPreview, Match, MatchActive, MatchState, Particle, Player, PlayerData, PlayerMode(..), Score, ServerTime(..), Snowball, Team(..), TextureVertex, TimelineEvent, Vertex, Winner(..), WorldCoordinate)
 import MatchName exposing (MatchName)
 import Math.Matrix4 as Mat4 exposing (Mat4)
 import Math.Vector2 as Vec2 exposing (Vec2)
@@ -70,6 +72,7 @@ import Math.Vector3 as Vec3 exposing (Vec3)
 import Math.Vector4 exposing (Vec4)
 import MyUi
 import NetworkModel exposing (EventId, NetworkModel)
+import NonemptySet exposing (NonemptySet)
 import PingData exposing (PingData)
 import Pixels exposing (Pixels)
 import Point2d exposing (Point2d)
@@ -189,21 +192,34 @@ type alias MatchActiveLocal_ =
     , previousTouchPosition : Maybe (Point2d Pixels ScreenCoordinate)
     , primaryDown : Maybe Time.Posix
     , previousPrimaryDown : Maybe Time.Posix
-    , desyncedAtFrame : Maybe (Id FrameId)
+    , desync : SeqDict (Id FrameId) Desync
     , footstepMesh : List (Mesh Vertex)
+    }
+
+
+type alias Desync =
+    { first : NonemptySet (Id UserId)
+    , second : NonemptySet (Id UserId)
+    , rest : List (NonemptySet (Id UserId))
     }
 
 
 type ToBackend
     = MatchRequest (Id MatchId) (Id EventId) Match.Msg
-    | DesyncCheckRequest (Id MatchId) (Id Timeline.FrameId) (SeqDict (Id UserId) (Point2d Meters WorldCoordinate))
+    | DesyncCheckRequest (Id MatchId) (Id Timeline.FrameId) PlayerPositions
     | CurrentCache (Id MatchId) (Id FrameId) MatchState
+
+
+type alias PlayerPositions =
+    { positions : SeqDict (Id UserId) (Point2d Meters WorldCoordinate)
+    , score : Score
+    }
 
 
 type ToFrontend
     = MatchSetupBroadcast (Id MatchId) (Id UserId) Match.Msg
     | MatchSetupResponse (Id MatchId) (Id UserId) Match.Msg (Id EventId)
-    | DesyncBroadcast (Id MatchId) (Id FrameId)
+    | DesyncBroadcast (Id MatchId) (Id FrameId) Desync
     | NeedCurrentCacheBroadcast (Id MatchId) (Id FrameId)
 
 
@@ -568,13 +584,13 @@ updateFromBackend msg matchSetup =
             , Command.none
             )
 
-        DesyncBroadcast lobbyId frameId ->
+        DesyncBroadcast lobbyId time desync ->
             ( if lobbyId == matchSetup.lobbyId then
                 { matchSetup
                     | matchData =
                         case matchSetup.matchData of
                             MatchActiveLocal matchData ->
-                                { matchData | desyncedAtFrame = Just frameId }
+                                { matchData | desync = SeqDict.insert time desync matchData.desync }
                                     |> MatchActiveLocal
 
                             MatchSetupLocal _ ->
@@ -1085,7 +1101,11 @@ view config model =
         ( Just match, MatchActiveLocal matchData, _ ) ->
             case matchData.timelineCache of
                 Ok cache ->
-                    case Timeline.getStateAt gameUpdate (timeToFrameId config match) cache match.timeline of
+                    let
+                        currentFrameId =
+                            timeToFrameId config match
+                    in
+                    case Timeline.getStateAt gameUpdate currentFrameId cache match.timeline of
                         Ok ( _, matchState ) ->
                             Ui.el
                                 (Ui.height Ui.fill
@@ -1093,7 +1113,7 @@ view config model =
                                     :: Ui.htmlAttribute (Html.Events.Extra.Pointer.onUp PointerUp)
                                     :: Ui.htmlAttribute (Html.Events.Extra.Pointer.onLeave PointerLeave)
                                     :: Ui.id "canvas"
-                                    :: Ui.inFront (desyncWarning matchData.desyncedAtFrame)
+                                    :: Ui.inFront (desyncWarning currentFrameId matchData.desync)
                                     --:: Ui.inFront
                                     --    (Ui.el
                                     --        [ Ui.width Ui.shrink
@@ -4361,7 +4381,7 @@ initMatchData serverTime newUserIds maybeTimelineCache =
     , previousTouchPosition = Nothing
     , primaryDown = Nothing
     , previousPrimaryDown = Nothing
-    , desyncedAtFrame = Nothing
+    , desync = SeqDict.empty
     , footstepMesh = []
     }
 
@@ -4667,10 +4687,41 @@ scrollToBottom =
         |> Task.attempt (\_ -> ScrolledToBottom)
 
 
-desyncWarning : Maybe (Id FrameId) -> Ui.Element msg
-desyncWarning maybeDesyncFrame =
-    case maybeDesyncFrame of
-        Just _ ->
+hasMajority : List (NonemptySet a) -> { majority : Maybe (NonemptySet a), minorities : List (NonemptySet a) }
+hasMajority nonempty =
+    let
+        total =
+            List.foldl (\set count -> NonemptySet.size set + count) 0 nonempty
+    in
+    List.foldl
+        (\set { majority, minorities } ->
+            if NonemptySet.size set > total // 2 then
+                { majority = Just set, minorities = minorities }
+
+            else
+                { majority = majority, minorities = set :: minorities }
+        )
+        { majority = Nothing, minorities = [] }
+        nonempty
+
+
+desyncWarning : Id FrameId -> SeqDict (Id FrameId) Desync -> Ui.Element msg
+desyncWarning currentFrame desyncFrame =
+    let
+        desyncFrames : List Desync
+        desyncFrames =
+            List.filterMap
+                (\( frameId, data ) ->
+                    if frameTimeElapsed frameId currentFrame |> Quantity.lessThan Duration.second then
+                        Nothing
+
+                    else
+                        Just data
+                )
+                (SeqDict.toList desyncFrame)
+    in
+    case desyncFrames of
+        head :: _ ->
             Ui.column
                 [ Ui.width Ui.shrink
                 , Ui.alignTop
@@ -4699,10 +4750,8 @@ desyncWarning maybeDesyncFrame =
                     (Ui.text "One or more players have desynced")
                 ]
 
-        Nothing ->
-            Ui.none
 
-
+noPointerEvents : Ui.Attribute msg
 noPointerEvents =
     Ui.htmlAttribute (Html.Attributes.style "pointer-events" "none")
 
@@ -4785,7 +4834,9 @@ animationFrame config model =
                                         DesyncCheckRequest
                                             model.lobbyId
                                             oldestFrameId
-                                            (SeqDict.map (\_ player -> player.position) oldestState.players)
+                                            { positions = SeqDict.map (\_ player -> player.position) oldestState.players
+                                            , score = oldestState.score
+                                            }
                                             |> Effect.Lamdera.sendToBackend
 
                                     else

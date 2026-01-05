@@ -12,6 +12,7 @@ module Match exposing
     , PlayerData
     , PlayerMode(..)
     , PushableSnowball
+    , Score
     , ServerTime(..)
     , Snowball
     , Team(..)
@@ -116,10 +117,14 @@ type alias MatchState =
             , mesh : Mesh Vertex
             }
     , mergedFootsteps : List (Mesh Vertex)
-    , score : { redTeam : Int, blueTeam : Int }
+    , score : Score
     , roundEndTime : Maybe { winner : Winner, time : Id FrameId }
     , snowballImpacts : List (Id FrameId)
     }
+
+
+type alias Score =
+    { redTeam : Int, blueTeam : Int }
 
 
 type Winner
