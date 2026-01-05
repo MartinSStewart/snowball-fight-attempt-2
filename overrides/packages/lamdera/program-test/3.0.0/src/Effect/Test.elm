@@ -397,7 +397,6 @@ type alias State toBackend frontendMsg frontendModel toFrontend backendMsg backe
     , frontendApp : FrontendApp toBackend frontendMsg frontendModel toFrontend
     , backendApp : BackendApp toBackend toFrontend backendMsg backendModel
     , model : backendModel
-    , backendHttpLatency : Duration
     , history : Array (Event toBackend frontendMsg frontendModel toFrontend backendMsg backendModel)
     , pendingEffects : Array (BackendPendingEffect toFrontend backendMsg)
     , frontends : SeqDict ClientId (FrontendState toBackend frontendMsg frontendModel toFrontend)
@@ -1333,7 +1332,6 @@ start testName startTime2 config actions =
             , frontendApp = config.frontendApp
             , backendApp = config.backendApp
             , model = backend
-            , backendHttpLatency = Quantity.zero
             , history = Array.empty
             , pendingEffects = Array.fromList [ { cmds = flattenEffects SeqDict.empty cmd, createdAt = startTime2, stepIndex = 0 } ]
             , frontends = SeqDict.empty
@@ -3331,19 +3329,19 @@ readyEffectsHelper maybeClientId state createdAt effects =
                         Nothing ->
                             { stillPending = stillPending, ready = ready }
 
-                FlattenedCommand_NavigationPushUrl navigationKey string ->
+                FlattenedCommand_NavigationPushUrl _ _ ->
                     { stillPending = stillPending, ready = effect :: ready }
 
-                FlattenedCommand_NavigationReplaceUrl navigationKey string ->
+                FlattenedCommand_NavigationReplaceUrl _ _ ->
                     { stillPending = stillPending, ready = effect :: ready }
 
-                FlattenedCommand_NavigationBack navigationKey int ->
+                FlattenedCommand_NavigationBack _ _ ->
                     { stillPending = stillPending, ready = effect :: ready }
 
-                FlattenedCommand_NavigationForward navigationKey int ->
+                FlattenedCommand_NavigationForward _ _ ->
                     { stillPending = stillPending, ready = effect :: ready }
 
-                FlattenedCommand_NavigationLoad string ->
+                FlattenedCommand_NavigationLoad _ ->
                     { stillPending = stillPending, ready = effect :: ready }
 
                 FlattenedCommand_NavigationReload ->
@@ -3352,13 +3350,13 @@ readyEffectsHelper maybeClientId state createdAt effects =
                 FlattenedCommand_NavigationReloadAndSkipCache ->
                     { stillPending = stillPending, ready = effect :: ready }
 
-                FlattenedCommand_Task task ->
+                FlattenedCommand_Task _ ->
                     { stillPending = stillPending, ready = effect :: ready }
 
-                FlattenedCommand_Port string function value ->
+                FlattenedCommand_Port _ _ _ ->
                     { stillPending = stillPending, ready = effect :: ready }
 
-                FlattenedCommand_SendToFrontend clientId toMsg ->
+                FlattenedCommand_SendToFrontend clientId _ ->
                     case SeqDict.get clientId state.frontends of
                         Just frontend ->
                             if Duration.from createdAt (currentTime state) |> Quantity.lessThan frontend.toFrontendLatency then
@@ -3370,25 +3368,25 @@ readyEffectsHelper maybeClientId state createdAt effects =
                         Nothing ->
                             { stillPending = stillPending, ready = ready }
 
-                FlattenedCommand_FileDownloadUrl record ->
+                FlattenedCommand_FileDownloadUrl _ ->
                     { stillPending = stillPending, ready = effect :: ready }
 
-                FlattenedCommand_FileDownloadString record ->
+                FlattenedCommand_FileDownloadString _ ->
                     { stillPending = stillPending, ready = effect :: ready }
 
-                FlattenedCommand_FileDownloadBytes record ->
+                FlattenedCommand_FileDownloadBytes _ ->
                     { stillPending = stillPending, ready = effect :: ready }
 
-                FlattenedCommand_FileSelectFile strings function ->
+                FlattenedCommand_FileSelectFile _ _ ->
                     { stillPending = stillPending, ready = effect :: ready }
 
-                FlattenedCommand_FileSelectFiles strings function ->
+                FlattenedCommand_FileSelectFiles _ _ ->
                     { stillPending = stillPending, ready = effect :: ready }
 
-                FlattenedCommand_HttpCancel string ->
+                FlattenedCommand_HttpCancel _ ->
                     { stillPending = stillPending, ready = effect :: ready }
 
-                FlattenedCommand_Passthrough cmd ->
+                FlattenedCommand_Passthrough _ ->
                     { stillPending = stillPending, ready = effect :: ready }
         )
         { stillPending = [], ready = [] }
@@ -5115,7 +5113,7 @@ eventTypeToTimelineType eventType =
         NavigateForward clientId ->
             FrontendTimeline clientId
 
-        SetLatency clientId record ->
+        SetLatency clientId _ ->
             FrontendTimeline clientId
 
 
@@ -5168,7 +5166,7 @@ isSkippable eventType =
         NavigateForward _ ->
             True
 
-        SetLatency clientId record ->
+        SetLatency _ _ ->
             True
 
 
@@ -5395,7 +5393,7 @@ checkCachedElmValueHelper event state =
                 NavigateForward _ ->
                     Nothing
 
-                SetLatency clientId record ->
+                SetLatency _ _ ->
                     Nothing
     }
 
@@ -5998,11 +5996,12 @@ currentStepText currentStep testView_ =
                 NavigateForward _ ->
                     "Pressed browser navigate backward button"
 
-                SetLatency clientId { toBackendLatency, toFrontendLatency } ->
+                SetLatency _ { toBackendLatency, toFrontendLatency } ->
                     "Changed network latency toBackend:"
                         ++ String.fromFloat toBackendLatency
-                        ++ " toFrontend:"
+                        ++ "ms toFrontend:"
                         ++ String.fromFloat toFrontendLatency
+                        ++ "ms"
     in
     Html.div
         [ Html.Attributes.style "padding" "4px", Html.Attributes.title fullMsg ]
@@ -6139,7 +6138,7 @@ addTimelineEvent currentTimelineIndex { previousStep, currentStep } event state 
                 NavigateForward _ ->
                     []
 
-                SetLatency clientId record ->
+                SetLatency _ _ ->
                     []
     in
     { columnIndex = state.columnIndex + 1
@@ -6668,7 +6667,7 @@ eventIcon color event columnIndex rowIndex =
         NavigateForward _ ->
             [ circleHelper "big-circle" ]
 
-        SetLatency clientId record ->
+        SetLatency _ _ ->
             [ circleHelper "big-circle" ]
     )
         ++ (if noErrors then
@@ -7110,7 +7109,7 @@ testView windowWidth instructions testView_ =
 drawCursor : PointerEvent -> Html msg
 drawCursor ( x, y ) =
     Svg.svg
-        [ Svg.Attributes.width (String.fromInt 20)
+        [ Svg.Attributes.width "20"
         , Html.Attributes.style "left" (String.fromFloat x ++ "px")
         , Html.Attributes.style "top" (String.fromFloat y ++ "px")
         , Html.Attributes.style "position" "absolute"
