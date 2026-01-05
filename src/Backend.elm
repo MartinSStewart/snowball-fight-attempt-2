@@ -86,7 +86,7 @@ update msg model =
                         model.userSessions
                 , users = SeqDict.insert userId { name = "TempName" } model.users
               }
-            , ClientInit userId (getLobbyData model)
+            , ClientInit userId (getLobbyData userId model)
                 |> Effect.Lamdera.sendToFrontend clientId
             )
 
@@ -138,13 +138,17 @@ update msg model =
             updateFromFrontendWithTime sessionId clientId toBackend model time
 
 
-getLobbyData : BackendModel -> { lobbies : SeqDict (Id MatchId) Match.LobbyPreview }
-getLobbyData model =
+getLobbyData : Id UserId -> BackendModel -> { lobbies : SeqDict (Id MatchId) Match.LobbyPreview, playerName : String }
+getLobbyData userId model =
     { lobbies =
         SeqDict.filter
             (\_ lobby -> Match.matchActive lobby == Nothing)
             model.lobbies
             |> SeqDict.map (\_ lobby -> Match.preview lobby)
+    , playerName =
+        SeqDict.get userId model.users
+            |> Maybe.map .name
+            |> Maybe.withDefault "Player"
     }
 
 
@@ -319,7 +323,15 @@ matchSetupRequest currentTime lobbyId userId eventId clientId matchSetupMsg mode
 
                 model2 : BackendModel
                 model2 =
-                    { model | lobbies = SeqDict.update lobbyId (\_ -> Just matchSetup2) model.lobbies }
+                    case matchSetupMsg of
+                        Match.SetPlayerName playerName ->
+                            { model
+                                | lobbies = SeqDict.update lobbyId (\_ -> Just matchSetup2) model.lobbies
+                                , users = SeqDict.update userId (\_ -> Just { name = playerName }) model.users
+                            }
+
+                        _ ->
+                            { model | lobbies = SeqDict.update lobbyId (\_ -> Just matchSetup2) model.lobbies }
 
                 matchSetupMsg2 : Msg
                 matchSetupMsg2 =
@@ -342,7 +354,7 @@ matchSetupRequest currentTime lobbyId userId eventId clientId matchSetupMsg mode
                                             (if lobbyUserId == userId then
                                                 case matchSetupMsg2 of
                                                     LeaveMatchSetup ->
-                                                        getLobbyData model_ |> RejoinMainLobby
+                                                        getLobbyData userId model_ |> RejoinMainLobby
 
                                                     _ ->
                                                         MatchPage.MatchSetupResponse

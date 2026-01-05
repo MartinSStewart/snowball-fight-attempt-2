@@ -218,6 +218,7 @@ type Msg
     | MatchFinished Winner
     | SetMaxPlayers Int
     | SetBotCount Int
+    | SetPlayerName String
 
 
 type ServerTime
@@ -442,6 +443,11 @@ matchSetupUpdate { userId, msg } match =
 
         SetBotCount int ->
             setBotCount userId int match
+
+        SetPlayerName _ ->
+            -- Player names are stored in BackendModel.users, not in the match
+            -- This is handled specially in the backend
+            match
 
 
 setMaxPlayers : Int -> Match -> Match

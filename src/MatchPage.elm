@@ -129,6 +129,9 @@ type Msg
     | PressedLeaveMatch
     | TypedBotCount String
     | PressedCloseMatchEnd
+    | TypedPlayerName String
+    | PressedSavePlayerName String
+    | PressedResetPlayerName
 
 
 type MatchId
@@ -148,8 +151,8 @@ type alias Model =
     }
 
 
-init : Id MatchId -> Match -> Maybe ( Id FrameId, MatchState ) -> ( Model, Command FrontendOnly toMsg Msg )
-init lobbyId lobby maybeCache =
+init : String -> Id MatchId -> Match -> Maybe ( Id FrameId, MatchState ) -> ( Model, Command FrontendOnly toMsg Msg )
+init playerName lobbyId lobby maybeCache =
     let
         networkModel : NetworkModel { userId : Id UserId, msg : Match.Msg } Match
         networkModel =
@@ -164,7 +167,7 @@ init lobbyId lobby maybeCache =
                         |> MatchActiveLocal
 
                 ( Nothing, Nothing ) ->
-                    initMatchSetupData lobby |> MatchSetupLocal
+                    initMatchSetupData playerName lobby |> MatchSetupLocal
 
                 _ ->
                     MatchError
@@ -174,7 +177,7 @@ init lobbyId lobby maybeCache =
 
 
 type alias MatchSetupLocal_ =
-    { matchName : String, message : String, maxPlayers : String, botCount : String, closedRoundEnd : Bool }
+    { matchName : String, message : String, maxPlayers : String, botCount : String, closedRoundEnd : Bool, playerName : String }
 
 
 type ScreenCoordinate
@@ -261,6 +264,28 @@ update config msg model =
               }
             , Command.none
             )
+
+        TypedPlayerName playerName ->
+            ( { model
+                | matchData =
+                    case model.matchData of
+                        MatchActiveLocal _ ->
+                            model.matchData
+
+                        MatchSetupLocal matchSetupData ->
+                            { matchSetupData | playerName = playerName } |> MatchSetupLocal
+
+                        MatchError ->
+                            MatchError
+              }
+            , Command.none
+            )
+
+        PressedSavePlayerName playerName ->
+            matchSetupUpdate config.userId (Match.SetPlayerName playerName) model
+
+        PressedResetPlayerName ->
+            ( model, Command.none )
 
         TypedTextMessage text ->
             ( { model
@@ -1237,6 +1262,24 @@ matchSetupView config lobby matchSetupData currentPlayerData =
 
                   else
                     Ui.none
+                , Ui.row
+                    [ Ui.spacing 8 ]
+                    [ Ui.Input.text
+                        [ Ui.padding 4
+                        , Ui.width (Ui.px 300)
+                        , Ui.Font.color (Ui.rgb 0 0 0)
+                        ]
+                        { onChange = TypedPlayerName
+                        , text = matchSetupData.playerName
+                        , placeholder = Just "Player name"
+                        , label = Ui.Input.labelHidden "Player name"
+                        }
+                    , if String.trim matchSetupData.playerName /= "" then
+                        MyUi.simpleButton (Dom.id "savePlayerName") (PressedSavePlayerName matchSetupData.playerName) (Ui.text "Save")
+
+                      else
+                        Ui.none
+                    ]
                 , Ui.row
                     [ Ui.width Ui.shrink, Ui.spacing 8 ]
                     [ if matchName == "" then
@@ -4409,7 +4452,16 @@ updateMatchData newMsg newNetworkModel oldNetworkModel oldMatchData =
             initMatchData newMatch.startTime (Match.allUsersAndBots newMatchState) Nothing |> MatchActiveLocal
 
         ( Nothing, Just _ ) ->
-            initMatchSetupData newMatchState |> MatchSetupLocal
+            let
+                playerName =
+                    case oldMatchData of
+                        MatchSetupLocal setupData ->
+                            setupData.playerName
+
+                        _ ->
+                            "Player"
+            in
+            initMatchSetupData playerName newMatchState |> MatchSetupLocal
 
         ( Nothing, Nothing ) ->
             oldMatchData
@@ -4646,8 +4698,8 @@ pingOffset model =
             Quantity.zero
 
 
-initMatchSetupData : Match -> MatchSetupLocal_
-initMatchSetupData lobby =
+initMatchSetupData : String -> Match -> MatchSetupLocal_
+initMatchSetupData playerName lobby =
     let
         preview : LobbyPreview
         preview =
@@ -4658,6 +4710,7 @@ initMatchSetupData lobby =
     , maxPlayers = String.fromInt preview.maxUserCount
     , botCount = Match.botCount lobby |> String.fromInt
     , closedRoundEnd = False
+    , playerName = playerName
     }
 
 

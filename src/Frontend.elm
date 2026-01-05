@@ -125,7 +125,7 @@ loadedInit loading time sounds textures ( userId, lobbyData ) =
             , devicePixelRatio = loading.devicePixelRatio
             , time = time
             , debugTimeOffset = loading.debugTimeOffset
-            , page = MainLobbyPage { lobbies = lobbyData.lobbies, joinLobbyError = Nothing }
+            , page = MainLobbyPage { lobbies = lobbyData.lobbies, joinLobbyError = Nothing, playerName = lobbyData.playerName }
             , sounds = sounds
             , textures = textures
             , userId = userId
@@ -426,10 +426,10 @@ updateLoadedFromBackend msg model =
 
         CreateLobbyResponse lobbyId lobby ->
             case model.page of
-                MainLobbyPage _ ->
+                MainLobbyPage lobbyPage ->
                     let
                         ( match, cmd ) =
-                            MatchPage.init lobbyId lobby Nothing
+                            MatchPage.init lobbyPage.playerName lobbyId lobby Nothing
                     in
                     ( { model | page = MatchPage match }
                     , Command.batch
@@ -446,7 +446,7 @@ updateLoadedFromBackend msg model =
                 MainLobbyPage lobbyPage ->
                     case result of
                         JoinedLobby lobby ->
-                            MatchPage.init lobbyId lobby Nothing
+                            MatchPage.init lobbyPage.playerName lobbyId lobby Nothing
                                 |> Tuple.mapBoth
                                     (\a -> { model | page = MatchPage a })
                                     (\cmd -> Command.map identity MatchPageMsg cmd)
@@ -457,7 +457,7 @@ updateLoadedFromBackend msg model =
                             )
 
                         JoinedActiveMatch match frameId matchState ->
-                            MatchPage.init lobbyId match (Just ( frameId, matchState ))
+                            MatchPage.init lobbyPage.playerName lobbyId match (Just ( frameId, matchState ))
                                 |> Tuple.mapBoth
                                     (\a -> { model | page = MatchPage a })
                                     (\cmd -> Command.map identity MatchPageMsg cmd)
@@ -586,7 +586,7 @@ updateLoadedFromBackend msg model =
                     ( model, Command.none )
 
         RejoinMainLobby mainLobbyInitData ->
-            ( { model | page = MainLobbyPage { lobbies = mainLobbyInitData.lobbies, joinLobbyError = Nothing } }
+            ( { model | page = MainLobbyPage { lobbies = mainLobbyInitData.lobbies, joinLobbyError = Nothing, playerName = mainLobbyInitData.playerName } }
             , Command.none
             )
 

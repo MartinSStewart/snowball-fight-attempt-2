@@ -102,11 +102,12 @@ type Page
 type alias MainLobbyPage_ =
     { lobbies : SeqDict (Id MatchId) LobbyPreview
     , joinLobbyError : Maybe JoinLobbyError
+    , playerName : String
     }
 
 
 type alias MainLobbyInitData =
-    { lobbies : SeqDict (Id MatchId) LobbyPreview }
+    { lobbies : SeqDict (Id MatchId) LobbyPreview, playerName : String }
 
 
 type alias BackendModel =
