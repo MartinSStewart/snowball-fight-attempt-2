@@ -98,7 +98,7 @@ import Ui.Font
 import Ui.Input
 import Ui.Prose
 import Ui.Shadow
-import User exposing (UserId)
+import User exposing (BackendUser, UserId)
 import Vector2d exposing (Vector2d)
 import Vector3d exposing (Vector3d)
 import Viewpoint3d
@@ -630,6 +630,8 @@ type alias Config a =
         , currentMouse : Mouse
         , devicePixelRatio : Quantity Float (Rate WorldPixel Pixels)
         , textures : Textures
+        , currentUser : BackendUser
+        , users : SeqDict (Id UserId) BackendUser
     }
 
 
@@ -1369,10 +1371,31 @@ matchSetupView config lobby matchSetupData currentPlayerData =
                                                 (timeToFrameId config { startTime = ServerTime (Time.millisToPosix 0) })
                                                 character
 
-                                        count =
-                                            List.count (\( _, data ) -> data.character == character && data.mode == PlayerMode) users
+                                        selectedBy : List (Ui.Element msg)
+                                        selectedBy =
+                                            List.filterMap
+                                                (\( userId, data ) ->
+                                                    if data.character == character && data.mode == PlayerMode then
+                                                        case User.getUser userId config of
+                                                            Just user ->
+                                                                Ui.el
+                                                                    [ Ui.alignRight
+                                                                    , Ui.Font.family [ Ui.Font.monospace ]
+                                                                    , Ui.Font.size 16
+                                                                    , Ui.Font.color (Ui.rgb 230 230 210)
+                                                                    ]
+                                                                    (Ui.text user.name)
+                                                                    |> Just
 
-                                        selected =
+                                                            Nothing ->
+                                                                Nothing
+
+                                                    else
+                                                        Nothing
+                                                )
+                                                users
+
+                                        selectedByCurrentUser =
                                             character == currentPlayerData.character && currentPlayerData.mode == PlayerMode
 
                                         portraitHeight =
@@ -1383,12 +1406,12 @@ matchSetupView config lobby matchSetupData currentPlayerData =
                                         [ Ui.paddingXY 8 8
                                         , Ui.clip
                                         , Ui.rounded 4
-                                        , if selected then
+                                        , if selectedByCurrentUser then
                                             Ui.Shadow.inner { x = 0, y = 0, size = 2, blur = 10, color = Ui.rgb 255 255 255 }
 
                                           else
                                             Ui.noAttr
-                                        , if selected then
+                                        , if selectedByCurrentUser then
                                             Ui.borderColor (Ui.rgb 255 255 255)
 
                                           else
@@ -1396,7 +1419,7 @@ matchSetupView config lobby matchSetupData currentPlayerData =
                                         , Ui.inFront
                                             (Ui.el
                                                 [ Ui.alignBottom
-                                                , if selected then
+                                                , if selectedByCurrentUser then
                                                     Ui.background (Ui.rgba 255 255 255 0.4)
 
                                                   else
@@ -1405,7 +1428,7 @@ matchSetupView config lobby matchSetupData currentPlayerData =
                                                 , Ui.Shadow.font { offset = ( 1, 1 ), blur = 1, color = Ui.rgb 0 0 0 }
                                                 , Ui.Font.letterSpacing 3
                                                 , Ui.Font.bold
-                                                , if selected then
+                                                , if selectedByCurrentUser then
                                                     Ui.Font.color (Ui.rgb 255 255 255)
 
                                                   else
@@ -1415,20 +1438,13 @@ matchSetupView config lobby matchSetupData currentPlayerData =
                                             )
                                         , Ui.border 2
                                         , Ui.inFront
-                                            (if count > 0 then
-                                                String.fromInt count
-                                                    |> Ui.text
-                                                    |> Ui.el
-                                                        [ Ui.Font.bold
-                                                        , Ui.alignRight
-                                                        , Ui.Font.family [ Ui.Font.monospace ]
-                                                        , Ui.Font.size 20
-                                                        , Ui.paddingXY 8 4
-                                                        , Ui.Font.color (Ui.rgb 230 230 210)
-                                                        ]
+                                            (if List.isEmpty selectedBy then
+                                                Ui.none
 
                                              else
-                                                Ui.none
+                                                Ui.column
+                                                    [ Ui.paddingXY 8 4, Ui.spacing 4 ]
+                                                    selectedBy
                                             )
                                         , Ui.inFront
                                             (Ui.image
