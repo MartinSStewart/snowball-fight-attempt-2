@@ -208,15 +208,12 @@ updateMatchPageToBackend userId user sessionId clientId msg model time =
             case SeqDict.get lobbyId model.lobbies of
                 Just match ->
                     let
-                        frame =
-                            SeqDict.get frameId playerPositions |> Maybe.withDefault SeqDict.empty
-
                         playerPositions : SeqDict (Id FrameId) (SeqDict PlayerPositions (NonemptySet (Id UserId)))
                         playerPositions =
                             SeqDict.get lobbyId model.playerPositions |> Maybe.withDefault SeqDict.empty
 
-                        a : SeqDict PlayerPositions (NonemptySet (Id UserId))
-                        a =
+                        playerPosition : SeqDict PlayerPositions (NonemptySet (Id UserId))
+                        playerPosition =
                             SeqDict.update
                                 positions
                                 (\maybeSet ->
@@ -227,11 +224,20 @@ updateMatchPageToBackend userId user sessionId clientId msg model time =
                                         Nothing ->
                                             NonemptySet.singleton userId |> Just
                                 )
-                                frame
+                                (SeqDict.get frameId playerPositions |> Maybe.withDefault SeqDict.empty)
+
+                        model2 =
+                            { model
+                                | playerPositions =
+                                    SeqDict.insert
+                                        lobbyId
+                                        (SeqDict.insert frameId playerPosition playerPositions)
+                                        model.playerPositions
+                            }
                     in
-                    case SeqDict.toList a of
+                    case SeqDict.toList playerPosition of
                         ( _, first ) :: ( _, second ) :: rest ->
-                            ( model
+                            ( model2
                             , broadcastToMatch
                                 match
                                 (MatchPage.DesyncBroadcast
@@ -239,34 +245,12 @@ updateMatchPageToBackend userId user sessionId clientId msg model time =
                                     frameId
                                     { first = first, second = second, rest = List.map Tuple.second rest }
                                 )
-                                model
+                                model2
                             )
 
                         _ ->
-                            ( model, Command.none )
+                            ( model2, Command.none )
 
-                --case SeqDict.get frameId playerPositions of
-                --    Just playerPositions2 ->
-                --        if playerPositions2 == positions then
-                --            ( model, Command.none )
-                --
-                --        else
-                --            ( model
-                --            , broadcastToMatch match (MatchPage.DesyncBroadcast lobbyId frameId) model
-                --            )
-                --
-                --    Nothing ->
-                --        ( { model
-                --            | playerPositions =
-                --                SeqDict.insert
-                --                    lobbyId
-                --                    (SeqDict.insert frameId positions playerPositions
-                --                        |> SeqDict.remove (Id.toInt frameId - 30 |> Id.fromInt)
-                --                    )
-                --                    model.playerPositions
-                --          }
-                --        , Command.none
-                --        )
                 Nothing ->
                     ( model, Command.none )
 
