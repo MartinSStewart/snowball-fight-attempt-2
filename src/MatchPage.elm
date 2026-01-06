@@ -1115,7 +1115,7 @@ view config model =
                                     :: Ui.htmlAttribute (Html.Events.Extra.Pointer.onUp PointerUp)
                                     :: Ui.htmlAttribute (Html.Events.Extra.Pointer.onLeave PointerLeave)
                                     :: Ui.id "canvas"
-                                    :: Ui.inFront (desyncWarning currentFrameId matchData.desync)
+                                    :: Ui.inFront (desyncWarning config currentFrameId matchData.desync)
                                     --:: Ui.inFront
                                     --    (Ui.el
                                     --        [ Ui.width Ui.shrink
@@ -1396,7 +1396,7 @@ matchSetupView config lobby matchSetupData currentPlayerData =
                                             List.filterMap
                                                 (\( userId, data ) ->
                                                     if data.character == character && data.mode == PlayerMode then
-                                                        case User.getUser userId config of
+                                                        case User.getUser config userId of
                                                             Just user ->
                                                                 Ui.el
                                                                     [ Ui.alignRight
@@ -4721,23 +4721,41 @@ hasMajority nonempty =
         nonempty
 
 
-desyncWarning : Id FrameId -> SeqDict (Id FrameId) Desync -> Ui.Element msg
-desyncWarning currentFrame desyncFrame =
+desyncWarning : Config a -> Id FrameId -> SeqDict (Id FrameId) Desync -> Ui.Element msg
+desyncWarning model currentFrame desyncFrame =
     let
-        desyncFrames : List Desync
-        desyncFrames =
+        desyncedPlayers2 : List String
+        desyncedPlayers2 =
             List.filterMap
                 (\( frameId, data ) ->
                     if frameTimeElapsed frameId currentFrame |> Quantity.lessThan Duration.second then
                         Nothing
 
                     else
-                        Just data
+                        (hasMajority (data.first :: data.second :: data.rest)).minorities
+                            |> List.map NonemptySet.toSeqSet
+                            |> List.foldl SeqSet.union SeqSet.empty
+                            |> Just
                 )
                 (SeqDict.toList desyncFrame)
+                |> List.foldl SeqSet.union SeqSet.empty
+                |> SeqSet.toList
+                |> List.filterMap
+                    (\userId ->
+                        case User.getUser model userId of
+                            Just user ->
+                                if userId == model.userId then
+                                    Just (user.name ++ " (you)")
+
+                                else
+                                    Just user.name
+
+                            Nothing ->
+                                Nothing
+                    )
     in
-    case desyncFrames of
-        head :: _ ->
+    case desyncedPlayers2 of
+        first :: rest ->
             Ui.column
                 [ Ui.width Ui.shrink
                 , Ui.alignTop
@@ -4763,8 +4781,19 @@ desyncWarning currentFrame desyncFrame =
                     , Ui.Font.color (Ui.rgb 255 255 255)
                     , Ui.centerX
                     ]
-                    (Ui.text "One or more players have desynced")
+                    (Ui.text
+                        (case rest of
+                            [] ->
+                                first ++ " has desynced"
+
+                            second :: rest2 ->
+                                String.join ", " (first :: rest2) ++ " and " ++ second ++ " have desynced"
+                        )
+                    )
                 ]
+
+        [] ->
+            Ui.none
 
 
 noPointerEvents : Ui.Attribute msg

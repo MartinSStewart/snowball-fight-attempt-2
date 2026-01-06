@@ -117,7 +117,7 @@ type alias BackendModel =
     , lobbies : SeqDict (Id MatchId) Match
     , joiningActiveMatch : SeqDict ( Id MatchId, Id FrameId ) (NonemptySet ClientId)
     , counter : Int
-    , playerPositions : SeqDict (Id MatchId) (SeqDict (Id FrameId) (SeqDict PlayerPositions (SeqSet (Id UserId))))
+    , playerPositions : SeqDict (Id MatchId) (SeqDict (Id FrameId) (SeqDict PlayerPositions (NonemptySet (Id UserId))))
     }
 
 
