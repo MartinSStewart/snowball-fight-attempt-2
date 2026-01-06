@@ -1,7 +1,6 @@
 module Types exposing
     ( BackendModel
     , BackendMsg(..)
-    , BackendUserData
     , FrontendLoaded
     , FrontendLoading
     , FrontendModel
@@ -43,7 +42,7 @@ import Sounds exposing (Sounds)
 import Textures exposing (Textures)
 import Timeline exposing (FrameId)
 import Url exposing (Url)
-import User exposing (UserId)
+import User exposing (BackendUser, UserId)
 
 
 type alias FrontendModel =
@@ -90,6 +89,9 @@ type alias FrontendLoaded =
     , pingData : Maybe PingData
     , route : Route
     , loadMatchError : Maybe Time.Posix
+    , playerNameInput : String
+    , currentUser : BackendUser
+    , users : SeqDict (Id UserId) BackendUser
     }
 
 
@@ -106,22 +108,17 @@ type alias MainLobbyPage_ =
 
 
 type alias MainLobbyInitData =
-    { lobbies : SeqDict (Id MatchId) LobbyPreview }
+    { lobbies : SeqDict (Id MatchId) LobbyPreview, currentUser : BackendUser, users : SeqDict (Id UserId) BackendUser }
 
 
 type alias BackendModel =
     { userSessions : SeqDict SessionId { clientIds : SeqDict ClientId (), userId : Id UserId }
-    , users : SeqDict (Id UserId) BackendUserData
+    , users : SeqDict (Id UserId) BackendUser
     , lobbies : SeqDict (Id MatchId) Match
     , joiningActiveMatch : SeqDict ( Id MatchId, Id FrameId ) (NonemptySet ClientId)
-    , dummyChange : Float
     , counter : Int
     , playerPositions : SeqDict (Id MatchId) (SeqDict (Id FrameId) (SeqDict PlayerPositions (SeqSet (Id UserId))))
     }
-
-
-type alias BackendUserData =
-    { name : String }
 
 
 type FrontendMsg_
@@ -140,6 +137,9 @@ type FrontendMsg_
     | RandomInput Time.Posix
     | EditorPageMsg EditorPage.Msg
     | RejoinMatchTimedOut (Id MatchId)
+    | TypedPlayerName String
+    | PressedSavePlayerName
+    | PressedResetPlayerName
 
 
 type ToBackend
@@ -147,6 +147,7 @@ type ToBackend
     | PingRequest
     | MatchPageToBackend MatchPage.ToBackend
     | EditorPageToBackend EditorPage.ToBackend
+    | SetNameRequest String
 
 
 type BackendMsg
@@ -167,6 +168,7 @@ type ToFrontend
     | MatchPageToFrontend MatchPage.ToFrontend
     | RejoinMainLobby MainLobbyInitData
     | EditorPageToFrontend EditorPage.ToFrontend
+    | SetNameBroadcast (Id UserId) String
 
 
 type JoinMatch

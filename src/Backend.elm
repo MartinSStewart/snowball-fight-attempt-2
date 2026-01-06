@@ -21,7 +21,7 @@ import SeqDict exposing (SeqDict)
 import SeqSet exposing (SeqSet)
 import Timeline exposing (FrameId, Timeline)
 import Types exposing (..)
-import User exposing (UserId)
+import User exposing (BackendUser, UserId)
 
 
 app :
@@ -62,7 +62,6 @@ init =
     , users = SeqDict.empty
     , lobbies = SeqDict.empty
     , joiningActiveMatch = SeqDict.empty
-    , dummyChange = 0
     , counter = 0
     , playerPositions = SeqDict.empty
     }
@@ -73,10 +72,21 @@ update msg model =
     case msg of
         ClientConnected sessionId clientId ->
             let
-                { clientIds, userId } =
-                    SeqDict.get sessionId model.userSessions
-                        |> Maybe.withDefault
-                            { userId = SeqDict.size model.users |> Id.fromInt, clientIds = SeqDict.empty }
+                ( { clientIds, userId }, user ) =
+                    case SeqDict.get sessionId model.userSessions of
+                        Just userSession ->
+                            ( userSession
+                            , SeqDict.get userSession.userId model.users |> Maybe.withDefault (initUser userSession.userId)
+                            )
+
+                        Nothing ->
+                            let
+                                userId2 =
+                                    SeqDict.size model.users |> Id.fromInt
+                            in
+                            ( { userId = userId2, clientIds = SeqDict.empty }
+                            , initUser userId2
+                            )
             in
             ( { model
                 | userSessions =
@@ -84,9 +94,9 @@ update msg model =
                         sessionId
                         { clientIds = SeqDict.insert clientId () clientIds, userId = userId }
                         model.userSessions
-                , users = SeqDict.insert userId { name = "TempName" } model.users
+                , users = SeqDict.insert userId user model.users
               }
-            , ClientInit userId (getLobbyData model)
+            , ClientInit userId (getLobbyData userId user model)
                 |> Effect.Lamdera.sendToFrontend clientId
             )
 
@@ -95,7 +105,7 @@ update msg model =
 
         ClientDisconnectedWithTime sessionId clientId time ->
             case getUserFromSessionId sessionId model of
-                Just ( userId, _ ) ->
+                Just ( userId, user ) ->
                     let
                         matchIds : List (Id MatchId)
                         matchIds =
@@ -111,7 +121,7 @@ update msg model =
                     in
                     List.foldl
                         (\matchId ( model2, cmd ) ->
-                            matchSetupRequest time matchId userId (Id.fromInt -1) clientId LeaveMatchSetup model2
+                            matchSetupRequest time matchId userId user (Id.fromInt -1) clientId LeaveMatchSetup model2
                                 |> Tuple.mapSecond (\cmd2 -> Command.batch [ cmd, cmd2 ])
                         )
                         ( { model
@@ -138,17 +148,24 @@ update msg model =
             updateFromFrontendWithTime sessionId clientId toBackend model time
 
 
-getLobbyData : BackendModel -> { lobbies : SeqDict (Id MatchId) Match.LobbyPreview }
-getLobbyData model =
+getLobbyData : Id UserId -> BackendUser -> BackendModel -> MainLobbyInitData
+getLobbyData userId user model =
     { lobbies =
         SeqDict.filter
             (\_ lobby -> Match.matchActive lobby == Nothing)
             model.lobbies
             |> SeqDict.map (\_ lobby -> Match.preview lobby)
+    , currentUser = user
+    , users = SeqDict.remove userId model.users
     }
 
 
-getUserFromSessionId : SessionId -> BackendModel -> Maybe ( Id UserId, BackendUserData )
+initUser : Id UserId -> BackendUser
+initUser userId =
+    { name = "User " ++ Id.toString userId }
+
+
+getUserFromSessionId : SessionId -> BackendModel -> Maybe ( Id UserId, BackendUser )
 getUserFromSessionId sessionId model =
     case SeqDict.get sessionId model.userSessions of
         Just { userId } ->
@@ -175,16 +192,17 @@ updateFromFrontend sessionId clientId msg model =
 
 updateMatchPageToBackend :
     Id UserId
+    -> BackendUser
     -> SessionId
     -> ClientId
     -> MatchPage.ToBackend
     -> BackendModel
     -> ServerTime
     -> ( BackendModel, Command BackendOnly ToFrontend BackendMsg )
-updateMatchPageToBackend userId sessionId clientId msg model time =
+updateMatchPageToBackend userId user sessionId clientId msg model time =
     case msg of
         MatchPage.MatchRequest lobbyId eventId matchSetupMsg ->
-            matchSetupRequest time lobbyId userId eventId clientId matchSetupMsg model
+            matchSetupRequest time lobbyId userId user eventId clientId matchSetupMsg model
 
         MatchPage.DesyncCheckRequest lobbyId frameId positions ->
             case SeqDict.get lobbyId model.lobbies of
@@ -277,8 +295,8 @@ updateFromFrontendWithTime :
     -> ServerTime
     -> ( BackendModel, Command BackendOnly ToFrontend BackendMsg )
 updateFromFrontendWithTime sessionId clientId msg model time =
-    case SeqDict.get sessionId model.userSessions of
-        Just { userId } ->
+    case getUserFromSessionId sessionId model of
+        Just ( userId, user ) ->
             case msg of
                 CreateMatchRequest ->
                     let
@@ -305,13 +323,18 @@ updateFromFrontendWithTime sessionId clientId msg model time =
                     )
 
                 MatchPageToBackend matchPageToBackend ->
-                    updateMatchPageToBackend userId sessionId clientId matchPageToBackend model time
+                    updateMatchPageToBackend userId user sessionId clientId matchPageToBackend model time
 
                 PingRequest ->
                     ( model, PingResponse time |> Effect.Lamdera.sendToFrontend clientId )
 
                 EditorPageToBackend _ ->
                     ( model, Command.none )
+
+                SetNameRequest name ->
+                    ( { model | users = SeqDict.insert userId { user | name = name } model.users }
+                    , Effect.Lamdera.broadcast (SetNameBroadcast userId name)
+                    )
 
         Nothing ->
             ( model, Command.none )
@@ -336,12 +359,13 @@ matchSetupRequest :
     ServerTime
     -> Id MatchId
     -> Id UserId
+    -> BackendUser
     -> Id EventId
     -> ClientId
     -> Msg
     -> BackendModel
     -> ( BackendModel, Command BackendOnly ToFrontend BackendMsg )
-matchSetupRequest currentTime lobbyId userId eventId clientId matchSetupMsg model =
+matchSetupRequest currentTime lobbyId userId user eventId clientId matchSetupMsg model =
     case SeqDict.get lobbyId model.lobbies of
         Just match ->
             let
@@ -374,7 +398,7 @@ matchSetupRequest currentTime lobbyId userId eventId clientId matchSetupMsg mode
                                             (if lobbyUserId == userId then
                                                 case matchSetupMsg2 of
                                                     LeaveMatchSetup ->
-                                                        getLobbyData model_ |> RejoinMainLobby
+                                                        getLobbyData userId user model_ |> RejoinMainLobby
 
                                                     _ ->
                                                         MatchPage.MatchSetupResponse

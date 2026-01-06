@@ -38,12 +38,13 @@ import Types exposing (..)
 import Ui
 import Ui.Anim
 import Ui.Font
+import Ui.Input
 import Ui.Layout
 import Ui.Prose
 import Url exposing (Url)
 import Url.Parser exposing ((<?>))
 import Url.Parser.Query
-import User exposing (UserId)
+import User exposing (BackendUser, UserId)
 
 
 app :
@@ -133,11 +134,15 @@ loadedInit loading time sounds textures ( userId, lobbyData ) =
             , pingData = Nothing
             , route = loading.route
             , loadMatchError = Nothing
+            , playerNameInput = lobbyData.currentUser.name
+            , currentUser = lobbyData.currentUser
+            , users = lobbyData.users
             }
-                |> (\a -> { a | pingStartTime = MatchPage.actualTime a |> Just })
 
         ( model2, cmd ) =
-            routeChanged loading.route model
+            model
+                |> (\a -> { a | pingStartTime = MatchPage.actualTime a |> Just })
+                |> routeChanged loading.route
     in
     ( Loaded model2
     , Command.batch [ cmd, Effect.Lamdera.sendToBackend PingRequest ]
@@ -388,6 +393,22 @@ updateLoaded msg model =
                     else
                         ( model, Command.none )
 
+        TypedPlayerName name ->
+            ( { model | playerNameInput = name }, Command.none )
+
+        PressedSavePlayerName ->
+            let
+                user : BackendUser
+                user =
+                    model.currentUser
+            in
+            ( { model | currentUser = { user | name = model.playerNameInput } }
+            , Effect.Lamdera.sendToBackend (SetNameRequest model.playerNameInput)
+            )
+
+        PressedResetPlayerName ->
+            ( { model | playerNameInput = model.currentUser.name }, Command.none )
+
 
 windowResizedUpdate : Size -> { b | windowSize : Size } -> ( { b | windowSize : Size }, Command FrontendOnly toMsg FrontendMsg_ )
 windowResizedUpdate windowSize model =
@@ -426,7 +447,7 @@ updateLoadedFromBackend msg model =
 
         CreateLobbyResponse lobbyId lobby ->
             case model.page of
-                MainLobbyPage _ ->
+                MainLobbyPage lobbyPage ->
                     let
                         ( match, cmd ) =
                             MatchPage.init lobbyId lobby Nothing
@@ -601,6 +622,11 @@ updateLoadedFromBackend msg model =
                 _ ->
                     ( model, Command.none )
 
+        SetNameBroadcast userId name ->
+            ( { model | users = SeqDict.updateIfExists userId (\user -> { user | name = name }) model.users }
+            , Command.none
+            )
+
 
 view : AudioData -> FrontendModel_ -> Browser.Document FrontendMsg_
 view _ model =
@@ -717,11 +743,44 @@ loadedView model =
                                             , Ui.border 1
                                             ]
                                 ]
+                            , playerNameInput model
                             ]
 
             EditorPage editorPageModel ->
                 EditorPage.view model editorPageModel |> Ui.map EditorPageMsg
         )
+
+
+playerNameInput : FrontendLoaded -> Ui.Element FrontendMsg_
+playerNameInput model =
+    let
+        label =
+            Ui.Input.label "playerNameInput" [ Ui.width Ui.shrink ] (Ui.text "Your name")
+    in
+    Ui.row
+        [ Ui.spacing 8 ]
+        [ label.element
+        , Ui.Input.text
+            [ Ui.padding 4
+            , Ui.width (Ui.px 300)
+            , Ui.Font.color (Ui.rgb 0 0 0)
+            ]
+            { onChange = TypedPlayerName
+            , text = model.playerNameInput
+            , placeholder = Just "Player name"
+            , label = label.id
+            }
+        , if model.playerNameInput == model.currentUser.name then
+            Ui.none
+
+          else
+            MyUi.simpleButton (Dom.id "resetPlayerName") PressedResetPlayerName (Ui.text "Reset")
+        , if String.trim model.playerNameInput /= "" && model.playerNameInput /= model.currentUser.name then
+            MyUi.simpleButton (Dom.id "savePlayerName") PressedSavePlayerName (Ui.text "Save")
+
+          else
+            Ui.none
+        ]
 
 
 lobbyRowView : Bool -> ( Id MatchId, LobbyPreview ) -> Ui.Element FrontendMsg_
