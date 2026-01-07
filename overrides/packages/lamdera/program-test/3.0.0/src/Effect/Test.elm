@@ -6,7 +6,7 @@ module Effect.Test exposing
     , startHeadless, HeadlessMsg
     , Button(..), WheelOptions(..), DeltaMode(..), CurrentTimeline, EventFrontend, EventType, FileLoadError, FileLoadErrorType, MouseEvent, OverlayPosition, TestError, Touch, TouchEvent
     , configForApplication, configForDocument, configForElement, configForSandbox
-    , Latency
+    , Latency, collapsableGroup
     )
 
 {-|
@@ -1366,6 +1366,25 @@ group list =
     Action (AndThen (\state -> foldList (List.map (\(Action a) -> a) list) (Start state)))
 
 
+{-| All actions and events that happen within this group can be minimized in the UI.
+Can be helpful to make it easier to tell what's happening in your end to end tests.
+-}
+collapsableGroup :
+    String
+    -> List (Action toBackend frontendMsg frontendModel toFrontend backendMsg backendModel)
+    -> Action toBackend frontendMsg frontendModel toFrontend backendMsg backendModel
+collapsableGroup name list =
+    Action
+        (AndThen
+            (\state ->
+                addEvent (CollapsableGroupStart name) Nothing state
+                    |> Start
+                    |> foldList (List.map (\(Action a) -> a) list)
+                    |> NextStep (addEvent (CollapsableGroupEnd name) Nothing)
+            )
+        )
+
+
 {-| -}
 getTimers : Subscription restriction backendMsg -> SeqDict Duration { msg : Nonempty (Time.Posix -> backendMsg) }
 getTimers backendSub =
@@ -1677,6 +1696,8 @@ type EventType toBackend frontendMsg frontendModel toFrontend backendMsg backend
     | NavigateBack ClientId
     | NavigateForward ClientId
     | SetLatency ClientId Latency
+    | CollapsableGroupStart String
+    | CollapsableGroupEnd String
 
 
 type alias Latency =
@@ -5116,6 +5137,12 @@ eventTypeToTimelineType eventType =
         SetLatency clientId _ ->
             FrontendTimeline clientId
 
+        CollapsableGroupStart string ->
+            BackendTimeline
+
+        CollapsableGroupEnd string ->
+            BackendTimeline
+
 
 {-| -}
 isSkippable : EventType toBackend frontendMsg frontendModel toFrontend backendMsg backendModel -> Bool
@@ -5167,6 +5194,12 @@ isSkippable eventType =
             True
 
         SetLatency _ _ ->
+            True
+
+        CollapsableGroupStart string ->
+            True
+
+        CollapsableGroupEnd string ->
             True
 
 
@@ -5394,6 +5427,12 @@ checkCachedElmValueHelper event state =
                     Nothing
 
                 SetLatency _ _ ->
+                    Nothing
+
+                CollapsableGroupStart string ->
+                    Nothing
+
+                CollapsableGroupEnd string ->
                     Nothing
     }
 
@@ -6002,6 +6041,12 @@ currentStepText currentStep testView_ =
                         ++ "ms toFrontend:"
                         ++ String.fromFloat toFrontendLatency
                         ++ "ms"
+
+                CollapsableGroupStart name ->
+                    "Collapsable group start: " ++ name
+
+                CollapsableGroupEnd name ->
+                    "Collapsable group end: " ++ name
     in
     Html.div
         [ Html.Attributes.style "padding" "4px", Html.Attributes.title fullMsg ]
@@ -6139,6 +6184,12 @@ addTimelineEvent currentTimelineIndex { previousStep, currentStep } event state 
                     []
 
                 SetLatency _ _ ->
+                    []
+
+                CollapsableGroupStart string ->
+                    []
+
+                CollapsableGroupEnd string ->
                     []
     in
     { columnIndex = state.columnIndex + 1
@@ -6669,6 +6720,12 @@ eventIcon color event columnIndex rowIndex =
 
         SetLatency _ _ ->
             [ circleHelper "big-circle" ]
+
+        CollapsableGroupStart string ->
+            [ collapsableGroupStart (columnIndex * timelineColumnWidth) (rowIndex * timelineRowHeight) ]
+
+        CollapsableGroupEnd string ->
+            [ collapsableGroupEnd (columnIndex * timelineColumnWidth) (rowIndex * timelineRowHeight) ]
     )
         ++ (if noErrors then
                 []
@@ -6676,6 +6733,65 @@ eventIcon color event columnIndex rowIndex =
             else
                 [ xSvg "red" (columnIndex * timelineColumnWidth) (rowIndex * timelineRowHeight) ]
            )
+
+
+collapsableGroupStart : Int -> Int -> Html msg
+collapsableGroupStart left top =
+    Svg.svg
+        [ Svg.Attributes.width (String.fromInt timelineColumnWidth)
+        , Html.Attributes.style "left" (px left)
+        , Html.Attributes.style "top" (px top)
+        , Html.Attributes.style "position" "absolute"
+        , Svg.Attributes.viewBox "0 0 24 24"
+        , Html.Attributes.style "pointer-events" "none"
+        ]
+        [ Svg.path
+            [ Svg.Attributes.fill "#FFFFFF"
+            , Svg.Attributes.d "M9,18l7-6L9,6V18z"
+            ]
+            []
+        ]
+
+
+collapsableGroupEnd : Int -> Int -> Html msg
+collapsableGroupEnd left top =
+    Svg.svg
+        [ Svg.Attributes.width (String.fromInt timelineColumnWidth)
+        , Html.Attributes.style "left" (px left)
+        , Html.Attributes.style "top" (px top)
+        , Html.Attributes.style "position" "absolute"
+        , Svg.Attributes.viewBox "0 0 24 24"
+        , Html.Attributes.style "pointer-events" "none"
+        ]
+        [ Svg.path
+            [ Svg.Attributes.fill "#FFFFFF"
+            , Svg.Attributes.d "M15,6l-7,6l7,6V6z"
+            ]
+            []
+        ]
+
+
+collapsableGroupCollapsed : Int -> Int -> Html msg
+collapsableGroupCollapsed left top =
+    Svg.svg
+        [ Svg.Attributes.width (String.fromInt timelineColumnWidth)
+        , Html.Attributes.style "left" (px left)
+        , Html.Attributes.style "top" (px top)
+        , Html.Attributes.style "position" "absolute"
+        , Svg.Attributes.viewBox "0 0 24 24"
+        , Html.Attributes.style "pointer-events" "none"
+        ]
+        [ Svg.path
+            [ Svg.Attributes.fill "#FFFFFF"
+            , Svg.Attributes.d "M9,18l7-6L9,6V18z"
+            ]
+            []
+        , Svg.path
+            [ Svg.Attributes.fill "#FFFFFF"
+            , Svg.Attributes.d "M15,6l-7,6l7,6V6z"
+            ]
+            []
+        ]
 
 
 {-| -}

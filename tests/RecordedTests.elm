@@ -317,7 +317,7 @@ handleAudioPorts user =
                     )
             )
             (List.range 0 (List.length Sounds.soundUrls - 1))
-        |> T.group
+        |> T.collapsableGroup "Loading"
 
 
 {-| Verifies that all players in active matches are in sync by checking that
