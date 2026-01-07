@@ -226,10 +226,8 @@ tests textures fileData =
                         [ handleAudioPorts userB
                         , userB.clickLink 500 (Route.encode (Route.InMatchRoute (Id.fromInt 0)))
                         , userA.click 100 (Dom.id "startMatchSetup")
-                        , userA.pointerDown 100 (Dom.id "canvas") ( 500, 100 ) []
-                        , userA.pointerUp 100 (Dom.id "canvas") ( 500, 100 ) []
-                        , userB.pointerDown 100 (Dom.id "canvas") ( 500, 400 ) []
-                        , userB.pointerUp 100 (Dom.id "canvas") ( 500, 400 ) []
+                        , movePlayer 500 100 userA
+                        , movePlayer 500 400 userB
                         , checkPlayersInSync 5000
                         ]
                     )
@@ -240,6 +238,8 @@ tests textures fileData =
                     desktopWindow
                     (\userB ->
                         [ handleAudioPorts userB
+                        , movePlayer 600 100 userA
+                        , movePlayer 600 400 userB
                         , checkPlayersInSync 500
                         ]
                     )
@@ -267,10 +267,8 @@ tests textures fileData =
                         , userB.click 500 (Dom.id "createNewMatch")
                         , userA.clickLink 500 (Route.encode (Route.InMatchRoute (Id.fromInt 0)))
                         , userB.click 100 (Dom.id "startMatchSetup")
-                        , userA.pointerDown 100 (Dom.id "canvas") ( 500, 100 ) []
-                        , userA.pointerUp 100 (Dom.id "canvas") ( 500, 100 ) []
-                        , userB.pointerDown 100 (Dom.id "canvas") ( 500, 400 ) []
-                        , userB.pointerUp 100 (Dom.id "canvas") ( 500, 400 ) []
+                        , movePlayer 500 100 userA
+                        , movePlayer 500 400 userB
                         , checkPlayersInSync 5000
                         ]
                     )
@@ -281,6 +279,8 @@ tests textures fileData =
                     desktopWindow
                     (\userB ->
                         [ handleAudioPorts userB
+                        , movePlayer 600 100 userA
+                        , movePlayer 600 400 userB
                         , checkPlayersInSync 500
                         ]
                     )
@@ -288,6 +288,14 @@ tests textures fileData =
             )
         ]
     ]
+
+
+movePlayer : Float -> Float -> T.FrontendActions toBackend frontendMsg frontendModel toFrontend backendMsg backendModel -> T.Action toBackend frontendMsg frontendModel toFrontend backendMsg backendModel
+movePlayer x y userA =
+    T.group
+        [ userA.pointerDown 100 (Dom.id "canvas") ( x, y ) []
+        , userA.pointerUp 100 (Dom.id "canvas") ( x, y ) []
+        ]
 
 
 handleAudioPorts :
