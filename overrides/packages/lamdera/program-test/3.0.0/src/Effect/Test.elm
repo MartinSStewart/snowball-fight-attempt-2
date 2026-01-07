@@ -88,6 +88,7 @@ import Math.Matrix4 as Mat4
 import Process
 import Quantity
 import SeqDict exposing (SeqDict)
+import SeqSet exposing (SeqSet)
 import Set exposing (Set)
 import Svg exposing (Svg)
 import Svg.Attributes
@@ -4380,6 +4381,9 @@ type alias TestView toBackend frontendMsg frontendModel toFrontend backendMsg ba
     , overlayPosition : OverlayPosition
     , showModel : Bool
     , collapsedFields : SeqDict (List PathNode) CollapsedField
+    , -- Values are the start index for each collapsable group
+      collapsedGroups : SeqSet Int
+    , collapsableGroupRanges : List { startIndex : Int, endIndex : Int }
     , buttonCursor : Maybe { htmlId : HtmlId, x : Float, y : Float, width : Float, height : Float }
     }
 
@@ -4471,8 +4475,30 @@ viewTest test index stepIndex timelineIndex position (Model model) =
             , stepIndex = stepIndex2
             , overlayPosition = position
             , showModel = False
+            , collapsedGroups = SeqSet.empty
             , collapsedFields = SeqDict.empty
             , buttonCursor = Nothing
+            , collapsableGroupRanges =
+                Array.foldl
+                    (\event ( index2, stack, groups ) ->
+                        case event.eventType of
+                            CollapsableGroupStart name ->
+                                ( index2 + 1, index2 :: stack, groups )
+
+                            CollapsableGroupEnd name ->
+                                case stack of
+                                    head :: rest ->
+                                        ( index2 + 1, rest, { startIndex = head, endIndex = index2 } :: groups )
+
+                                    [] ->
+                                        ( index2 + 1, stack, groups )
+
+                            _ ->
+                                ( index2 + 1, stack, groups )
+                    )
+                    ( 0, [], [] )
+                    state.history
+                    |> (\( _, _, groups ) -> groups)
             }
                 |> Just
       }
@@ -4742,7 +4768,29 @@ update config msg (Model model) =
             )
 
         PressedTimelineEvent stepIndex ->
-            updateCurrentTest (stepTo stepIndex) (Model model)
+            updateCurrentTest
+                (\test ->
+                    case
+                        List.filter
+                            (\range -> range.startIndex == stepIndex || range.endIndex == stepIndex)
+                            test.collapsableGroupRanges
+                    of
+                        head :: _ ->
+                            ( { test
+                                | collapsedGroups =
+                                    if SeqSet.member head.startIndex test.collapsedGroups then
+                                        SeqSet.remove head.startIndex test.collapsedGroups
+
+                                    else
+                                        SeqSet.insert head.startIndex test.collapsedGroups
+                              }
+                            , Cmd.none
+                            )
+
+                        [] ->
+                            stepTo stepIndex test
+                )
+                (Model model)
 
         PressedTimeline timelineType ->
             updateCurrentTest
@@ -6088,6 +6136,7 @@ unselectedTimelineColor =
 addTimelineEvent :
     Int
     -> { previousStep : Maybe Int, currentStep : Maybe Int }
+    -> List { startIndex : Int, endIndex : Int }
     -> Event toBackend frontendMsg frontendModel toFrontend backendMsg backendModel
     ->
         { columnIndex : Int
@@ -6097,7 +6146,7 @@ addTimelineEvent :
         { columnIndex : Int
         , dict : SeqDict CurrentTimeline (TimelineViewData toBackend frontendMsg frontendModel toFrontend backendMsg backendModel)
         }
-addTimelineEvent currentTimelineIndex { previousStep, currentStep } event state =
+addTimelineEvent currentTimelineIndex { previousStep, currentStep } collapsedRanges event state =
     let
         arrowHelper : Int -> Int -> Int -> List (Html msg)
         arrowHelper rowIndexStart rowIndexEnd stepIndex =
@@ -6191,54 +6240,64 @@ addTimelineEvent currentTimelineIndex { previousStep, currentStep } event state 
 
                 CollapsableGroupEnd string ->
                     []
+
+        isHidden : Bool
+        isHidden =
+            List.any
+                (\range -> range.startIndex < state.columnIndex && state.columnIndex < range.endIndex)
+                collapsedRanges
     in
     { columnIndex = state.columnIndex + 1
     , dict =
-        SeqDict.update
-            (eventTypeToTimelineType event.eventType)
-            (\maybeTimeline ->
-                let
-                    color : Int -> String
-                    color rowIndex =
-                        if currentTimelineIndex /= rowIndex then
-                            unselectedTimelineColor
-
-                        else if previousStep == Just state.columnIndex then
-                            "red"
-
-                        else if currentStep == Just state.columnIndex then
-                            "green"
-
-                        else
-                            "white"
-                in
-                (case maybeTimeline of
-                    Just timeline ->
-                        { events =
-                            arrows timeline.rowIndex
-                                ++ eventIcon (color timeline.rowIndex) event state.columnIndex timeline.rowIndex
-                                ++ timeline.events
-                        , columnStart = timeline.columnStart
-                        , columnEnd = state.columnIndex
-                        , rowIndex = timeline.rowIndex
-                        }
-
-                    Nothing ->
-                        let
-                            rowIndex : Int
-                            rowIndex =
-                                SeqDict.size state.dict
-                        in
-                        { events =
-                            arrows rowIndex ++ eventIcon (color rowIndex) event state.columnIndex rowIndex
-                        , columnStart = state.columnIndex
-                        , columnEnd = state.columnIndex
-                        , rowIndex = rowIndex
-                        }
-                )
-                    |> Just
-            )
+        if isHidden then
             state.dict
+
+        else
+            SeqDict.update
+                (eventTypeToTimelineType event.eventType)
+                (\maybeTimeline ->
+                    let
+                        color : Int -> String
+                        color rowIndex =
+                            if currentTimelineIndex /= rowIndex then
+                                unselectedTimelineColor
+
+                            else if previousStep == Just state.columnIndex then
+                                "red"
+
+                            else if currentStep == Just state.columnIndex then
+                                "green"
+
+                            else
+                                "white"
+                    in
+                    (case maybeTimeline of
+                        Just timeline ->
+                            { events =
+                                arrows timeline.rowIndex
+                                    ++ eventIcon (color timeline.rowIndex) event state.columnIndex timeline.rowIndex
+                                    ++ timeline.events
+                            , columnStart = timeline.columnStart
+                            , columnEnd = state.columnIndex
+                            , rowIndex = timeline.rowIndex
+                            }
+
+                        Nothing ->
+                            let
+                                rowIndex : Int
+                                rowIndex =
+                                    SeqDict.size state.dict
+                            in
+                            { events =
+                                arrows rowIndex ++ eventIcon (color rowIndex) event state.columnIndex rowIndex
+                            , columnStart = state.columnIndex
+                            , columnEnd = state.columnIndex
+                            , rowIndex = rowIndex
+                            }
+                    )
+                        |> Just
+                )
+                state.dict
     }
 
 
@@ -6976,6 +7035,12 @@ getTimelines timelineIndex testView_ =
         currentAndPreviousStepIndex2 : { previousStep : Maybe Int, currentStep : Maybe Int }
         currentAndPreviousStepIndex2 =
             currentAndPreviousStepIndex testView_
+
+        collapsedRanges : List { startIndex : Int, endIndex : Int }
+        collapsedRanges =
+            List.filter
+                (\range -> SeqSet.member range.startIndex testView_.collapsedGroups)
+                testView_.collapsableGroupRanges
     in
     Array.foldl
         (addTimelineEvent
@@ -6988,6 +7053,7 @@ getTimelines timelineIndex testView_ =
                     else
                         Nothing
             }
+            collapsedRanges
         )
         { columnIndex = 0, dict = SeqDict.singleton BackendTimeline { events = [], columnStart = 0, columnEnd = 0, rowIndex = 0 } }
         testView_.steps
