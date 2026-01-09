@@ -4464,6 +4464,29 @@ viewTest test index stepIndex timelineIndex position (Model model) =
         stepIndex2 : Int
         stepIndex2 =
             clamp 0 (Array.length state.history - 1) stepIndex
+
+        collapsableGroupRanges : List { startIndex : Int, endIndex : Int }
+        collapsableGroupRanges =
+            Array.foldl
+                (\event ( index2, stack, groups ) ->
+                    case event.eventType of
+                        CollapsableGroupStart name ->
+                            ( index2 + 1, index2 :: stack, groups )
+
+                        CollapsableGroupEnd name ->
+                            case stack of
+                                head :: rest ->
+                                    ( index2 + 1, rest, { startIndex = head, endIndex = index2 } :: groups )
+
+                                [] ->
+                                    ( index2 + 1, stack, groups )
+
+                        _ ->
+                            ( index2 + 1, stack, groups )
+                )
+                ( 0, [], [] )
+                state.history
+                |> (\( _, _, groups ) -> groups)
     in
     ( { model
         | currentTest =
@@ -4475,30 +4498,10 @@ viewTest test index stepIndex timelineIndex position (Model model) =
             , stepIndex = stepIndex2
             , overlayPosition = position
             , showModel = False
-            , collapsedGroups = SeqSet.empty
+            , collapsedGroups = List.map .startIndex collapsableGroupRanges |> SeqSet.fromList
             , collapsedFields = SeqDict.empty
             , buttonCursor = Nothing
-            , collapsableGroupRanges =
-                Array.foldl
-                    (\event ( index2, stack, groups ) ->
-                        case event.eventType of
-                            CollapsableGroupStart name ->
-                                ( index2 + 1, index2 :: stack, groups )
-
-                            CollapsableGroupEnd name ->
-                                case stack of
-                                    head :: rest ->
-                                        ( index2 + 1, rest, { startIndex = head, endIndex = index2 } :: groups )
-
-                                    [] ->
-                                        ( index2 + 1, stack, groups )
-
-                            _ ->
-                                ( index2 + 1, stack, groups )
-                    )
-                    ( 0, [], [] )
-                    state.history
-                    |> (\( _, _, groups ) -> groups)
+            , collapsableGroupRanges = collapsableGroupRanges
             }
                 |> Just
       }
@@ -6293,7 +6296,13 @@ addTimelineEvent testView2 currentTimelineIndex { previousStep, currentStep } co
                         Just timeline ->
                             { events =
                                 arrows timeline.rowIndex
-                                    ++ eventIcon testView2 (color timeline.rowIndex) event columnIndex timeline.rowIndex
+                                    ++ eventIcon
+                                        testView2
+                                        (color timeline.rowIndex)
+                                        event
+                                        columnIndex
+                                        state.columnIndex
+                                        timeline.rowIndex
                                     ++ timeline.events
                             , columnStart = timeline.columnStart
                             , columnEnd = columnIndex
@@ -6307,7 +6316,14 @@ addTimelineEvent testView2 currentTimelineIndex { previousStep, currentStep } co
                                     SeqDict.size state.dict
                             in
                             { events =
-                                arrows rowIndex ++ eventIcon testView2 (color rowIndex) event columnIndex rowIndex
+                                arrows rowIndex
+                                    ++ eventIcon
+                                        testView2
+                                        (color rowIndex)
+                                        event
+                                        columnIndex
+                                        state.columnIndex
+                                        rowIndex
                             , columnStart = columnIndex
                             , columnEnd = columnIndex
                             , rowIndex = rowIndex
@@ -6719,14 +6735,15 @@ eventIcon :
     -> Event toBackend frontendMsg frontendModel toFrontend backendMsg backendModel
     -> Int
     -> Int
+    -> Int
     -> List (Html msg)
-eventIcon testView2 color event columnIndex rowIndex =
+eventIcon testView2 color event adjustedColumIndex columnIndex rowIndex =
     let
         circleHelper : String -> Html msg
         circleHelper class =
             Html.div
                 [ Html.Attributes.style "background-color" color
-                , Html.Attributes.style "left" (px (columnIndex * timelineColumnWidth))
+                , Html.Attributes.style "left" (px (adjustedColumIndex * timelineColumnWidth))
                 , Html.Attributes.style "top" (px (rowIndex * timelineRowHeight + 1))
                 , Html.Attributes.class class
                 ]
@@ -6758,48 +6775,48 @@ eventIcon testView2 color event columnIndex rowIndex =
             [ circleHelper "circle" ]
 
         CheckStateEvent _ ->
-            [ magnifyingGlassSvg color (columnIndex * timelineColumnWidth) (rowIndex * timelineRowHeight) ]
+            [ magnifyingGlassSvg color (adjustedColumIndex * timelineColumnWidth) (rowIndex * timelineRowHeight) ]
 
         UserInputEvent data ->
             case data.inputType of
                 UserClicksButton _ ->
-                    [ cursorSvg color (columnIndex * timelineColumnWidth) (rowIndex * timelineRowHeight) timelineColumnWidth ]
+                    [ cursorSvg color (adjustedColumIndex * timelineColumnWidth) (rowIndex * timelineRowHeight) timelineColumnWidth ]
 
                 UserInputsText _ _ ->
-                    [ cursorTextSvg color (columnIndex * timelineColumnWidth) (rowIndex * timelineRowHeight) ]
+                    [ cursorTextSvg color (adjustedColumIndex * timelineColumnWidth) (rowIndex * timelineRowHeight) ]
 
                 UserPressesKey _ _ _ ->
                     [ circleHelper "big-circle" ]
 
                 UserClicksLink _ ->
-                    [ simpleLinkSvg color (columnIndex * timelineColumnWidth) (rowIndex * timelineRowHeight) ]
+                    [ simpleLinkSvg color (adjustedColumIndex * timelineColumnWidth) (rowIndex * timelineRowHeight) ]
 
                 UserResizesWindow _ ->
                     [ circleHelper "big-circle" ]
 
                 UserPointerDownEvent _ _ ->
-                    [ cursorSvg color (columnIndex * timelineColumnWidth) (rowIndex * timelineRowHeight) timelineColumnWidth ]
+                    [ cursorSvg color (adjustedColumIndex * timelineColumnWidth) (rowIndex * timelineRowHeight) timelineColumnWidth ]
 
                 UserPointerUpEvent _ _ ->
-                    [ cursorSvg color (columnIndex * timelineColumnWidth) (rowIndex * timelineRowHeight) timelineColumnWidth ]
+                    [ cursorSvg color (adjustedColumIndex * timelineColumnWidth) (rowIndex * timelineRowHeight) timelineColumnWidth ]
 
                 UserPointerEnterEvent _ _ ->
-                    [ cursorSvg color (columnIndex * timelineColumnWidth) (rowIndex * timelineRowHeight) timelineColumnWidth ]
+                    [ cursorSvg color (adjustedColumIndex * timelineColumnWidth) (rowIndex * timelineRowHeight) timelineColumnWidth ]
 
                 UserPointerLeaveEvent _ _ ->
-                    [ cursorSvg color (columnIndex * timelineColumnWidth) (rowIndex * timelineRowHeight) timelineColumnWidth ]
+                    [ cursorSvg color (adjustedColumIndex * timelineColumnWidth) (rowIndex * timelineRowHeight) timelineColumnWidth ]
 
                 UserPointerOutEvent _ _ ->
-                    [ cursorSvg color (columnIndex * timelineColumnWidth) (rowIndex * timelineRowHeight) timelineColumnWidth ]
+                    [ cursorSvg color (adjustedColumIndex * timelineColumnWidth) (rowIndex * timelineRowHeight) timelineColumnWidth ]
 
                 UserPointerMoveEvent _ _ ->
-                    [ cursorSvg color (columnIndex * timelineColumnWidth) (rowIndex * timelineRowHeight) timelineColumnWidth ]
+                    [ cursorSvg color (adjustedColumIndex * timelineColumnWidth) (rowIndex * timelineRowHeight) timelineColumnWidth ]
 
                 UserPointerOverEvent _ _ ->
-                    [ cursorSvg color (columnIndex * timelineColumnWidth) (rowIndex * timelineRowHeight) timelineColumnWidth ]
+                    [ cursorSvg color (adjustedColumIndex * timelineColumnWidth) (rowIndex * timelineRowHeight) timelineColumnWidth ]
 
                 UserPointerCancelEvent _ _ ->
-                    [ cursorSvg color (columnIndex * timelineColumnWidth) (rowIndex * timelineRowHeight) timelineColumnWidth ]
+                    [ cursorSvg color (adjustedColumIndex * timelineColumnWidth) (rowIndex * timelineRowHeight) timelineColumnWidth ]
 
                 UserTouchCancelEvent _ _ ->
                     [ circleHelper "big-circle" ]
@@ -6814,25 +6831,25 @@ eventIcon testView2 color event columnIndex rowIndex =
                     [ circleHelper "big-circle" ]
 
                 UserMouseEnterEvent _ _ ->
-                    [ cursorSvg color (columnIndex * timelineColumnWidth) (rowIndex * timelineRowHeight) timelineColumnWidth ]
+                    [ cursorSvg color (adjustedColumIndex * timelineColumnWidth) (rowIndex * timelineRowHeight) timelineColumnWidth ]
 
                 UserMouseLeaveEvent _ _ ->
-                    [ cursorSvg color (columnIndex * timelineColumnWidth) (rowIndex * timelineRowHeight) timelineColumnWidth ]
+                    [ cursorSvg color (adjustedColumIndex * timelineColumnWidth) (rowIndex * timelineRowHeight) timelineColumnWidth ]
 
                 UserMouseOutEvent _ _ ->
-                    [ cursorSvg color (columnIndex * timelineColumnWidth) (rowIndex * timelineRowHeight) timelineColumnWidth ]
+                    [ cursorSvg color (adjustedColumIndex * timelineColumnWidth) (rowIndex * timelineRowHeight) timelineColumnWidth ]
 
                 UserMouseMoveEvent _ _ ->
-                    [ cursorSvg color (columnIndex * timelineColumnWidth) (rowIndex * timelineRowHeight) timelineColumnWidth ]
+                    [ cursorSvg color (adjustedColumIndex * timelineColumnWidth) (rowIndex * timelineRowHeight) timelineColumnWidth ]
 
                 UserMouseOverEvent _ _ ->
-                    [ cursorSvg color (columnIndex * timelineColumnWidth) (rowIndex * timelineRowHeight) timelineColumnWidth ]
+                    [ cursorSvg color (adjustedColumIndex * timelineColumnWidth) (rowIndex * timelineRowHeight) timelineColumnWidth ]
 
                 UserMouseUpEvent _ _ ->
-                    [ cursorSvg color (columnIndex * timelineColumnWidth) (rowIndex * timelineRowHeight) timelineColumnWidth ]
+                    [ cursorSvg color (adjustedColumIndex * timelineColumnWidth) (rowIndex * timelineRowHeight) timelineColumnWidth ]
 
                 UserMouseDownEvent _ _ ->
-                    [ cursorSvg color (columnIndex * timelineColumnWidth) (rowIndex * timelineRowHeight) timelineColumnWidth ]
+                    [ cursorSvg color (adjustedColumIndex * timelineColumnWidth) (rowIndex * timelineRowHeight) timelineColumnWidth ]
 
                 UserFocusEvent _ ->
                     [ circleHelper "big-circle" ]
@@ -6847,7 +6864,7 @@ eventIcon testView2 color event columnIndex rowIndex =
                     [ circleHelper "big-circle" ]
 
         SnapshotEvent _ ->
-            [ cameraSvg color (columnIndex * timelineColumnWidth) (rowIndex * timelineRowHeight) ]
+            [ cameraSvg color (adjustedColumIndex * timelineColumnWidth) (rowIndex * timelineRowHeight) ]
 
         ManuallySendToBackend _ ->
             [ circleHelper "big-circle" ]
@@ -6870,18 +6887,18 @@ eventIcon testView2 color event columnIndex rowIndex =
         CollapsableGroupStart string ->
             [ collapsableGroupStart
                 (SeqSet.member columnIndex testView2.collapsedGroups)
-                (columnIndex * timelineColumnWidth)
+                (adjustedColumIndex * timelineColumnWidth)
                 (rowIndex * timelineRowHeight)
             ]
 
         CollapsableGroupEnd string ->
-            [ collapsableGroupEnd (columnIndex * timelineColumnWidth) (rowIndex * timelineRowHeight) ]
+            [ collapsableGroupEnd (adjustedColumIndex * timelineColumnWidth) (rowIndex * timelineRowHeight) ]
     )
         ++ (if noErrors then
                 []
 
             else
-                [ xSvg "red" (columnIndex * timelineColumnWidth) (rowIndex * timelineRowHeight) ]
+                [ xSvg "red" (adjustedColumIndex * timelineColumnWidth) (rowIndex * timelineRowHeight) ]
            )
 
 

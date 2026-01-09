@@ -214,30 +214,30 @@ tests textures fileData =
             "/"
             desktopWindow
             (\userA ->
-                [ --, userA.setNetworkLatency 0 { toBackendLatency = 50, toFrontendLatency = 50 }
-                  --, handleAudioPorts userA
-                  --, userA.click 500 (Dom.id "createNewMatch")
-                  --, T.connectFrontend
-                  --    100
-                  --    sessionId1
-                  --    "/"
-                  --    desktopWindow
-                  --    (\userB ->
-                  --        [ handleAudioPorts userB
-                  --        , userB.clickLink 500 (Route.encode (Route.InMatchRoute (Id.fromInt 0)))
-                  --        , userA.click 100 (Dom.id "startMatchSetup")
-                  --        , movePlayer 500 100 userA
-                  --        , movePlayer 500 400 userB
-                  --        , checkPlayersInSync 5000
-                  --        ]
-                  --    )
-                  T.connectFrontend
+                [ userA.setNetworkLatency 0 { toBackendLatency = 50, toFrontendLatency = 50 }
+                , handleAudioPorts userA
+                , userA.click 500 (Dom.id "createNewMatch")
+                , T.connectFrontend
+                    100
+                    sessionId1
+                    "/"
+                    desktopWindow
+                    (\userB ->
+                        [ handleAudioPorts userB
+                        , userB.clickLink 500 (Route.encode (Route.InMatchRoute (Id.fromInt 0)))
+                        , userA.click 100 (Dom.id "startMatchSetup")
+                        , movePlayer 500 100 userA
+                        , movePlayer 500 400 userB
+                        , checkPlayersInSync 5000
+                        ]
+                    )
+                , T.connectFrontend
                     100
                     sessionId1
                     (Route.encode (Route.InMatchRoute (Id.fromInt 0)))
                     desktopWindow
                     (\userB ->
-                        [ T.collapsableGroup "Loading" [ handleAudioPorts userB ]
+                        [ handleAudioPorts userB
                         , movePlayer 600 100 userA
                         , movePlayer 600 400 userB
                         , checkPlayersInSync 500
@@ -317,7 +317,7 @@ handleAudioPorts user =
                     )
             )
             (List.range 0 (List.length Sounds.soundUrls - 1))
-        |> T.group
+        |> T.collapsableGroup "Loading"
 
 
 {-| Verifies that all players in active matches are in sync by checking that
