@@ -6421,9 +6421,21 @@ collapsedRanges :
     TestView toBackend frontendMsg frontendModel toFrontend backendMsg backendModel
     -> List { startIndex : Int, endIndex : Int }
 collapsedRanges testView_ =
+    let
+        list : List { startIndex : Int, endIndex : Int }
+        list =
+            List.filter
+                (\range -> SeqSet.member range.startIndex testView_.collapsedGroups)
+                testView_.collapsableGroupRanges
+    in
     List.filter
-        (\range -> SeqSet.member range.startIndex testView_.collapsedGroups)
-        testView_.collapsableGroupRanges
+        (\range ->
+            List.any
+                (\otherRange -> otherRange.startIndex < range.startIndex && range.startIndex < otherRange.endIndex)
+                list
+                |> not
+        )
+        list
 
 
 {-| -}
