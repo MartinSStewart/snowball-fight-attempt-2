@@ -4715,7 +4715,7 @@ update config msg (Model model) =
                                     ( currentTest, Cmd.none )
 
                         ArrowLeft ->
-                            case previousTimelineStep False currentTest.stepIndex (currentTimeline currentTest) currentTest of
+                            case previousTimelineStep True False currentTest.stepIndex (currentTimeline currentTest) currentTest of
                                 Just ( previousIndex, _ ) ->
                                     stepTo previousIndex currentTest
 
@@ -4768,6 +4768,10 @@ update config msg (Model model) =
             )
 
         PressedTimelineEvent stepIndex ->
+            let
+                _ =
+                    Debug.log "a" stepIndex
+            in
             updateCurrentTest
                 (\test ->
                     case
@@ -5263,6 +5267,11 @@ nextTimelineStep skipTestEvents stepIndex timeline test =
         Nothing
 
     else
+        let
+            collapsedRanges2 : List { startIndex : Int, endIndex : Int }
+            collapsedRanges2 =
+                collapsedRanges test
+        in
         Array.slice (stepIndex + 1) (Array.length test.steps) test.steps
             |> Array.foldl
                 (\step state ->
@@ -5271,7 +5280,7 @@ nextTimelineStep skipTestEvents stepIndex timeline test =
                             state
 
                         Continue index ->
-                            if skipTestEvents && isSkippable step.eventType then
+                            if (skipTestEvents && isSkippable step.eventType) || isEventHidden collapsedRanges2 index then
                                 Continue (index + 1)
 
                             else if eventTypeToTimelineType step.eventType == timeline then
@@ -5294,6 +5303,7 @@ nextTimelineStep skipTestEvents stepIndex timeline test =
 {-| -}
 previousTimelineStep :
     Bool
+    -> Bool
     -> Int
     -> CurrentTimeline
     ->
@@ -5302,11 +5312,16 @@ previousTimelineStep :
             , steps : Array (Event toBackend frontendMsg frontendModel toFrontend backendMsg backendModel)
         }
     -> Maybe ( Int, Event toBackend frontendMsg frontendModel toFrontend backendMsg backendModel )
-previousTimelineStep skipTestEvents stepIndex timeline test =
+previousTimelineStep skipCollapsedEvents skipTestEvents stepIndex timeline test =
     if stepIndex <= 0 then
         Nothing
 
     else
+        let
+            collapsedRanges2 : List { startIndex : Int, endIndex : Int }
+            collapsedRanges2 =
+                collapsedRanges test
+        in
         Array.slice 0 stepIndex test.steps
             |> Array.foldr
                 (\step state ->
@@ -5315,7 +5330,10 @@ previousTimelineStep skipTestEvents stepIndex timeline test =
                             state
 
                         Continue index ->
-                            if skipTestEvents && isSkippable step.eventType then
+                            if
+                                (skipTestEvents && isSkippable step.eventType)
+                                    || (skipCollapsedEvents && isEventHidden collapsedRanges2 index)
+                            then
                                 Continue (index - 1)
 
                             else if eventTypeToTimelineType step.eventType == timeline then
@@ -6134,7 +6152,8 @@ unselectedTimelineColor =
 
 {-| -}
 addTimelineEvent :
-    Int
+    TestView toBackend frontendMsg frontendModel toFrontend backendMsg backendModel
+    -> Int
     -> { previousStep : Maybe Int, currentStep : Maybe Int }
     -> List { startIndex : Int, endIndex : Int }
     -> Event toBackend frontendMsg frontendModel toFrontend backendMsg backendModel
@@ -6146,7 +6165,7 @@ addTimelineEvent :
         { columnIndex : Int
         , dict : SeqDict CurrentTimeline (TimelineViewData toBackend frontendMsg frontendModel toFrontend backendMsg backendModel)
         }
-addTimelineEvent currentTimelineIndex { previousStep, currentStep } collapsedRanges2 event state =
+addTimelineEvent testView2 currentTimelineIndex { previousStep, currentStep } collapsedRanges2 event state =
     let
         arrowHelper : Int -> Int -> Int -> List (Html msg)
         arrowHelper rowIndexStart rowIndexEnd stepIndex =
@@ -6241,19 +6260,13 @@ addTimelineEvent currentTimelineIndex { previousStep, currentStep } collapsedRan
                 CollapsableGroupEnd string ->
                     []
 
-        isHidden : Bool
-        isHidden =
-            List.any
-                (\range -> range.startIndex <= state.columnIndex && state.columnIndex <= range.endIndex)
-                collapsedRanges2
-
         columnIndex : Int
         columnIndex =
             adjustColumnIndex collapsedRanges2 state.columnIndex
     in
     { columnIndex = state.columnIndex + 1
     , dict =
-        if isHidden then
+        if isEventHidden collapsedRanges2 state.columnIndex then
             state.dict
 
         else
@@ -6279,7 +6292,7 @@ addTimelineEvent currentTimelineIndex { previousStep, currentStep } collapsedRan
                         Just timeline ->
                             { events =
                                 arrows timeline.rowIndex
-                                    ++ eventIcon (color timeline.rowIndex) event columnIndex timeline.rowIndex
+                                    ++ eventIcon testView2 (color timeline.rowIndex) event columnIndex timeline.rowIndex
                                     ++ timeline.events
                             , columnStart = timeline.columnStart
                             , columnEnd = columnIndex
@@ -6293,7 +6306,7 @@ addTimelineEvent currentTimelineIndex { previousStep, currentStep } collapsedRan
                                     SeqDict.size state.dict
                             in
                             { events =
-                                arrows rowIndex ++ eventIcon (color rowIndex) event columnIndex rowIndex
+                                arrows rowIndex ++ eventIcon testView2 (color rowIndex) event columnIndex rowIndex
                             , columnStart = columnIndex
                             , columnEnd = columnIndex
                             , rowIndex = rowIndex
@@ -6303,6 +6316,13 @@ addTimelineEvent currentTimelineIndex { previousStep, currentStep } collapsedRan
                 )
                 state.dict
     }
+
+
+isEventHidden : List { startIndex : Int, endIndex : Int } -> Int -> Bool
+isEventHidden collapsedRanges2 columnIndex =
+    List.any
+        (\range -> range.startIndex < columnIndex && columnIndex <= range.endIndex)
+        collapsedRanges2
 
 
 adjustColumnIndex : List { startIndex : Int, endIndex : Int } -> Int -> Int
@@ -6422,6 +6442,7 @@ timelineView windowWidth testView_ =
         currentTimeline_ =
             currentTimeline testView_
 
+        collapsedRanges2 : List { startIndex : Int, endIndex : Int }
         collapsedRanges2 =
             collapsedRanges testView_
 
@@ -6531,25 +6552,35 @@ timelineViewHelper collapsedRanges2 width testView_ timelines =
         timelines
         |> (\a ->
                 timelineCss
-                    :: List.map
+                    :: List.filterMap
                         (\index ->
-                            Html.div
-                                ([ Html.Attributes.style "left" (px (index * timelineColumnWidth))
-                                 , Html.Attributes.style "width" (px timelineColumnWidth)
-                                 , Html.Attributes.style "height" (px (List.length timelines * timelineRowHeight))
-                                 , Html.Attributes.style "position" "absolute"
-                                 , Html.Events.onClick (PressedTimelineEvent index)
-                                 ]
-                                    ++ (if index == testView_.stepIndex then
-                                            [ Html.Attributes.id timelineEventId
-                                            , Html.Attributes.style "background-color" "rgba(255,255,255,0.4)"
-                                            ]
+                            let
+                                columnIndex : Int
+                                columnIndex =
+                                    adjustColumnIndex collapsedRanges2 index
+                            in
+                            if isEventHidden collapsedRanges2 index then
+                                Nothing
 
-                                        else
-                                            []
-                                       )
-                                )
-                                []
+                            else
+                                Html.div
+                                    ([ Html.Attributes.style "left" (px (columnIndex * timelineColumnWidth))
+                                     , Html.Attributes.style "width" (px timelineColumnWidth)
+                                     , Html.Attributes.style "height" (px (List.length timelines * timelineRowHeight))
+                                     , Html.Attributes.style "position" "absolute"
+                                     , Html.Events.onClick (PressedTimelineEvent index)
+                                     ]
+                                        ++ (if index == testView_.stepIndex then
+                                                [ Html.Attributes.id timelineEventId
+                                                , Html.Attributes.style "background-color" "rgba(255,255,255,0.4)"
+                                                ]
+
+                                            else
+                                                []
+                                           )
+                                    )
+                                    []
+                                    |> Just
                         )
                         (List.range 0 (Array.length testView_.steps - 1))
                     ++ a
@@ -6670,12 +6701,13 @@ timelineColumnWidth =
 
 {-| -}
 eventIcon :
-    String
+    TestView toBackend frontendMsg frontendModel toFrontend backendMsg backendModel
+    -> String
     -> Event toBackend frontendMsg frontendModel toFrontend backendMsg backendModel
     -> Int
     -> Int
     -> List (Html msg)
-eventIcon color event columnIndex rowIndex =
+eventIcon testView2 color event columnIndex rowIndex =
     let
         circleHelper : String -> Html msg
         circleHelper class =
@@ -6823,7 +6855,11 @@ eventIcon color event columnIndex rowIndex =
             [ circleHelper "big-circle" ]
 
         CollapsableGroupStart string ->
-            [ collapsableGroupStart (columnIndex * timelineColumnWidth) (rowIndex * timelineRowHeight) ]
+            [ collapsableGroupStart
+                (SeqSet.member columnIndex testView2.collapsedGroups)
+                (columnIndex * timelineColumnWidth)
+                (rowIndex * timelineRowHeight)
+            ]
 
         CollapsableGroupEnd string ->
             [ collapsableGroupEnd (columnIndex * timelineColumnWidth) (rowIndex * timelineRowHeight) ]
@@ -6836,22 +6872,44 @@ eventIcon color event columnIndex rowIndex =
            )
 
 
-collapsableGroupStart : Int -> Int -> Html msg
-collapsableGroupStart left top =
-    Svg.svg
-        [ Svg.Attributes.width (String.fromInt timelineColumnWidth)
-        , Html.Attributes.style "left" (px left)
-        , Html.Attributes.style "top" (px top)
-        , Html.Attributes.style "position" "absolute"
-        , Svg.Attributes.viewBox "0 0 24 24"
-        , Html.Attributes.style "pointer-events" "none"
-        ]
-        [ Svg.path
-            [ Svg.Attributes.fill "#FFFFFF"
-            , Svg.Attributes.d "M9,18l7-6L9,6V18z"
+collapsableGroupStart : Bool -> Int -> Int -> Html msg
+collapsableGroupStart isCollapsed left top =
+    if isCollapsed then
+        Svg.svg
+            [ Svg.Attributes.width (String.fromInt timelineColumnWidth)
+            , Html.Attributes.style "left" (px left)
+            , Html.Attributes.style "top" (px top)
+            , Html.Attributes.style "position" "absolute"
+            , Svg.Attributes.viewBox "0 0 24 24"
+            , Html.Attributes.style "pointer-events" "none"
             ]
-            []
-        ]
+            [ Svg.path
+                [ Svg.Attributes.fill "#FFFFFF"
+                , Svg.Attributes.d "M9,18l7-6L9,6V18z"
+                ]
+                []
+            , Svg.path
+                [ Svg.Attributes.fill "#FFFFFF"
+                , Svg.Attributes.d "M15,6l-7,6l7,6V6z"
+                ]
+                []
+            ]
+
+    else
+        Svg.svg
+            [ Svg.Attributes.width (String.fromInt timelineColumnWidth)
+            , Html.Attributes.style "left" (px left)
+            , Html.Attributes.style "top" (px top)
+            , Html.Attributes.style "position" "absolute"
+            , Svg.Attributes.viewBox "0 0 24 24"
+            , Html.Attributes.style "pointer-events" "none"
+            ]
+            [ Svg.path
+                [ Svg.Attributes.fill "#FFFFFF"
+                , Svg.Attributes.d "M9,18l7-6L9,6V18z"
+                ]
+                []
+            ]
 
 
 collapsableGroupEnd : Int -> Int -> Html msg
@@ -6865,29 +6923,6 @@ collapsableGroupEnd left top =
         , Html.Attributes.style "pointer-events" "none"
         ]
         [ Svg.path
-            [ Svg.Attributes.fill "#FFFFFF"
-            , Svg.Attributes.d "M15,6l-7,6l7,6V6z"
-            ]
-            []
-        ]
-
-
-collapsableGroupCollapsed : Int -> Int -> Html msg
-collapsableGroupCollapsed left top =
-    Svg.svg
-        [ Svg.Attributes.width (String.fromInt timelineColumnWidth)
-        , Html.Attributes.style "left" (px left)
-        , Html.Attributes.style "top" (px top)
-        , Html.Attributes.style "position" "absolute"
-        , Svg.Attributes.viewBox "0 0 24 24"
-        , Html.Attributes.style "pointer-events" "none"
-        ]
-        [ Svg.path
-            [ Svg.Attributes.fill "#FFFFFF"
-            , Svg.Attributes.d "M9,18l7-6L9,6V18z"
-            ]
-            []
-        , Svg.path
             [ Svg.Attributes.fill "#FFFFFF"
             , Svg.Attributes.d "M15,6l-7,6l7,6V6z"
             ]
@@ -7056,11 +7091,11 @@ currentAndPreviousStepIndex :
     TestView toBackend frontendMsg frontendModel toFrontend backendMsg backendModel
     -> { previousStep : Maybe Int, currentStep : Maybe Int }
 currentAndPreviousStepIndex testView_ =
-    case previousTimelineStep True (testView_.stepIndex + 1) (currentTimeline testView_) testView_ of
+    case previousTimelineStep False True (testView_.stepIndex + 1) (currentTimeline testView_) testView_ of
         Just ( currentIndex, _ ) ->
             { currentStep = Just currentIndex
             , previousStep =
-                previousTimelineStep True currentIndex (currentTimeline testView_) testView_ |> Maybe.map Tuple.first
+                previousTimelineStep False True currentIndex (currentTimeline testView_) testView_ |> Maybe.map Tuple.first
             }
 
         Nothing ->
@@ -7073,18 +7108,19 @@ getTimelines :
     -> Int
     -> TestView toBackend frontendMsg frontendModel toFrontend backendMsg backendModel
     -> List ( CurrentTimeline, TimelineViewData toBackend frontendMsg frontendModel toFrontend backendMsg backendModel )
-getTimelines collapsedRanges2 timelineIndex testView_ =
+getTimelines collapsedRanges2 timelineIndex testView2 =
     let
         currentAndPreviousStepIndex2 : { previousStep : Maybe Int, currentStep : Maybe Int }
         currentAndPreviousStepIndex2 =
-            currentAndPreviousStepIndex testView_
+            currentAndPreviousStepIndex testView2
     in
     Array.foldl
         (addTimelineEvent
+            testView2
             timelineIndex
             { currentAndPreviousStepIndex2
                 | previousStep =
-                    if testView_.showModel then
+                    if testView2.showModel then
                         currentAndPreviousStepIndex2.previousStep
 
                     else
@@ -7093,7 +7129,7 @@ getTimelines collapsedRanges2 timelineIndex testView_ =
             collapsedRanges2
         )
         { columnIndex = 0, dict = SeqDict.singleton BackendTimeline { events = [], columnStart = 0, columnEnd = 0, rowIndex = 0 } }
-        testView_.steps
+        testView2.steps
         |> .dict
         |> SeqDict.toList
 
