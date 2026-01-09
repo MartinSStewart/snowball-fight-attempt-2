@@ -4951,9 +4951,14 @@ stepTo stepIndex currentTest =
                 [ Browser.Dom.getElement timelineContainerId
                     |> Task.andThen
                         (\container ->
+                            let
+                                stepIndex2 : Int
+                                stepIndex2 =
+                                    adjustColumnIndex (collapsedRanges currentTest) stepIndex
+                            in
                             Browser.Dom.setViewportOf
                                 timelineContainerId
-                                (toFloat stepIndex * timelineColumnWidth - container.element.width / 2)
+                                (toFloat stepIndex2 * timelineColumnWidth - container.element.width / 2)
                                 0
                         )
                     |> Task.attempt (\_ -> NoOp)
@@ -5306,11 +5311,7 @@ previousTimelineStep :
     -> Bool
     -> Int
     -> CurrentTimeline
-    ->
-        { a
-            | stepIndex : Int
-            , steps : Array (Event toBackend frontendMsg frontendModel toFrontend backendMsg backendModel)
-        }
+    -> TestView toBackend frontendMsg frontendModel toFrontend backendMsg backendModel
     -> Maybe ( Int, Event toBackend frontendMsg frontendModel toFrontend backendMsg backendModel )
 previousTimelineStep skipCollapsedEvents skipTestEvents stepIndex timeline test =
     if stepIndex <= 0 then
