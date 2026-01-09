@@ -6280,10 +6280,10 @@ addTimelineEvent testView2 currentTimelineIndex { previousStep, currentStep } co
                             if currentTimelineIndex /= rowIndex then
                                 unselectedTimelineColor
 
-                            else if previousStep == Just columnIndex then
+                            else if previousStep == Just state.columnIndex then
                                 "red"
 
-                            else if currentStep == Just columnIndex then
+                            else if currentStep == Just state.columnIndex then
                                 "green"
 
                             else
