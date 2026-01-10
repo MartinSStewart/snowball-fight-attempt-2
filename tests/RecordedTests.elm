@@ -157,9 +157,6 @@ tests :
     -> List (T.EndToEndTest ToBackend FrontendMsg FrontendModel ToFrontend BackendMsg BackendModel)
 tests textures fileData =
     let
-        _ =
-            Debug.log "textures" textures
-
         handleHttpRequests : Dict String String -> { currentRequest : HttpRequest, data : T.Data FrontendModel BackendModel } -> HttpResponse
         handleHttpRequests overrides requestAndData =
             let

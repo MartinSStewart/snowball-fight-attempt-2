@@ -6885,13 +6885,11 @@ eventIcon testView2 color event adjustedColumIndex columnIndex rowIndex =
             [ circleHelper "big-circle" ]
 
         CollapsableGroupStart string ->
-            [ collapsableGroupStart
+            collapsableGroupStart
                 (SeqSet.member columnIndex testView2.collapsedGroups)
                 (adjustedColumIndex * timelineColumnWidth)
                 (Array.length testView2.timelines * timelineRowHeight)
-
-            --, Array.slice columnIndex testView2.history
-            ]
+                :: countCollapsedEvents adjustedColumIndex columnIndex testView2
 
         CollapsableGroupEnd string ->
             [ collapsableGroupEnd (adjustedColumIndex * timelineColumnWidth) (rowIndex * timelineRowHeight) ]
@@ -6902,6 +6900,77 @@ eventIcon testView2 color event adjustedColumIndex columnIndex rowIndex =
             else
                 [ xSvg "red" (adjustedColumIndex * timelineColumnWidth) (rowIndex * timelineRowHeight) ]
            )
+
+
+countCollapsedEvents :
+    Int
+    -> Int
+    -> TestView toBackend frontendMsg frontendModel toFrontend backendMsg backendModel
+    -> List (Html msg)
+countCollapsedEvents adjustedColumIndex columnIndex testView2 =
+    let
+        foldResult =
+            Array.foldl
+                (\event state ->
+                    case state of
+                        Done a ->
+                            state
+
+                        Continue { timelines, depth } ->
+                            case event.eventType of
+                                CollapsableGroupStart _ ->
+                                    Continue { timelines = timelines, depth = depth + 1 }
+
+                                CollapsableGroupEnd _ ->
+                                    if depth <= 1 then
+                                        Done timelines
+
+                                    else
+                                        Continue { timelines = timelines, depth = depth - 1 }
+
+                                _ ->
+                                    { timelines =
+                                        SeqDict.update
+                                            (eventTypeToTimelineType event.eventType)
+                                            (\maybeTimeline ->
+                                                (case maybeTimeline of
+                                                    Just timeline ->
+                                                        { rowIndex = timeline.rowIndex
+                                                        , eventCount = timeline.eventCount + 1
+                                                        }
+
+                                                    Nothing ->
+                                                        { rowIndex = SeqDict.size timelines, eventCount = 1 }
+                                                )
+                                                    |> Just
+                                            )
+                                            timelines
+                                    , depth = depth
+                                    }
+                                        |> Continue
+                )
+                (Continue { timelines = SeqDict.empty, depth = 1 })
+                (Array.slice columnIndex (Array.length testView2.steps - 1) testView2.steps)
+                |> Debug.log "a"
+    in
+    case foldResult of
+        Done timeline ->
+            SeqDict.toList timeline
+                |> List.sortBy (\( _, data ) -> data.rowIndex)
+                |> List.map
+                    (\( _, data ) ->
+                        Html.div
+                            [ Html.Attributes.style "background-color" "white"
+                            , Html.Attributes.style "left" (px (adjustedColumIndex * timelineColumnWidth))
+                            , Html.Attributes.style "top" (px (data.rowIndex * timelineRowHeight + 1))
+                            , Html.Attributes.class "big-circle"
+                            , Html.Attributes.style "color" "black"
+                            ]
+                            [ Html.text (String.fromInt data.eventCount) ]
+                    )
+
+        Continue _ ->
+            []
 
 
 collapsableGroupStart : Bool -> Int -> Int -> Html msg
