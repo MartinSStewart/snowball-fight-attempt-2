@@ -4487,9 +4487,9 @@ viewTest test index stepIndex timelineIndex position (Model model) =
                 ( 0, [], [] )
                 state.history
                 |> (\( _, _, groups ) -> groups)
-    in
-    ( { model
-        | currentTest =
+
+        currentTest : TestView toBackend frontendMsg frontendModel toFrontend backendMsg backendModel
+        currentTest =
             { index = index
             , testName = state.testName
             , steps = state.history
@@ -4503,16 +4503,20 @@ viewTest test index stepIndex timelineIndex position (Model model) =
             , buttonCursor = Nothing
             , collapsableGroupRanges = collapsableGroupRanges
             }
-                |> Just
-      }
-        |> Model
+    in
+    ( { model | currentTest = Just currentTest } |> Model
     , Cmd.batch
         [ Browser.Dom.getViewportOf timelineContainerId
             |> Task.andThen
                 (\{ viewport } ->
+                    let
+                        stepIndex3 : Int
+                        stepIndex3 =
+                            adjustColumnIndex (collapsedRanges currentTest) stepIndex
+                    in
                     Browser.Dom.setViewportOf
                         timelineContainerId
-                        (toFloat stepIndex2 * timelineColumnWidth + viewport.width / -2)
+                        (toFloat stepIndex3 * timelineColumnWidth + viewport.width / -2)
                         0
                 )
             |> Task.attempt (\_ -> NoOp)
@@ -4771,10 +4775,6 @@ update config msg (Model model) =
             )
 
         PressedTimelineEvent stepIndex ->
-            let
-                _ =
-                    Debug.log "a" stepIndex
-            in
             updateCurrentTest
                 (\test ->
                     case
@@ -6485,7 +6485,7 @@ timelineView windowWidth testView_ =
             [ Html.Attributes.style "display" "inline-block"
             , Html.Attributes.style "position" "relative"
             , Html.Attributes.style "width" (px (sideBarWidth - leftPadding))
-            , Html.Attributes.style "height" (px (List.length timelines * timelineRowHeight))
+            , Html.Attributes.style "height" (px ((List.length timelines + 1) * timelineRowHeight))
             , Html.Attributes.style "padding-left" (px leftPadding)
             , Html.Attributes.style "font-size" "14px"
             , Html.Attributes.style "box-sizing" "unset"
@@ -6595,7 +6595,7 @@ timelineViewHelper collapsedRanges2 width testView_ timelines =
                                 Html.div
                                     ([ Html.Attributes.style "left" (px (columnIndex * timelineColumnWidth))
                                      , Html.Attributes.style "width" (px timelineColumnWidth)
-                                     , Html.Attributes.style "height" (px (List.length timelines * timelineRowHeight))
+                                     , Html.Attributes.style "height" (px ((List.length timelines + 1) * timelineRowHeight))
                                      , Html.Attributes.style "position" "absolute"
                                      , Html.Events.onClick (PressedTimelineEvent index)
                                      ]
@@ -6616,7 +6616,7 @@ timelineViewHelper collapsedRanges2 width testView_ timelines =
            )
         |> Html.div
             [ Html.Attributes.style "width" (px width)
-            , Html.Attributes.style "height" (px (List.length timelines * timelineRowHeight))
+            , Html.Attributes.style "height" (px ((List.length timelines + 1) * timelineRowHeight))
             , Html.Attributes.style "position" "relative"
             , Html.Attributes.style "overflow-x" "auto"
             , Html.Attributes.style "overflow-y" "clip"
@@ -6888,7 +6888,9 @@ eventIcon testView2 color event adjustedColumIndex columnIndex rowIndex =
             [ collapsableGroupStart
                 (SeqSet.member columnIndex testView2.collapsedGroups)
                 (adjustedColumIndex * timelineColumnWidth)
-                (rowIndex * timelineRowHeight)
+                (Array.length testView2.timelines * timelineRowHeight)
+
+            --, Array.slice columnIndex testView2.history
             ]
 
         CollapsableGroupEnd string ->
@@ -6904,42 +6906,41 @@ eventIcon testView2 color event adjustedColumIndex columnIndex rowIndex =
 
 collapsableGroupStart : Bool -> Int -> Int -> Html msg
 collapsableGroupStart isCollapsed left top =
-    if isCollapsed then
-        Svg.svg
-            [ Svg.Attributes.width (String.fromInt timelineColumnWidth)
-            , Html.Attributes.style "left" (px left)
-            , Html.Attributes.style "top" (px top)
-            , Html.Attributes.style "position" "absolute"
-            , Svg.Attributes.viewBox "0 0 24 24"
-            , Html.Attributes.style "pointer-events" "none"
+    Svg.svg
+        [ Svg.Attributes.width (String.fromInt timelineColumnWidth)
+        , Html.Attributes.style "left" (px left)
+        , Html.Attributes.style "top" (px top)
+        , Html.Attributes.style "position" "absolute"
+        , Svg.Attributes.viewBox "0 0 24 24"
+        , Svg.Attributes.stroke "#FFFFFF"
+        , Svg.Attributes.strokeWidth "1.8"
+        , Html.Attributes.style "pointer-events" "none"
+        ]
+        [ Svg.rect
+            [ Svg.Attributes.x "2"
+            , Svg.Attributes.y "2"
+            , Svg.Attributes.width "20"
+            , Svg.Attributes.height "20"
+            , Svg.Attributes.fill "#000000"
+            , Svg.Attributes.strokeWidth "0"
             ]
-            [ Svg.path
-                [ Svg.Attributes.fill "#FFFFFF"
-                , Svg.Attributes.d "M9,18l7-6L9,6V18z"
+            []
+        , Svg.path
+            [ Svg.Attributes.d "M18.438,20.938H5.563a2.5,2.5,0,0,1-2.5-2.5V5.564a2.5,2.5,0,0,1,2.5-2.5H18.438a2.5,2.5,0,0,1,2.5,2.5V18.438A2.5,2.5,0,0,1,18.438,20.938ZM5.563,4.064a1.5,1.5,0,0,0-1.5,1.5V18.438a1.5,1.5,0,0,0,1.5,1.5H18.438a1.5,1.5,0,0,0,1.5-1.5V5.564a1.5,1.5,0,0,0-1.5-1.5Z"
+            ]
+            []
+        , if isCollapsed then
+            Svg.path
+                [ Svg.Attributes.d "M15,12.5H12.5V15a.5.5,0,0,1-1,0V12.5H9a.5.5,0,0,1,0-1h2.5V9a.5.5,0,0,1,1,0v2.5H15A.5.5,0,0,1,15,12.5Z"
                 ]
                 []
-            , Svg.path
-                [ Svg.Attributes.fill "#FFFFFF"
-                , Svg.Attributes.d "M15,6l-7,6l7,6V6z"
-                ]
-                []
-            ]
 
-    else
-        Svg.svg
-            [ Svg.Attributes.width (String.fromInt timelineColumnWidth)
-            , Html.Attributes.style "left" (px left)
-            , Html.Attributes.style "top" (px top)
-            , Html.Attributes.style "position" "absolute"
-            , Svg.Attributes.viewBox "0 0 24 24"
-            , Html.Attributes.style "pointer-events" "none"
-            ]
-            [ Svg.path
-                [ Svg.Attributes.fill "#FFFFFF"
-                , Svg.Attributes.d "M9,18l7-6L9,6V18z"
+          else
+            Svg.path
+                [ Svg.Attributes.d "M9,12.5a.5.5,0,0,1,0-1h6a.5.5,0,0,1,0,1Z"
                 ]
                 []
-            ]
+        ]
 
 
 collapsableGroupEnd : Int -> Int -> Html msg
