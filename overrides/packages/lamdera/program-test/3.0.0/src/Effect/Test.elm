@@ -4383,9 +4383,13 @@ type alias TestView toBackend frontendMsg frontendModel toFrontend backendMsg ba
     , collapsedFields : SeqDict (List PathNode) CollapsedField
     , -- Values are the start index for each collapsable group
       collapsedGroups : SeqSet Int
-    , collapsableGroupRanges : List { startIndex : Int, endIndex : Int }
+    , collapsableGroupRanges : List CollapsableRange
     , buttonCursor : Maybe { htmlId : HtmlId, x : Float, y : Float, width : Float, height : Float }
     }
+
+
+type alias CollapsableRange =
+    { name : String, startIndex : Int, endIndex : Int }
 
 
 {-| -}
@@ -4465,7 +4469,7 @@ viewTest test index stepIndex timelineIndex position (Model model) =
         stepIndex2 =
             clamp 0 (Array.length state.history - 1) stepIndex
 
-        collapsableGroupRanges : List { startIndex : Int, endIndex : Int }
+        collapsableGroupRanges : List CollapsableRange
         collapsableGroupRanges =
             Array.foldl
                 (\event ( index2, stack, groups ) ->
@@ -4476,7 +4480,7 @@ viewTest test index stepIndex timelineIndex position (Model model) =
                         CollapsableGroupEnd name ->
                             case stack of
                                 head :: rest ->
-                                    ( index2 + 1, rest, { startIndex = head, endIndex = index2 } :: groups )
+                                    ( index2 + 1, rest, { name = name, startIndex = head, endIndex = index2 } :: groups )
 
                                 [] ->
                                     ( index2 + 1, stack, groups )
@@ -4562,7 +4566,13 @@ update config msg (Model model) =
                         Just test ->
                             let
                                 _ =
-                                    writeLocalStorage (getTestName test) 0 0 Bottom
+                                    writeLocalStorage
+                                        { testName = getTestName test
+                                        , stepIndex = 0
+                                        , timelineIndex = 0
+                                        , position = Bottom
+                                        , expandedCollapsableGroups = []
+                                        }
                             in
                             viewTest test index 0 0 Bottom (Model model)
 
@@ -4604,17 +4614,27 @@ update config msg (Model model) =
                                 , Cmd (Msg toBackend frontendMsg frontendModel toFrontend backendMsg backendModel)
                                 )
                         maybeModelAndCmd =
-                            case Lamdera.Debug.debugR currentTestLocalStorage { name = "", index = 0, stepIndex = 0, timelineIndex = 0, isTopPosition = False } of
-                                Just { name, stepIndex, timelineIndex, isTopPosition } ->
+                            case
+                                Lamdera.Debug.debugR
+                                    currentTestLocalStorage
+                                    { testName = ""
+                                    , index = 0
+                                    , stepIndex = 0
+                                    , timelineIndex = 0
+                                    , isTopPosition = False
+                                    , expandedCollapsableGroups = []
+                                    }
+                            of
+                                Just localStorage ->
                                     List.indexedMap
                                         (\testIndex test ->
-                                            if name == getTestName test then
+                                            if localStorage.testName == getTestName test then
                                                 viewTest
                                                     test
                                                     testIndex
-                                                    stepIndex
-                                                    timelineIndex
-                                                    (if isTopPosition then
+                                                    localStorage.stepIndex
+                                                    localStorage.timelineIndex
+                                                    (if localStorage.isTopPosition then
                                                         Top
 
                                                      else
@@ -4657,10 +4677,12 @@ update config msg (Model model) =
 
                         _ =
                             writeLocalStorage
-                                currentTest.testName
-                                currentTest.stepIndex
-                                currentTest.timelineIndex
-                                newPosition
+                                { testName = currentTest.testName
+                                , stepIndex = currentTest.stepIndex
+                                , timelineIndex = currentTest.timelineIndex
+                                , position = newPosition
+                                , expandedCollapsableGroups = expandedCollapsableGroups currentTest
+                                }
                     in
                     ( { currentTest | overlayPosition = newPosition }, Cmd.none )
                 )
@@ -4736,10 +4758,12 @@ update config msg (Model model) =
 
                                 _ =
                                     writeLocalStorage
-                                        currentTest.testName
-                                        currentTest.stepIndex
-                                        timelineIndex
-                                        currentTest.overlayPosition
+                                        { testName = currentTest.testName
+                                        , stepIndex = currentTest.stepIndex
+                                        , timelineIndex = timelineIndex
+                                        , position = currentTest.overlayPosition
+                                        , expandedCollapsableGroups = expandedCollapsableGroups currentTest
+                                        }
                             in
                             ( { currentTest | timelineIndex = timelineIndex }, Cmd.none )
 
@@ -4750,10 +4774,12 @@ update config msg (Model model) =
 
                                 _ =
                                     writeLocalStorage
-                                        currentTest.testName
-                                        currentTest.stepIndex
-                                        timelineIndex
-                                        currentTest.overlayPosition
+                                        { testName = currentTest.testName
+                                        , stepIndex = currentTest.stepIndex
+                                        , timelineIndex = timelineIndex
+                                        , position = currentTest.overlayPosition
+                                        , expandedCollapsableGroups = expandedCollapsableGroups currentTest
+                                        }
                             in
                             ( { currentTest | timelineIndex = timelineIndex }, Cmd.none )
                 )
@@ -4906,25 +4932,47 @@ currentTestLocalStorage =
 {-| This reaaalllllly should have been a cmd instead of an unmanaged side effect
 -}
 writeLocalStorage :
-    String
-    -> Int
-    -> Int
-    -> OverlayPosition
-    -> { name : String, stepIndex : Int, timelineIndex : Int, isTopPosition : Bool }
-writeLocalStorage testName stepIndex timelineIndex position =
+    { testName : String
+    , stepIndex : Int
+    , timelineIndex : Int
+    , position : OverlayPosition
+    , expandedCollapsableGroups : List String
+    }
+    ->
+        { testName : String
+        , stepIndex : Int
+        , timelineIndex : Int
+        , isTopPosition : Bool
+        , expandedCollapsableGroups : List String
+        }
+writeLocalStorage data =
     Lamdera.Debug.debugS
         currentTestLocalStorage
-        { name = testName
-        , stepIndex = stepIndex
-        , timelineIndex = timelineIndex
+        { testName = data.testName
+        , stepIndex = data.stepIndex
+        , timelineIndex = data.timelineIndex
         , isTopPosition =
-            case position of
+            case data.position of
                 Top ->
                     True
 
                 Bottom ->
                     False
+        , expandedCollapsableGroups = data.expandedCollapsableGroups
         }
+
+
+expandedCollapsableGroups : TestView toBackend frontendMsg frontendModel toFrontend backendMsg backendModel -> List String
+expandedCollapsableGroups testView2 =
+    List.filterMap
+        (\collapsableRange ->
+            if SeqSet.member collapsableRange.startIndex testView2.collapsedGroups then
+                Just collapsableRange.name
+
+            else
+                Nothing
+        )
+        testView2.collapsableGroupRanges
 
 
 {-| -}
@@ -4947,7 +4995,13 @@ stepTo stepIndex currentTest =
                     arrayFindIndex newTimeline currentTest.timelines |> Maybe.withDefault currentTest.timelineIndex
 
                 _ =
-                    writeLocalStorage currentTest.testName stepIndex timelineIndex currentTest.overlayPosition
+                    writeLocalStorage
+                        { testName = currentTest.testName
+                        , stepIndex = stepIndex
+                        , timelineIndex = timelineIndex
+                        , position = currentTest.overlayPosition
+                        , expandedCollapsableGroups = expandedCollapsableGroups currentTest
+                        }
             in
             ( { currentTest | stepIndex = stepIndex, timelineIndex = timelineIndex }
             , Cmd.batch
@@ -5276,7 +5330,7 @@ nextTimelineStep skipTestEvents stepIndex timeline test =
 
     else
         let
-            collapsedRanges2 : List { startIndex : Int, endIndex : Int }
+            collapsedRanges2 : List CollapsableRange
             collapsedRanges2 =
                 collapsedRanges test
         in
@@ -5322,7 +5376,7 @@ previousTimelineStep skipCollapsedEvents skipTestEvents stepIndex timeline test 
 
     else
         let
-            collapsedRanges2 : List { startIndex : Int, endIndex : Int }
+            collapsedRanges2 : List CollapsableRange
             collapsedRanges2 =
                 collapsedRanges test
         in
@@ -6188,7 +6242,7 @@ timelineArrow rowIndexStart rowIndexEnd startIndex endIndex currentTimelineIndex
 
 eventToArrows :
     SeqDict CurrentTimeline { a | rowIndex : Int }
-    -> List { startIndex : Int, endIndex : Int }
+    -> List CollapsableRange
     -> Int
     -> Int
     -> Event toBackend frontendMsg frontendModel toFrontend backendMsg backendModel
@@ -6271,7 +6325,7 @@ addTimelineEvent :
     TestView toBackend frontendMsg frontendModel toFrontend backendMsg backendModel
     -> Int
     -> { previousStep : Maybe Int, currentStep : Maybe Int }
-    -> List { startIndex : Int, endIndex : Int }
+    -> List CollapsableRange
     -> Event toBackend frontendMsg frontendModel toFrontend backendMsg backendModel
     ->
         { columnIndex : Int
@@ -6364,14 +6418,14 @@ addTimelineEvent testView2 currentTimelineIndex { previousStep, currentStep } co
     }
 
 
-isEventHidden : List { startIndex : Int, endIndex : Int } -> Int -> Bool
+isEventHidden : List CollapsableRange -> Int -> Bool
 isEventHidden collapsedRanges2 columnIndex =
     List.any
         (\range -> range.startIndex < columnIndex && columnIndex <= range.endIndex)
         collapsedRanges2
 
 
-adjustColumnIndex : List { startIndex : Int, endIndex : Int } -> Int -> Int
+adjustColumnIndex : List CollapsableRange -> Int -> Int
 adjustColumnIndex collapsedRanges2 columnIndex2 =
     List.foldl
         (\range value ->
@@ -6464,10 +6518,10 @@ timelineRowHeight =
 
 collapsedRanges :
     TestView toBackend frontendMsg frontendModel toFrontend backendMsg backendModel
-    -> List { startIndex : Int, endIndex : Int }
+    -> List CollapsableRange
 collapsedRanges testView_ =
     let
-        list : List { startIndex : Int, endIndex : Int }
+        list : List CollapsableRange
         list =
             List.filter
                 (\range -> SeqSet.member range.startIndex testView_.collapsedGroups)
@@ -6500,7 +6554,7 @@ timelineView windowWidth testView_ =
         currentTimeline_ =
             currentTimeline testView_
 
-        collapsedRanges2 : List { startIndex : Int, endIndex : Int }
+        collapsedRanges2 : List CollapsableRange
         collapsedRanges2 =
             collapsedRanges testView_
 
@@ -6576,7 +6630,7 @@ horizontalLine columnStart columnEnd rowIndex color =
 
 {-| -}
 timelineViewHelper :
-    List { startIndex : Int, endIndex : Int }
+    List CollapsableRange
     -> Int
     -> TestView toBackend frontendMsg frontendModel toFrontend backendMsg backendModel
     -> List ( CurrentTimeline, TimelineViewData toBackend frontendMsg frontendModel toFrontend backendMsg backendModel )
@@ -6763,7 +6817,7 @@ eventIcon :
     -> TestView toBackend frontendMsg frontendModel toFrontend backendMsg backendModel
     -> String
     -> Event toBackend frontendMsg frontendModel toFrontend backendMsg backendModel
-    -> List { startIndex : Int, endIndex : Int }
+    -> List CollapsableRange
     -> Int
     -> Int
     -> Int
@@ -6969,10 +7023,10 @@ eventIcon timelines testView2 color event collapsedRanges2 adjustedColumIndex co
 
 
 countCollapsedEvents :
-    List { startIndex : Int, endIndex : Int }
+    List CollapsableRange
     -> SeqDict CurrentTimeline (TimelineViewData toBackend frontendMsg frontendModel toFrontend backendMsg backendModel)
     -> Int
-    -> { startIndex : Int, endIndex : Int }
+    -> CollapsableRange
     -> TestView toBackend frontendMsg frontendModel toFrontend backendMsg backendModel
     -> List (Html msg)
 countCollapsedEvents collapsedRanges2 existingTimelines adjustedColumIndex range testView2 =
@@ -7293,7 +7347,7 @@ currentAndPreviousStepIndex testView_ =
 
 {-| -}
 getTimelines :
-    List { startIndex : Int, endIndex : Int }
+    List CollapsableRange
     -> Int
     -> TestView toBackend frontendMsg frontendModel toFrontend backendMsg backendModel
     -> List ( CurrentTimeline, TimelineViewData toBackend frontendMsg frontendModel toFrontend backendMsg backendModel )
