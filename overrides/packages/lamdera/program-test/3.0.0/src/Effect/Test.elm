@@ -6924,7 +6924,7 @@ eventIcon timelines testView2 color event collapsedRanges2 adjustedColumIndex co
             (case List.filter (\a -> a.startIndex == columnIndex) testView2.collapsableGroupRanges of
                 head :: _ ->
                     if isCollapsed then
-                        countCollapsedEvents timelines adjustedColumIndex head testView2
+                        countCollapsedEvents collapsedRanges2 timelines adjustedColumIndex head testView2
 
                     else
                         [ horizontalLine
@@ -6969,12 +6969,13 @@ eventIcon timelines testView2 color event collapsedRanges2 adjustedColumIndex co
 
 
 countCollapsedEvents :
-    SeqDict CurrentTimeline (TimelineViewData toBackend frontendMsg frontendModel toFrontend backendMsg backendModel)
+    List { startIndex : Int, endIndex : Int }
+    -> SeqDict CurrentTimeline (TimelineViewData toBackend frontendMsg frontendModel toFrontend backendMsg backendModel)
     -> Int
     -> { startIndex : Int, endIndex : Int }
     -> TestView toBackend frontendMsg frontendModel toFrontend backendMsg backendModel
     -> List (Html msg)
-countCollapsedEvents existingTimelines adjustedColumIndex range testView2 =
+countCollapsedEvents collapsedRanges2 existingTimelines adjustedColumIndex range testView2 =
     Array.foldl
         (\event timelines ->
             case event.eventType of
@@ -6990,13 +6991,36 @@ countCollapsedEvents existingTimelines adjustedColumIndex range testView2 =
                         (\maybeTimeline ->
                             (case maybeTimeline of
                                 Just timeline ->
-                                    { arrows = timeline.arrows
+                                    { arrows =
+                                        eventToArrows
+                                            timelines
+                                            collapsedRanges2
+                                            testView2.timelineIndex
+                                            adjustedColumIndex
+                                            event
+                                            timeline.rowIndex
+                                            ++ timeline.arrows
                                     , rowIndex = timeline.rowIndex
                                     , eventCount = timeline.eventCount + 1
                                     }
 
                                 Nothing ->
-                                    { arrows = [], rowIndex = SeqDict.size timelines, eventCount = 1 }
+                                    let
+                                        rowIndex : Int
+                                        rowIndex =
+                                            SeqDict.size timelines
+                                    in
+                                    { arrows =
+                                        eventToArrows
+                                            timelines
+                                            collapsedRanges2
+                                            testView2.timelineIndex
+                                            adjustedColumIndex
+                                            event
+                                            rowIndex
+                                    , rowIndex = rowIndex
+                                    , eventCount = 1
+                                    }
                             )
                                 |> Just
                         )
@@ -7006,10 +7030,10 @@ countCollapsedEvents existingTimelines adjustedColumIndex range testView2 =
         (Array.slice (range.startIndex + 1) range.endIndex testView2.steps)
         |> SeqDict.toList
         |> List.sortBy (\( _, data ) -> data.rowIndex)
-        |> List.map
+        |> List.concatMap
             (\( _, data ) ->
                 if data.eventCount == 0 then
-                    Html.text ""
+                    []
 
                 else
                     Html.div
@@ -7051,6 +7075,7 @@ countCollapsedEvents existingTimelines adjustedColumIndex range testView2 =
                             ]
                             [ Html.text (String.fromInt data.eventCount) ]
                         ]
+                        :: data.arrows
             )
 
 

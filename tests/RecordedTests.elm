@@ -299,7 +299,9 @@ handleAudioPorts :
     T.FrontendActions toBackend frontendMsg frontendModel toFrontend backendMsg backendModel
     -> T.Action toBackend frontendMsg frontendModel toFrontend backendMsg backendModel
 handleAudioPorts user =
-    [ user.portEvent 100 "audioPortFromJS" (stringToJson """{"type":2,"samplesPerSecond":48000}""") ]
+    [ user.portEvent 100 "audioPortFromJS" (stringToJson """{"type":2,"samplesPerSecond":48000}""")
+    , T.collapsableGroup "test" []
+    ]
         ++ List.map
             (\index ->
                 user.portEvent
