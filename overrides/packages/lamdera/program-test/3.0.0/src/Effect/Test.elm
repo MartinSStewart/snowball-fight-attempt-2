@@ -6301,6 +6301,7 @@ addTimelineEvent testView2 currentTimelineIndex { previousStep, currentStep } co
                                         testView2
                                         (color timeline.rowIndex)
                                         event
+                                        collapsedRanges2
                                         adjustedColumnIndex
                                         state.columnIndex
                                         timeline.rowIndex
@@ -6323,6 +6324,7 @@ addTimelineEvent testView2 currentTimelineIndex { previousStep, currentStep } co
                                         testView2
                                         (color rowIndex)
                                         event
+                                        collapsedRanges2
                                         adjustedColumnIndex
                                         state.columnIndex
                                         rowIndex
@@ -6736,11 +6738,12 @@ eventIcon :
     -> TestView toBackend frontendMsg frontendModel toFrontend backendMsg backendModel
     -> String
     -> Event toBackend frontendMsg frontendModel toFrontend backendMsg backendModel
+    -> List { startIndex : Int, endIndex : Int }
     -> Int
     -> Int
     -> Int
     -> List (Html msg)
-eventIcon timelines testView2 color event adjustedColumIndex columnIndex rowIndex =
+eventIcon timelines testView2 color event collapsedRanges2 adjustedColumIndex columnIndex rowIndex =
     let
         circleHelper : String -> Html msg
         circleHelper class =
@@ -6901,7 +6904,7 @@ eventIcon timelines testView2 color event adjustedColumIndex columnIndex rowInde
                     else
                         [ horizontalLine
                             adjustedColumIndex
-                            (adjustedColumIndex + (head.endIndex - head.startIndex))
+                            (adjustColumnIndex collapsedRanges2 head.endIndex)
                             (Array.length testView2.timelines)
                             "white"
                         ]
@@ -6931,7 +6934,6 @@ eventIcon timelines testView2 color event adjustedColumIndex columnIndex rowInde
                 ]
                 []
             ]
-     --[ collapsableGroupEnd (adjustedColumIndex * timelineColumnWidth) (rowIndex * timelineRowHeight) ]
     )
         ++ (if noErrors then
                 []
@@ -7063,24 +7065,6 @@ collapsableGroupStart isCollapsed left top =
                 [ Svg.Attributes.d "M9,12.5a.5.5,0,0,1,0-1h6a.5.5,0,0,1,0,1Z"
                 ]
                 []
-        ]
-
-
-collapsableGroupEnd : Int -> Int -> Html msg
-collapsableGroupEnd left top =
-    Svg.svg
-        [ Svg.Attributes.width (String.fromInt timelineColumnWidth)
-        , Html.Attributes.style "left" (px left)
-        , Html.Attributes.style "top" (px top)
-        , Html.Attributes.style "position" "absolute"
-        , Svg.Attributes.viewBox "0 0 24 24"
-        , Html.Attributes.style "pointer-events" "none"
-        ]
-        [ Svg.path
-            [ Svg.Attributes.fill "#FFFFFF"
-            , Svg.Attributes.d "M15,6l-7,6l7,6V6z"
-            ]
-            []
         ]
 
 
