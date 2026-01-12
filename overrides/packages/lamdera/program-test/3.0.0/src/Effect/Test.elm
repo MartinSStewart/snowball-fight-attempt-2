@@ -6154,6 +6154,118 @@ unselectedTimelineColor =
     "#626262"
 
 
+timelineArrow : Int -> Int -> Int -> Int -> Int -> List (Html msg)
+timelineArrow rowIndexStart rowIndexEnd startIndex endIndex currentTimelineIndex =
+    let
+        xA =
+            startIndex * timelineColumnWidth + timelineColumnWidth // 2 |> toFloat
+
+        yA =
+            rowIndexStart * timelineRowHeight + timelineRowHeight // 4 |> toFloat
+
+        xB =
+            endIndex * timelineColumnWidth + timelineColumnWidth // 2 |> toFloat
+
+        yB =
+            rowIndexEnd * timelineRowHeight + timelineRowHeight // 4 |> toFloat
+
+        length =
+            (xB - xA) ^ 2 + (yB - yA) ^ 2 |> sqrt
+
+        length2 =
+            (length - 4) / length
+
+        color2 : String
+        color2 =
+            if currentTimelineIndex == rowIndexStart || currentTimelineIndex == rowIndexEnd then
+                "white"
+
+            else
+                unselectedTimelineColor
+    in
+    [ arrowSvg color2 xA yA (length2 * (xB - xA) + xA) (length2 * (yB - yA) + yA) ]
+
+
+eventToArrows :
+    SeqDict CurrentTimeline { a | rowIndex : Int }
+    -> List { startIndex : Int, endIndex : Int }
+    -> Int
+    -> Int
+    -> Event toBackend frontendMsg frontendModel toFrontend backendMsg backendModel
+    -> Int
+    -> List (Html msg)
+eventToArrows timelines collapsedRanges2 currentTimelineIndex adjustedColumnIndex event rowIndex =
+    case event.eventType of
+        FrontendUpdateEvent _ _ _ ->
+            []
+
+        UpdateFromBackendEvent data ->
+            timelineArrow
+                0
+                rowIndex
+                (adjustColumnIndex collapsedRanges2 data.stepIndex)
+                adjustedColumnIndex
+                currentTimelineIndex
+
+        UpdateFromFrontendEvent data ->
+            case SeqDict.get (FrontendTimeline data.clientId) timelines of
+                Just timeline ->
+                    timelineArrow
+                        timeline.rowIndex
+                        rowIndex
+                        (adjustColumnIndex collapsedRanges2 data.stepIndex)
+                        adjustedColumnIndex
+                        currentTimelineIndex
+
+                Nothing ->
+                    []
+
+        BackendUpdateEvent _ _ ->
+            []
+
+        TestEvent _ _ ->
+            []
+
+        BackendInitEvent _ ->
+            []
+
+        FrontendInitEvent _ ->
+            []
+
+        CheckStateEvent _ ->
+            []
+
+        UserInputEvent _ ->
+            []
+
+        SnapshotEvent _ ->
+            []
+
+        ManuallySendToBackend _ ->
+            []
+
+        ManuallySendPortEvent _ ->
+            []
+
+        EffectFailedEvent _ _ ->
+            []
+
+        NavigateBack _ ->
+            []
+
+        NavigateForward _ ->
+            []
+
+        SetLatency _ _ ->
+            []
+
+        CollapsableGroupStart string ->
+            []
+
+        CollapsableGroupEnd string ->
+            []
+
+
 {-| -}
 addTimelineEvent :
     TestView toBackend frontendMsg frontendModel toFrontend backendMsg backendModel
@@ -6171,99 +6283,6 @@ addTimelineEvent :
         }
 addTimelineEvent testView2 currentTimelineIndex { previousStep, currentStep } collapsedRanges2 event state =
     let
-        arrowHelper : Int -> Int -> Int -> List (Html msg)
-        arrowHelper rowIndexStart rowIndexEnd stepIndex =
-            let
-                xA =
-                    adjustColumnIndex collapsedRanges2 stepIndex * timelineColumnWidth + timelineColumnWidth // 2 |> toFloat
-
-                yA =
-                    rowIndexStart * timelineRowHeight + timelineRowHeight // 4 |> toFloat
-
-                xB =
-                    adjustedColumnIndex * timelineColumnWidth + timelineColumnWidth // 2 |> toFloat
-
-                yB =
-                    rowIndexEnd * timelineRowHeight + timelineRowHeight // 4 |> toFloat
-
-                length =
-                    (xB - xA) ^ 2 + (yB - yA) ^ 2 |> sqrt
-
-                length2 =
-                    (length - 4) / length
-
-                color2 : String
-                color2 =
-                    if currentTimelineIndex == rowIndexStart || currentTimelineIndex == rowIndexEnd then
-                        "white"
-
-                    else
-                        unselectedTimelineColor
-            in
-            [ arrowSvg color2 xA yA (length2 * (xB - xA) + xA) (length2 * (yB - yA) + yA) ]
-
-        arrows : Int -> List (Html msg)
-        arrows rowIndex =
-            case event.eventType of
-                FrontendUpdateEvent _ _ _ ->
-                    []
-
-                UpdateFromBackendEvent data ->
-                    arrowHelper 0 rowIndex data.stepIndex
-
-                UpdateFromFrontendEvent data ->
-                    case SeqDict.get (FrontendTimeline data.clientId) state.dict of
-                        Just timeline ->
-                            arrowHelper timeline.rowIndex rowIndex data.stepIndex
-
-                        Nothing ->
-                            []
-
-                BackendUpdateEvent _ _ ->
-                    []
-
-                TestEvent _ _ ->
-                    []
-
-                BackendInitEvent _ ->
-                    []
-
-                FrontendInitEvent _ ->
-                    []
-
-                CheckStateEvent _ ->
-                    []
-
-                UserInputEvent _ ->
-                    []
-
-                SnapshotEvent _ ->
-                    []
-
-                ManuallySendToBackend _ ->
-                    []
-
-                ManuallySendPortEvent _ ->
-                    []
-
-                EffectFailedEvent _ _ ->
-                    []
-
-                NavigateBack _ ->
-                    []
-
-                NavigateForward _ ->
-                    []
-
-                SetLatency _ _ ->
-                    []
-
-                CollapsableGroupStart string ->
-                    []
-
-                CollapsableGroupEnd string ->
-                    []
-
         adjustedColumnIndex : Int
         adjustedColumnIndex =
             adjustColumnIndex collapsedRanges2 state.columnIndex
@@ -6295,7 +6314,13 @@ addTimelineEvent testView2 currentTimelineIndex { previousStep, currentStep } co
                     (case maybeTimeline of
                         Just timeline ->
                             { events =
-                                arrows timeline.rowIndex
+                                eventToArrows
+                                    state.dict
+                                    collapsedRanges2
+                                    currentTimelineIndex
+                                    adjustedColumnIndex
+                                    event
+                                    timeline.rowIndex
                                     ++ eventIcon
                                         state.dict
                                         testView2
@@ -6318,7 +6343,7 @@ addTimelineEvent testView2 currentTimelineIndex { previousStep, currentStep } co
                                     SeqDict.size state.dict
                             in
                             { events =
-                                arrows rowIndex
+                                eventToArrows state.dict collapsedRanges2 currentTimelineIndex adjustedColumnIndex event rowIndex
                                     ++ eventIcon
                                         state.dict
                                         testView2
@@ -6965,18 +6990,19 @@ countCollapsedEvents existingTimelines adjustedColumIndex range testView2 =
                         (\maybeTimeline ->
                             (case maybeTimeline of
                                 Just timeline ->
-                                    { rowIndex = timeline.rowIndex
+                                    { arrows = timeline.arrows
+                                    , rowIndex = timeline.rowIndex
                                     , eventCount = timeline.eventCount + 1
                                     }
 
                                 Nothing ->
-                                    { rowIndex = SeqDict.size timelines, eventCount = 1 }
+                                    { arrows = [], rowIndex = SeqDict.size timelines, eventCount = 1 }
                             )
                                 |> Just
                         )
                         timelines
         )
-        (SeqDict.map (\_ data -> { eventCount = 0, rowIndex = data.rowIndex }) existingTimelines)
+        (SeqDict.map (\_ data -> { arrows = [], eventCount = 0, rowIndex = data.rowIndex }) existingTimelines)
         (Array.slice (range.startIndex + 1) range.endIndex testView2.steps)
         |> SeqDict.toList
         |> List.sortBy (\( _, data ) -> data.rowIndex)
