@@ -6181,7 +6181,7 @@ addTimelineEvent testView2 currentTimelineIndex { previousStep, currentStep } co
                     rowIndexStart * timelineRowHeight + timelineRowHeight // 4 |> toFloat
 
                 xB =
-                    columnIndex * timelineColumnWidth + timelineColumnWidth // 2 |> toFloat
+                    adjustedColumnIndex * timelineColumnWidth + timelineColumnWidth // 2 |> toFloat
 
                 yB =
                     rowIndexEnd * timelineRowHeight + timelineRowHeight // 4 |> toFloat
@@ -6264,8 +6264,8 @@ addTimelineEvent testView2 currentTimelineIndex { previousStep, currentStep } co
                 CollapsableGroupEnd string ->
                     []
 
-        columnIndex : Int
-        columnIndex =
+        adjustedColumnIndex : Int
+        adjustedColumnIndex =
             adjustColumnIndex collapsedRanges2 state.columnIndex
     in
     { columnIndex = state.columnIndex + 1
@@ -6297,15 +6297,16 @@ addTimelineEvent testView2 currentTimelineIndex { previousStep, currentStep } co
                             { events =
                                 arrows timeline.rowIndex
                                     ++ eventIcon
+                                        state.dict
                                         testView2
                                         (color timeline.rowIndex)
                                         event
-                                        columnIndex
+                                        adjustedColumnIndex
                                         state.columnIndex
                                         timeline.rowIndex
                                     ++ timeline.events
                             , columnStart = timeline.columnStart
-                            , columnEnd = columnIndex
+                            , columnEnd = adjustedColumnIndex
                             , rowIndex = timeline.rowIndex
                             }
 
@@ -6318,14 +6319,15 @@ addTimelineEvent testView2 currentTimelineIndex { previousStep, currentStep } co
                             { events =
                                 arrows rowIndex
                                     ++ eventIcon
+                                        state.dict
                                         testView2
                                         (color rowIndex)
                                         event
-                                        columnIndex
+                                        adjustedColumnIndex
                                         state.columnIndex
                                         rowIndex
-                            , columnStart = columnIndex
-                            , columnEnd = columnIndex
+                            , columnStart = adjustedColumnIndex
+                            , columnEnd = adjustedColumnIndex
                             , rowIndex = rowIndex
                             }
                     )
@@ -6529,6 +6531,22 @@ timelineView windowWidth testView_ =
         ]
 
 
+horizontalLine : Int -> Int -> Int -> String -> Html msg
+horizontalLine columnStart columnEnd rowIndex color =
+    Html.div
+        [ Html.Attributes.style "position" "absolute"
+        , Html.Attributes.style "left" (px (columnStart * timelineColumnWidth + timelineColumnWidth // 2))
+        , Html.Attributes.style "top" (px (rowIndex * timelineRowHeight + 7))
+        , Html.Attributes.style "height" "2px"
+        , Html.Attributes.style "pointer-events" "none"
+        , Html.Attributes.style
+            "width"
+            (px ((columnEnd - columnStart) * timelineColumnWidth + timelineColumnWidth // 4))
+        , Html.Attributes.style "background-color" color
+        ]
+        []
+
+
 {-| -}
 timelineViewHelper :
     List { startIndex : Int, endIndex : Int }
@@ -6544,38 +6562,22 @@ timelineViewHelper collapsedRanges2 width testView_ timelines =
     in
     List.concatMap
         (\( timelineType, timeline ) ->
-            let
-                columnStart =
-                    timeline.columnStart
+            horizontalLine
+                timeline.columnStart
+                (case timelineType of
+                    FrontendTimeline _ ->
+                        timeline.columnEnd
 
-                columnEnd =
-                    timeline.columnEnd
-            in
-            Html.div
-                [ Html.Attributes.style "position" "absolute"
-                , Html.Attributes.style "left" (px (columnStart * timelineColumnWidth + timelineColumnWidth // 2))
-                , Html.Attributes.style "top" (px (timeline.rowIndex * timelineRowHeight + 7))
-                , Html.Attributes.style "height" "2px"
-                , Html.Attributes.style "pointer-events" "none"
-                , Html.Attributes.style
-                    "width"
-                    (case timelineType of
-                        FrontendTimeline _ ->
-                            px ((columnEnd - columnStart) * timelineColumnWidth + timelineColumnWidth // 4)
+                    BackendTimeline ->
+                        maxColumnEnd
+                )
+                timeline.rowIndex
+                (if testView_.timelineIndex == timeline.rowIndex then
+                    "white"
 
-                        BackendTimeline ->
-                            px ((maxColumnEnd - columnStart) * timelineColumnWidth + timelineColumnWidth // 4)
-                    )
-                , Html.Attributes.style
-                    "background-color"
-                    (if testView_.timelineIndex == timeline.rowIndex then
-                        "white"
-
-                     else
-                        unselectedTimelineColor
-                    )
-                ]
-                []
+                 else
+                    unselectedTimelineColor
+                )
                 :: timeline.events
         )
         timelines
@@ -6730,14 +6732,15 @@ timelineColumnWidth =
 
 {-| -}
 eventIcon :
-    TestView toBackend frontendMsg frontendModel toFrontend backendMsg backendModel
+    SeqDict CurrentTimeline (TimelineViewData toBackend frontendMsg frontendModel toFrontend backendMsg backendModel)
+    -> TestView toBackend frontendMsg frontendModel toFrontend backendMsg backendModel
     -> String
     -> Event toBackend frontendMsg frontendModel toFrontend backendMsg backendModel
     -> Int
     -> Int
     -> Int
     -> List (Html msg)
-eventIcon testView2 color event adjustedColumIndex columnIndex rowIndex =
+eventIcon timelines testView2 color event adjustedColumIndex columnIndex rowIndex =
     let
         circleHelper : String -> Html msg
         circleHelper class =
@@ -6884,15 +6887,51 @@ eventIcon testView2 color event adjustedColumIndex columnIndex rowIndex =
         SetLatency _ _ ->
             [ circleHelper "big-circle" ]
 
-        CollapsableGroupStart string ->
-            collapsableGroupStart
-                (SeqSet.member columnIndex testView2.collapsedGroups)
-                (adjustedColumIndex * timelineColumnWidth)
-                (Array.length testView2.timelines * timelineRowHeight)
-                :: countCollapsedEvents adjustedColumIndex columnIndex testView2
+        CollapsableGroupStart _ ->
+            let
+                isCollapsed : Bool
+                isCollapsed =
+                    SeqSet.member columnIndex testView2.collapsedGroups
+            in
+            (case List.filter (\a -> a.startIndex == columnIndex) testView2.collapsableGroupRanges of
+                head :: _ ->
+                    if isCollapsed then
+                        countCollapsedEvents timelines adjustedColumIndex head testView2
+
+                    else
+                        [ horizontalLine
+                            adjustedColumIndex
+                            (adjustedColumIndex + (head.endIndex - head.startIndex))
+                            (Array.length testView2.timelines)
+                            "white"
+                        ]
+
+                [] ->
+                    []
+            )
+                ++ [ collapsableGroupStart
+                        isCollapsed
+                        (adjustedColumIndex * timelineColumnWidth)
+                        (Array.length testView2.timelines * timelineRowHeight + 1)
+                   ]
 
         CollapsableGroupEnd string ->
-            [ collapsableGroupEnd (adjustedColumIndex * timelineColumnWidth) (rowIndex * timelineRowHeight) ]
+            let
+                height =
+                    6
+            in
+            [ Html.div
+                [ Html.Attributes.style "position" "absolute"
+                , Html.Attributes.style "left" (px (adjustedColumIndex * timelineColumnWidth + 1 + timelineColumnWidth // 2))
+                , Html.Attributes.style "top" (px (Array.length testView2.timelines * timelineRowHeight + 7 - height))
+                , Html.Attributes.style "height" (String.fromInt height ++ "px")
+                , Html.Attributes.style "pointer-events" "none"
+                , Html.Attributes.style "width" "2px"
+                , Html.Attributes.style "background-color" "white"
+                ]
+                []
+            ]
+     --[ collapsableGroupEnd (adjustedColumIndex * timelineColumnWidth) (rowIndex * timelineRowHeight) ]
     )
         ++ (if noErrors then
                 []
@@ -6903,74 +6942,88 @@ eventIcon testView2 color event adjustedColumIndex columnIndex rowIndex =
 
 
 countCollapsedEvents :
-    Int
+    SeqDict CurrentTimeline (TimelineViewData toBackend frontendMsg frontendModel toFrontend backendMsg backendModel)
     -> Int
+    -> { startIndex : Int, endIndex : Int }
     -> TestView toBackend frontendMsg frontendModel toFrontend backendMsg backendModel
     -> List (Html msg)
-countCollapsedEvents adjustedColumIndex columnIndex testView2 =
-    let
-        foldResult =
-            Array.foldl
-                (\event state ->
-                    case state of
-                        Done a ->
-                            state
+countCollapsedEvents existingTimelines adjustedColumIndex range testView2 =
+    Array.foldl
+        (\event timelines ->
+            case event.eventType of
+                CollapsableGroupStart _ ->
+                    timelines
 
-                        Continue { timelines, depth } ->
-                            case event.eventType of
-                                CollapsableGroupStart _ ->
-                                    Continue { timelines = timelines, depth = depth + 1 }
+                CollapsableGroupEnd _ ->
+                    timelines
 
-                                CollapsableGroupEnd _ ->
-                                    if depth <= 1 then
-                                        Done timelines
-
-                                    else
-                                        Continue { timelines = timelines, depth = depth - 1 }
-
-                                _ ->
-                                    { timelines =
-                                        SeqDict.update
-                                            (eventTypeToTimelineType event.eventType)
-                                            (\maybeTimeline ->
-                                                (case maybeTimeline of
-                                                    Just timeline ->
-                                                        { rowIndex = timeline.rowIndex
-                                                        , eventCount = timeline.eventCount + 1
-                                                        }
-
-                                                    Nothing ->
-                                                        { rowIndex = SeqDict.size timelines, eventCount = 1 }
-                                                )
-                                                    |> Just
-                                            )
-                                            timelines
-                                    , depth = depth
+                _ ->
+                    SeqDict.update
+                        (eventTypeToTimelineType event.eventType)
+                        (\maybeTimeline ->
+                            (case maybeTimeline of
+                                Just timeline ->
+                                    { rowIndex = timeline.rowIndex
+                                    , eventCount = timeline.eventCount + 1
                                     }
-                                        |> Continue
-                )
-                (Continue { timelines = SeqDict.empty, depth = 1 })
-                (Array.slice columnIndex (Array.length testView2.steps - 1) testView2.steps)
-                |> Debug.log "a"
-    in
-    case foldResult of
-        Done timeline ->
-            SeqDict.toList timeline
-                |> List.sortBy (\( _, data ) -> data.rowIndex)
-                |> List.map
-                    (\( _, data ) ->
-                        Html.div
-                            [ Html.Attributes.style "background-color" "white"
-                            , Html.Attributes.style "left" (px (adjustedColumIndex * timelineColumnWidth))
-                            , Html.Attributes.style "top" (px (data.rowIndex * timelineRowHeight + 1))
-                            , Html.Attributes.class "big-circle"
-                            , Html.Attributes.style "color" "black"
+
+                                Nothing ->
+                                    { rowIndex = SeqDict.size timelines, eventCount = 1 }
+                            )
+                                |> Just
+                        )
+                        timelines
+        )
+        (SeqDict.map (\_ data -> { eventCount = 0, rowIndex = data.rowIndex }) existingTimelines)
+        (Array.slice (range.startIndex + 1) range.endIndex testView2.steps)
+        |> SeqDict.toList
+        |> List.sortBy (\( _, data ) -> data.rowIndex)
+        |> List.map
+            (\( _, data ) ->
+                if data.eventCount == 0 then
+                    Html.text ""
+
+                else
+                    Html.div
+                        [ Html.Attributes.style "background-color" "white"
+                        , Html.Attributes.style "left" (px (adjustedColumIndex * timelineColumnWidth))
+                        , Html.Attributes.style "top" (px (data.rowIndex * timelineRowHeight + 1))
+                        , Html.Attributes.style "width" "14px"
+                        , Html.Attributes.style "height" "14px"
+                        , Html.Attributes.style "border-radius" "4px"
+                        , Html.Attributes.style "pointer-events" "none"
+                        , Html.Attributes.style "position" "absolute"
+                        , Html.Attributes.style "color" "black"
+                        , Html.Attributes.style "font-weight" "700"
+                        , Html.Attributes.style "font-size"
+                            (if data.eventCount < 10 then
+                                "13px"
+
+                             else if data.eventCount < 100 then
+                                "11px"
+
+                             else
+                                "8px"
+                            )
+                        , Html.Attributes.style "z-index" "99"
+                        ]
+                        [ Html.div
+                            [ Html.Attributes.style "text-align" "center"
+                            , Html.Attributes.style
+                                "padding-top"
+                                (if data.eventCount < 10 then
+                                    "0px"
+
+                                 else if data.eventCount < 100 then
+                                    "1px"
+
+                                 else
+                                    "2.5px"
+                                )
                             ]
                             [ Html.text (String.fromInt data.eventCount) ]
-                    )
-
-        Continue _ ->
-            []
+                        ]
+            )
 
 
 collapsableGroupStart : Bool -> Int -> Int -> Html msg
@@ -6984,12 +7037,13 @@ collapsableGroupStart isCollapsed left top =
         , Svg.Attributes.stroke "#FFFFFF"
         , Svg.Attributes.strokeWidth "1.8"
         , Html.Attributes.style "pointer-events" "none"
+        , Html.Attributes.style "z-index" "99"
         ]
         [ Svg.rect
-            [ Svg.Attributes.x "2"
-            , Svg.Attributes.y "2"
-            , Svg.Attributes.width "20"
-            , Svg.Attributes.height "20"
+            [ Svg.Attributes.x "3"
+            , Svg.Attributes.y "3"
+            , Svg.Attributes.width "18"
+            , Svg.Attributes.height "18"
             , Svg.Attributes.fill "#000000"
             , Svg.Attributes.strokeWidth "0"
             ]
