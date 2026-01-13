@@ -83,7 +83,7 @@ import Http
 import Json.Decode
 import Json.Encode
 import Lamdera.Debug
-import List.Nonempty exposing (Nonempty)
+import List.Nonempty exposing (Nonempty(..))
 import Math.Matrix4 as Mat4
 import Process
 import Quantity
@@ -4450,12 +4450,13 @@ viewTest :
     -> Int
     -> Int
     -> OverlayPosition
+    -> List { name : String, isCollapsed : Bool }
     -> Model toBackend frontendMsg frontendModel toFrontend backendMsg backendModel
     ->
         ( Model toBackend frontendMsg frontendModel toFrontend backendMsg backendModel
         , Cmd (Msg toBackend frontendMsg frontendModel toFrontend backendMsg backendModel)
         )
-viewTest test index stepIndex timelineIndex position (Model model) =
+viewTest test index stepIndex timelineIndex position expandedCollapsableGroups2 (Model model) =
     let
         state : State toBackend frontendMsg frontendModel toFrontend backendMsg backendModel
         state =
@@ -4492,6 +4493,26 @@ viewTest test index stepIndex timelineIndex position (Model model) =
                 state.history
                 |> (\( _, _, groups ) -> groups)
 
+        expandedCollapsableGroups3 : SeqDict String (Nonempty Bool)
+        expandedCollapsableGroups3 =
+            List.foldl
+                (\group2 dict ->
+                    SeqDict.update
+                        group2.name
+                        (\maybe ->
+                            case maybe of
+                                Just list ->
+                                    List.Nonempty.cons group2.isCollapsed list |> Just
+
+                                Nothing ->
+                                    Nonempty group2.isCollapsed [] |> Just
+                        )
+                        dict
+                )
+                SeqDict.empty
+                expandedCollapsableGroups2
+                |> SeqDict.map (\_ list -> List.Nonempty.reverse list)
+
         currentTest : TestView toBackend frontendMsg frontendModel toFrontend backendMsg backendModel
         currentTest =
             { index = index
@@ -4502,7 +4523,30 @@ viewTest test index stepIndex timelineIndex position (Model model) =
             , stepIndex = stepIndex2
             , overlayPosition = position
             , showModel = False
-            , collapsedGroups = List.map .startIndex collapsableGroupRanges |> SeqSet.fromList
+            , collapsedGroups =
+                List.foldl
+                    (\range ( expanded, set ) ->
+                        case SeqDict.get range.name expanded of
+                            Just (Nonempty isCollapsed rest) ->
+                                ( case List.Nonempty.fromList rest of
+                                    Just nonempty ->
+                                        SeqDict.insert range.name nonempty expanded
+
+                                    Nothing ->
+                                        SeqDict.remove range.name expanded
+                                , if isCollapsed then
+                                    SeqSet.insert range.startIndex set
+
+                                  else
+                                    set
+                                )
+
+                            Nothing ->
+                                ( expanded, SeqSet.insert range.startIndex set )
+                    )
+                    ( expandedCollapsableGroups3, SeqSet.empty )
+                    collapsableGroupRanges
+                    |> Tuple.second
             , collapsedFields = SeqDict.empty
             , buttonCursor = Nothing
             , collapsableGroupRanges = collapsableGroupRanges
@@ -4571,10 +4615,10 @@ update config msg (Model model) =
                                         , stepIndex = 0
                                         , timelineIndex = 0
                                         , position = Bottom
-                                        , expandedCollapsableGroups = []
+                                        , collapsableGroups = []
                                         }
                             in
-                            viewTest test index 0 0 Bottom (Model model)
+                            viewTest test index 0 0 Bottom [] (Model model)
 
                         Nothing ->
                             ( Model model, Cmd.none )
@@ -4615,17 +4659,13 @@ update config msg (Model model) =
                                 )
                         maybeModelAndCmd =
                             case
-                                Lamdera.Debug.debugR
-                                    currentTestLocalStorage
-                                    { testName = ""
-                                    , index = 0
-                                    , stepIndex = 0
-                                    , timelineIndex = 0
-                                    , isTopPosition = False
-                                    , expandedCollapsableGroups = []
-                                    }
+                                Lamdera.Debug.debugR currentTestLocalStorage { data = "" }
+                                    |> Debug.log "abc"
+                                    |> Maybe.withDefault { data = "" }
+                                    |> .data
+                                    |> Json.Decode.decodeString localStorageDecoder
                             of
-                                Just localStorage ->
+                                Ok localStorage ->
                                     List.indexedMap
                                         (\testIndex test ->
                                             if localStorage.testName == getTestName test then
@@ -4634,12 +4674,8 @@ update config msg (Model model) =
                                                     testIndex
                                                     localStorage.stepIndex
                                                     localStorage.timelineIndex
-                                                    (if localStorage.isTopPosition then
-                                                        Top
-
-                                                     else
-                                                        Bottom
-                                                    )
+                                                    localStorage.position
+                                                    localStorage.collapsableGroups
                                                     (Model model)
                                                     |> Just
 
@@ -4650,7 +4686,7 @@ update config msg (Model model) =
                                         |> List.filterMap identity
                                         |> List.head
 
-                                Nothing ->
+                                Err _ ->
                                     Nothing
                     in
                     case maybeModelAndCmd of
@@ -4681,7 +4717,7 @@ update config msg (Model model) =
                                 , stepIndex = currentTest.stepIndex
                                 , timelineIndex = currentTest.timelineIndex
                                 , position = newPosition
-                                , expandedCollapsableGroups = expandedCollapsableGroups currentTest
+                                , collapsableGroups = expandedCollapsableGroups currentTest
                                 }
                     in
                     ( { currentTest | overlayPosition = newPosition }, Cmd.none )
@@ -4762,7 +4798,7 @@ update config msg (Model model) =
                                         , stepIndex = currentTest.stepIndex
                                         , timelineIndex = timelineIndex
                                         , position = currentTest.overlayPosition
-                                        , expandedCollapsableGroups = expandedCollapsableGroups currentTest
+                                        , collapsableGroups = expandedCollapsableGroups currentTest
                                         }
                             in
                             ( { currentTest | timelineIndex = timelineIndex }, Cmd.none )
@@ -4778,7 +4814,7 @@ update config msg (Model model) =
                                         , stepIndex = currentTest.stepIndex
                                         , timelineIndex = timelineIndex
                                         , position = currentTest.overlayPosition
-                                        , expandedCollapsableGroups = expandedCollapsableGroups currentTest
+                                        , collapsableGroups = expandedCollapsableGroups currentTest
                                         }
                             in
                             ( { currentTest | timelineIndex = timelineIndex }, Cmd.none )
@@ -4929,48 +4965,98 @@ currentTestLocalStorage =
     "current-test"
 
 
-{-| This reaaalllllly should have been a cmd instead of an unmanaged side effect
--}
-writeLocalStorage :
+type alias LocalStorage =
     { testName : String
     , stepIndex : Int
     , timelineIndex : Int
     , position : OverlayPosition
-    , expandedCollapsableGroups : List String
+    , collapsableGroups : List { name : String, isCollapsed : Bool }
     }
-    ->
-        { testName : String
-        , stepIndex : Int
-        , timelineIndex : Int
-        , isTopPosition : Bool
-        , expandedCollapsableGroups : List String
-        }
+
+
+encodeLocalStorage : LocalStorage -> Json.Encode.Value
+encodeLocalStorage localStorage =
+    Json.Encode.object
+        [ ( "testName", Json.Encode.string localStorage.testName )
+        , ( "stepIndex", Json.Encode.int localStorage.stepIndex )
+        , ( "timelineIndex", Json.Encode.int localStorage.timelineIndex )
+        , ( "position"
+          , Json.Encode.string
+                (case localStorage.position of
+                    Top ->
+                        "top"
+
+                    Bottom ->
+                        "bottom"
+                )
+          )
+        , ( "collapsableGroups"
+          , Json.Encode.list
+                (\a ->
+                    Json.Encode.object
+                        [ ( "name", Json.Encode.string a.name )
+                        , ( "isCollapsed", Json.Encode.bool a.isCollapsed )
+                        ]
+                )
+                localStorage.collapsableGroups
+          )
+        ]
+
+
+localStorageDecoder : Json.Decode.Decoder LocalStorage
+localStorageDecoder =
+    Json.Decode.map5 LocalStorage
+        (Json.Decode.field "testName" Json.Decode.string)
+        (Json.Decode.field "stepIndex" Json.Decode.int)
+        (Json.Decode.field "timelineIndex" Json.Decode.int)
+        (Json.Decode.field "position" overlayPositionDecoder)
+        (Json.Decode.field "collapsableGroups" (Json.Decode.list collapsableGroupDecoder))
+
+
+overlayPositionDecoder : Json.Decode.Decoder OverlayPosition
+overlayPositionDecoder =
+    Json.Decode.andThen
+        (\text2 ->
+            case text2 of
+                "top" ->
+                    Json.Decode.succeed Top
+
+                "bottom" ->
+                    Json.Decode.succeed Bottom
+
+                _ ->
+                    Json.Decode.fail ("Unknown position: " ++ text2)
+        )
+        Json.Decode.string
+
+
+collapsableGroupDecoder : Json.Decode.Decoder { name : String, isCollapsed : Bool }
+collapsableGroupDecoder =
+    Json.Decode.map2 (\name isCollapsed -> { name = name, isCollapsed = isCollapsed })
+        (Json.Decode.field "name" Json.Decode.string)
+        (Json.Decode.field "isCollapsed" Json.Decode.bool)
+
+
+{-| This reaaalllllly should have been a cmd instead of an unmanaged side effect
+-}
+writeLocalStorage : LocalStorage -> ()
 writeLocalStorage data =
-    Lamdera.Debug.debugS
-        currentTestLocalStorage
-        { testName = data.testName
-        , stepIndex = data.stepIndex
-        , timelineIndex = data.timelineIndex
-        , isTopPosition =
-            case data.position of
-                Top ->
-                    True
-
-                Bottom ->
-                    False
-        , expandedCollapsableGroups = data.expandedCollapsableGroups
-        }
+    let
+        _ =
+            Lamdera.Debug.debugS currentTestLocalStorage { data = Json.Encode.encode 0 (encodeLocalStorage data) }
+    in
+    ()
 
 
-expandedCollapsableGroups : TestView toBackend frontendMsg frontendModel toFrontend backendMsg backendModel -> List String
+expandedCollapsableGroups :
+    TestView toBackend frontendMsg frontendModel toFrontend backendMsg backendModel
+    -> List { name : String, isCollapsed : Bool }
 expandedCollapsableGroups testView2 =
-    List.filterMap
+    List.map
         (\collapsableRange ->
-            if SeqSet.member collapsableRange.startIndex testView2.collapsedGroups then
-                Just collapsableRange.name
-
-            else
-                Nothing
+            { name = collapsableRange.name
+            , isCollapsed = SeqSet.member collapsableRange.startIndex testView2.collapsedGroups
+            }
         )
         testView2.collapsableGroupRanges
 
@@ -5000,7 +5086,7 @@ stepTo stepIndex currentTest =
                         , stepIndex = stepIndex
                         , timelineIndex = timelineIndex
                         , position = currentTest.overlayPosition
-                        , expandedCollapsableGroups = expandedCollapsableGroups currentTest
+                        , collapsableGroups = expandedCollapsableGroups currentTest
                         }
             in
             ( { currentTest | stepIndex = stepIndex, timelineIndex = timelineIndex }
