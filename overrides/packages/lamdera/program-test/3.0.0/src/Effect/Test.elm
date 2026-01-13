@@ -4609,16 +4609,21 @@ update config msg (Model model) =
                     case getAt index tests of
                         Just test ->
                             let
-                                _ =
-                                    writeLocalStorage
-                                        { testName = getTestName test
-                                        , stepIndex = 0
-                                        , timelineIndex = 0
-                                        , position = Bottom
-                                        , collapsableGroups = []
-                                        }
+                                ( model2, cmds ) =
+                                    viewTest test index 0 0 Bottom [] (Model model)
                             in
-                            viewTest test index 0 0 Bottom [] (Model model)
+                            ( model2
+                            , Cmd.batch
+                                [ writeLocalStorage
+                                    { testName = getTestName test
+                                    , stepIndex = 0
+                                    , timelineIndex = 0
+                                    , position = Bottom
+                                    , collapsableGroups = []
+                                    }
+                                , cmds
+                                ]
+                            )
 
                         Nothing ->
                             ( Model model, Cmd.none )
@@ -4710,17 +4715,16 @@ update config msg (Model model) =
 
                                 Bottom ->
                                     Top
-
-                        _ =
-                            writeLocalStorage
-                                { testName = currentTest.testName
-                                , stepIndex = currentTest.stepIndex
-                                , timelineIndex = currentTest.timelineIndex
-                                , position = newPosition
-                                , collapsableGroups = expandedCollapsableGroups currentTest
-                                }
                     in
-                    ( { currentTest | overlayPosition = newPosition }, Cmd.none )
+                    ( { currentTest | overlayPosition = newPosition }
+                    , writeLocalStorage
+                        { testName = currentTest.testName
+                        , stepIndex = currentTest.stepIndex
+                        , timelineIndex = currentTest.timelineIndex
+                        , position = newPosition
+                        , collapsableGroups = expandedCollapsableGroups currentTest
+                        }
+                    )
                 )
                 (Model model)
 
@@ -4791,33 +4795,31 @@ update config msg (Model model) =
                             let
                                 timelineIndex =
                                     currentTest.timelineIndex - 1 |> max 0
-
-                                _ =
-                                    writeLocalStorage
-                                        { testName = currentTest.testName
-                                        , stepIndex = currentTest.stepIndex
-                                        , timelineIndex = timelineIndex
-                                        , position = currentTest.overlayPosition
-                                        , collapsableGroups = expandedCollapsableGroups currentTest
-                                        }
                             in
-                            ( { currentTest | timelineIndex = timelineIndex }, Cmd.none )
+                            ( { currentTest | timelineIndex = timelineIndex }
+                            , writeLocalStorage
+                                { testName = currentTest.testName
+                                , stepIndex = currentTest.stepIndex
+                                , timelineIndex = timelineIndex
+                                , position = currentTest.overlayPosition
+                                , collapsableGroups = expandedCollapsableGroups currentTest
+                                }
+                            )
 
                         ArrowDown ->
                             let
                                 timelineIndex =
                                     currentTest.timelineIndex + 1 |> min (Array.length currentTest.timelines - 1)
-
-                                _ =
-                                    writeLocalStorage
-                                        { testName = currentTest.testName
-                                        , stepIndex = currentTest.stepIndex
-                                        , timelineIndex = timelineIndex
-                                        , position = currentTest.overlayPosition
-                                        , collapsableGroups = expandedCollapsableGroups currentTest
-                                        }
                             in
-                            ( { currentTest | timelineIndex = timelineIndex }, Cmd.none )
+                            ( { currentTest | timelineIndex = timelineIndex }
+                            , writeLocalStorage
+                                { testName = currentTest.testName
+                                , stepIndex = currentTest.stepIndex
+                                , timelineIndex = timelineIndex
+                                , position = currentTest.overlayPosition
+                                , collapsableGroups = expandedCollapsableGroups currentTest
+                                }
+                            )
                 )
                 (Model model)
 
@@ -4845,15 +4847,26 @@ update config msg (Model model) =
                             test.collapsableGroupRanges
                     of
                         head :: _ ->
-                            ( { test
-                                | collapsedGroups =
-                                    if SeqSet.member head.startIndex test.collapsedGroups then
-                                        SeqSet.remove head.startIndex test.collapsedGroups
+                            let
+                                test2 : TestView toBackend frontendMsg frontendModel toFrontend backendMsg backendModel
+                                test2 =
+                                    { test
+                                        | collapsedGroups =
+                                            if SeqSet.member head.startIndex test.collapsedGroups then
+                                                SeqSet.remove head.startIndex test.collapsedGroups
 
-                                    else
-                                        SeqSet.insert head.startIndex test.collapsedGroups
-                              }
-                            , Cmd.none
+                                            else
+                                                SeqSet.insert head.startIndex test.collapsedGroups
+                                    }
+                            in
+                            ( test2
+                            , writeLocalStorage
+                                { testName = test2.testName
+                                , stepIndex = test2.stepIndex
+                                , timelineIndex = test2.timelineIndex
+                                , position = test2.overlayPosition
+                                , collapsableGroups = expandedCollapsableGroups test2
+                                }
                             )
 
                         [] ->
@@ -5037,15 +5050,18 @@ collapsableGroupDecoder =
         (Json.Decode.field "isCollapsed" Json.Decode.bool)
 
 
-{-| This reaaalllllly should have been a cmd instead of an unmanaged side effect
--}
-writeLocalStorage : LocalStorage -> ()
+writeLocalStorage : LocalStorage -> Cmd (Msg toBackend frontendMsg frontendModel toFrontend backendMsg backendModel)
 writeLocalStorage data =
-    let
-        _ =
-            Lamdera.Debug.debugS currentTestLocalStorage { data = Json.Encode.encode 0 (encodeLocalStorage data) }
-    in
-    ()
+    Task.succeed ()
+        |> Task.map
+            (\() ->
+                let
+                    _ =
+                        Lamdera.Debug.debugS currentTestLocalStorage { data = Json.Encode.encode 0 (encodeLocalStorage data) }
+                in
+                ()
+            )
+        |> Task.perform (\() -> NoOp)
 
 
 expandedCollapsableGroups :
@@ -5079,19 +5095,17 @@ stepTo stepIndex currentTest =
 
                 timelineIndex =
                     arrayFindIndex newTimeline currentTest.timelines |> Maybe.withDefault currentTest.timelineIndex
-
-                _ =
-                    writeLocalStorage
-                        { testName = currentTest.testName
-                        , stepIndex = stepIndex
-                        , timelineIndex = timelineIndex
-                        , position = currentTest.overlayPosition
-                        , collapsableGroups = expandedCollapsableGroups currentTest
-                        }
             in
             ( { currentTest | stepIndex = stepIndex, timelineIndex = timelineIndex }
             , Cmd.batch
-                [ Browser.Dom.getElement timelineContainerId
+                [ writeLocalStorage
+                    { testName = currentTest.testName
+                    , stepIndex = stepIndex
+                    , timelineIndex = timelineIndex
+                    , position = currentTest.overlayPosition
+                    , collapsableGroups = expandedCollapsableGroups currentTest
+                    }
+                , Browser.Dom.getElement timelineContainerId
                     |> Task.andThen
                         (\container ->
                             let
