@@ -4453,7 +4453,6 @@ updateTimelineViewData test =
         | timelineViewData =
             timelineViewData
                 (collapsedRanges test.collapsedGroups test.collapsableGroupRanges)
-                test.timelineIndex
                 test
     }
 
@@ -4813,7 +4812,7 @@ update config msg (Model model) =
                                 timelineIndex =
                                     currentTest.timelineIndex - 1 |> max 0
                             in
-                            ( updateTimelineViewData { currentTest | timelineIndex = timelineIndex }
+                            ( { currentTest | timelineIndex = timelineIndex }
                             , writeLocalStorage
                                 { testName = currentTest.testName
                                 , stepIndex = currentTest.stepIndex
@@ -4828,7 +4827,7 @@ update config msg (Model model) =
                                 timelineIndex =
                                     currentTest.timelineIndex + 1 |> min (Array.length currentTest.timelines - 1)
                             in
-                            ( updateTimelineViewData { currentTest | timelineIndex = timelineIndex }
+                            ( { currentTest | timelineIndex = timelineIndex }
                             , writeLocalStorage
                                 { testName = currentTest.testName
                                 , stepIndex = currentTest.stepIndex
@@ -4876,7 +4875,7 @@ update config msg (Model model) =
                                                 SeqSet.insert head.startIndex test.collapsedGroups
                                     }
                             in
-                            ( test2
+                            ( updateTimelineViewData test2
                             , writeLocalStorage
                                 { testName = test2.testName
                                 , stepIndex = test2.stepIndex
@@ -5113,7 +5112,7 @@ stepTo stepIndex currentTest =
                 timelineIndex =
                     arrayFindIndex newTimeline currentTest.timelines |> Maybe.withDefault currentTest.timelineIndex
             in
-            ( updateTimelineViewData { currentTest | stepIndex = stepIndex, timelineIndex = timelineIndex }
+            ( { currentTest | stepIndex = stepIndex, timelineIndex = timelineIndex }
             , Cmd.batch
                 [ writeLocalStorage
                     { testName = currentTest.testName
@@ -6327,8 +6326,8 @@ unselectedTimelineColor =
     "#626262"
 
 
-timelineArrow : Int -> Int -> Int -> Int -> Int -> List (Html msg)
-timelineArrow rowIndexStart rowIndexEnd startIndex endIndex currentTimelineIndex =
+timelineArrow : Int -> Int -> Int -> Int -> List (Html msg)
+timelineArrow rowIndexStart rowIndexEnd startIndex endIndex =
     let
         xA =
             startIndex * timelineColumnWidth + timelineColumnWidth // 2 |> toFloat
@@ -6347,27 +6346,18 @@ timelineArrow rowIndexStart rowIndexEnd startIndex endIndex currentTimelineIndex
 
         length2 =
             (length - 4) / length
-
-        color2 : String
-        color2 =
-            if currentTimelineIndex == rowIndexStart || currentTimelineIndex == rowIndexEnd then
-                "white"
-
-            else
-                unselectedTimelineColor
     in
-    [ arrowSvg color2 xA yA (length2 * (xB - xA) + xA) (length2 * (yB - yA) + yA) ]
+    [ arrowSvg xA yA (length2 * (xB - xA) + xA) (length2 * (yB - yA) + yA) ]
 
 
 eventToArrows :
     SeqDict CurrentTimeline { a | rowIndex : Int }
     -> List CollapsableRange
     -> Int
-    -> Int
     -> Event toBackend frontendMsg frontendModel toFrontend backendMsg backendModel
     -> Int
     -> List (Html msg)
-eventToArrows timelines collapsedRanges2 currentTimelineIndex adjustedColumnIndex event rowIndex =
+eventToArrows timelines collapsedRanges2 adjustedColumnIndex event rowIndex =
     case event.eventType of
         FrontendUpdateEvent _ _ _ ->
             []
@@ -6378,7 +6368,6 @@ eventToArrows timelines collapsedRanges2 currentTimelineIndex adjustedColumnInde
                 rowIndex
                 (adjustColumnIndex collapsedRanges2 data.stepIndex)
                 adjustedColumnIndex
-                currentTimelineIndex
 
         UpdateFromFrontendEvent data ->
             case SeqDict.get (FrontendTimeline data.clientId) timelines of
@@ -6388,7 +6377,6 @@ eventToArrows timelines collapsedRanges2 currentTimelineIndex adjustedColumnInde
                         rowIndex
                         (adjustColumnIndex collapsedRanges2 data.stepIndex)
                         adjustedColumnIndex
-                        currentTimelineIndex
 
                 Nothing ->
                     []
@@ -6442,7 +6430,6 @@ eventToArrows timelines collapsedRanges2 currentTimelineIndex adjustedColumnInde
 {-| -}
 addTimelineEvent :
     TestView toBackend frontendMsg frontendModel toFrontend backendMsg backendModel
-    -> Int
     -> { previousStep : Maybe Int, currentStep : Maybe Int }
     -> List CollapsableRange
     -> Event toBackend frontendMsg frontendModel toFrontend backendMsg backendModel
@@ -6454,7 +6441,7 @@ addTimelineEvent :
         { columnIndex : Int
         , dict : SeqDict CurrentTimeline (TimelineViewData toBackend frontendMsg frontendModel toFrontend backendMsg backendModel)
         }
-addTimelineEvent testView2 currentTimelineIndex { previousStep, currentStep } collapsedRanges2 event state =
+addTimelineEvent testView2 { previousStep, currentStep } collapsedRanges2 event state =
     let
         adjustedColumnIndex : Int
         adjustedColumnIndex =
@@ -6472,17 +6459,17 @@ addTimelineEvent testView2 currentTimelineIndex { previousStep, currentStep } co
                     let
                         color : Int -> String
                         color rowIndex =
-                            if currentTimelineIndex /= rowIndex then
-                                unselectedTimelineColor
-
-                            else if previousStep == Just state.columnIndex then
-                                "red"
-
-                            else if currentStep == Just state.columnIndex then
-                                "green"
-
-                            else
-                                "white"
+                            --if currentTimelineIndex /= rowIndex then
+                            --    unselectedTimelineColor
+                            --
+                            --else if previousStep == Just state.columnIndex then
+                            --    "red"
+                            --
+                            --else if currentStep == Just state.columnIndex then
+                            --    "green"
+                            --
+                            --else
+                            "white"
                     in
                     (case maybeTimeline of
                         Just timeline ->
@@ -6490,14 +6477,12 @@ addTimelineEvent testView2 currentTimelineIndex { previousStep, currentStep } co
                                 eventToArrows
                                     state.dict
                                     collapsedRanges2
-                                    currentTimelineIndex
                                     adjustedColumnIndex
                                     event
                                     timeline.rowIndex
                                     ++ eventIcon
                                         state.dict
                                         testView2
-                                        (color timeline.rowIndex)
                                         event
                                         collapsedRanges2
                                         adjustedColumnIndex
@@ -6516,11 +6501,10 @@ addTimelineEvent testView2 currentTimelineIndex { previousStep, currentStep } co
                                     SeqDict.size state.dict
                             in
                             { events =
-                                eventToArrows state.dict collapsedRanges2 currentTimelineIndex adjustedColumnIndex event rowIndex
+                                eventToArrows state.dict collapsedRanges2 adjustedColumnIndex event rowIndex
                                     ++ eventIcon
                                         state.dict
                                         testView2
-                                        (color rowIndex)
                                         event
                                         collapsedRanges2
                                         adjustedColumnIndex
@@ -6562,8 +6546,8 @@ adjustColumnIndex collapsedRanges2 columnIndex2 =
 
 
 {-| -}
-arrowSvg : String -> Float -> Float -> Float -> Float -> Html msg
-arrowSvg color xA yA xB yB =
+arrowSvg : Float -> Float -> Float -> Float -> Html msg
+arrowSvg xA yA xB yB =
     let
         length =
             (xB - xA) ^ 2 + (yB - yA) ^ 2 |> sqrt
@@ -6612,12 +6596,12 @@ arrowSvg color xA yA xB yB =
             , Svg.Attributes.x2 (String.fromFloat xC)
             , Svg.Attributes.y2 (String.fromFloat yC)
             , Svg.Attributes.width "20"
-            , Html.Attributes.style "stroke" color
+            , Html.Attributes.style "stroke" "currentColor"
             , Html.Attributes.style "stroke-width" "2"
             ]
             []
         , Svg.polygon
-            [ Html.Attributes.style "fill" color
+            [ Html.Attributes.style "fill" "currentColor"
             , (String.fromFloat xD ++ "," ++ String.fromFloat yD)
                 ++ " "
                 ++ (String.fromFloat xB ++ "," ++ String.fromFloat yB)
@@ -6760,66 +6744,71 @@ timelineViewHelper collapsedGroups collapsableGroupRanges width timelineIndex st
         collapsedRanges2 : List CollapsableRange
         collapsedRanges2 =
             collapsedRanges collapsedGroups collapsableGroupRanges
-    in
-    List.concatMap
-        (\( timelineType, timeline ) ->
-            horizontalLine
-                timeline.columnStart
-                (case timelineType of
-                    FrontendTimeline _ ->
-                        timeline.columnEnd
 
-                    BackendTimeline ->
-                        maxColumnEnd
-                )
-                timeline.rowIndex
-                (if timelineIndex == timeline.rowIndex then
-                    "white"
+        timelineCount : Int
+        timelineCount =
+            List.length timelines
 
-                 else
-                    unselectedTimelineColor
-                )
-                :: timeline.events
-        )
-        timelines
-        |> (\a ->
-                timelineCss
-                    :: List.filterMap
-                        (\index ->
-                            let
-                                columnIndex : Int
-                                columnIndex =
-                                    adjustColumnIndex collapsedRanges2 index
-                            in
-                            if isEventHidden collapsedRanges2 index then
-                                Nothing
+        a =
+            List.concatMap
+                (\( timelineType, timeline ) ->
+                    horizontalLine
+                        timeline.columnStart
+                        (case timelineType of
+                            FrontendTimeline _ ->
+                                timeline.columnEnd
 
-                            else
-                                Html.div
-                                    ([ Html.Attributes.style "left" (px (columnIndex * timelineColumnWidth))
-                                     , Html.Attributes.style "width" (px timelineColumnWidth)
-                                     , Html.Attributes.style "height" (px ((List.length timelines + 1) * timelineRowHeight))
-                                     , Html.Attributes.style "position" "absolute"
-                                     , Html.Events.onClick (PressedTimelineEvent index)
-                                     ]
-                                        ++ (if index == stepIndex then
-                                                [ Html.Attributes.id timelineEventId
-                                                , Html.Attributes.style "background-color" "rgba(255,255,255,0.4)"
-                                                ]
-
-                                            else
-                                                []
-                                           )
-                                    )
-                                    []
-                                    |> Just
+                            BackendTimeline ->
+                                maxColumnEnd
                         )
-                        (List.range 0 (Array.length steps - 1))
-                    ++ a
-           )
+                        timeline.rowIndex
+                        (if timelineIndex == timeline.rowIndex then
+                            "white"
+
+                         else
+                            unselectedTimelineColor
+                        )
+                        :: timeline.events
+                )
+                timelines
+    in
+    timelineCss
+        :: dynamicTimelineCss timelineCount timelineIndex
+        :: List.filterMap
+            (\index ->
+                let
+                    columnIndex : Int
+                    columnIndex =
+                        adjustColumnIndex collapsedRanges2 index
+                in
+                if isEventHidden collapsedRanges2 index then
+                    Nothing
+
+                else
+                    Html.div
+                        ([ Html.Attributes.style "left" (px (columnIndex * timelineColumnWidth))
+                         , Html.Attributes.style "width" (px timelineColumnWidth)
+                         , Html.Attributes.style "height" (px ((timelineCount + 1) * timelineRowHeight))
+                         , Html.Attributes.style "position" "absolute"
+                         , Html.Events.onClick (PressedTimelineEvent index)
+                         ]
+                            ++ (if index == stepIndex then
+                                    [ Html.Attributes.id timelineEventId
+                                    , Html.Attributes.style "background-color" "rgba(255,255,255,0.4)"
+                                    ]
+
+                                else
+                                    []
+                               )
+                        )
+                        []
+                        |> Just
+            )
+            (List.range 0 (Array.length steps - 1))
+        ++ a
         |> Html.div
             [ Html.Attributes.style "width" (px width)
-            , Html.Attributes.style "height" (px ((List.length timelines + 1) * timelineRowHeight))
+            , Html.Attributes.style "height" (px ((timelineCount + 1) * timelineRowHeight))
             , Html.Attributes.style "position" "relative"
             , Html.Attributes.style "overflow-x" "auto"
             , Html.Attributes.style "overflow-y" "clip"
@@ -6827,6 +6816,7 @@ timelineViewHelper collapsedGroups collapsableGroupRanges width timelineIndex st
             , Html.Attributes.tabindex -1
             , Html.Attributes.style "display" "inline-block"
             , Html.Attributes.id timelineContainerId
+            , Html.Attributes.style "color" unselectedTimelineColor
             ]
 
 
@@ -6905,7 +6895,7 @@ timelineCss =
         []
         [ Html.text
             """
-.circle {
+.e2e-circle {
     width: 8px;
     height: 8px;
     margin: 3px;
@@ -6913,7 +6903,7 @@ timelineCss =
     pointer-events: none;
     position: absolute;
 }
-.big-circle {
+.e2e-big-circle {
     width: 12px;
     height: 12px;
     margin: 1px;
@@ -6922,6 +6912,28 @@ timelineCss =
     position: absolute;
 }
     """
+        ]
+
+
+dynamicTimelineCss : Int -> Int -> Html msg
+dynamicTimelineCss timelineCount selectedTimeline =
+    Html.node "style"
+        []
+        [ List.range 0 (timelineCount - 1)
+            |> List.map
+                (\index ->
+                    ".e2e-timeline-row"
+                        ++ String.fromInt index
+                        ++ " {"
+                        ++ (if selectedTimeline == index then
+                                "color: white;}"
+
+                            else
+                                "}"
+                           )
+                )
+            |> String.join "\n"
+            |> Html.text
         ]
 
 
@@ -6935,20 +6947,18 @@ timelineColumnWidth =
 eventIcon :
     SeqDict CurrentTimeline (TimelineViewData toBackend frontendMsg frontendModel toFrontend backendMsg backendModel)
     -> TestView toBackend frontendMsg frontendModel toFrontend backendMsg backendModel
-    -> String
     -> Event toBackend frontendMsg frontendModel toFrontend backendMsg backendModel
     -> List CollapsableRange
     -> Int
     -> Int
     -> Int
     -> List (Html msg)
-eventIcon timelines testView2 color event collapsedRanges2 adjustedColumIndex columnIndex rowIndex =
+eventIcon timelines testView2 event collapsedRanges2 adjustedColumIndex columnIndex rowIndex =
     let
         circleHelper : String -> Html msg
         circleHelper class =
             Html.div
-                [ Html.Attributes.style "background-color" color
-                , Html.Attributes.style "left" (px (adjustedColumIndex * timelineColumnWidth))
+                [ Html.Attributes.style "left" (px (adjustedColumIndex * timelineColumnWidth))
                 , Html.Attributes.style "top" (px (rowIndex * timelineRowHeight + 1))
                 , Html.Attributes.class class
                 ]
@@ -6959,135 +6969,135 @@ eventIcon timelines testView2 color event collapsedRanges2 adjustedColumIndex co
     in
     (case event.eventType of
         FrontendUpdateEvent _ _ _ ->
-            [ circleHelper "circle" ]
+            [ circleHelper "e2e-circle" ]
 
         UpdateFromFrontendEvent _ ->
-            [ circleHelper "circle" ]
+            [ circleHelper "e2e-circle" ]
 
         UpdateFromBackendEvent _ ->
-            [ circleHelper "circle" ]
+            [ circleHelper "e2e-circle" ]
 
         BackendUpdateEvent _ _ ->
-            [ circleHelper "circle" ]
+            [ circleHelper "e2e-circle" ]
 
         TestEvent _ _ ->
-            [ circleHelper "big-circle" ]
+            [ circleHelper "e2e-big-circle" ]
 
         BackendInitEvent _ ->
-            [ circleHelper "circle" ]
+            [ circleHelper "e2e-circle" ]
 
         FrontendInitEvent _ ->
-            [ circleHelper "circle" ]
+            [ circleHelper "e2e-circle" ]
 
         CheckStateEvent _ ->
-            [ magnifyingGlassSvg color (adjustedColumIndex * timelineColumnWidth) (rowIndex * timelineRowHeight) ]
+            [ magnifyingGlassSvg (adjustedColumIndex * timelineColumnWidth) (rowIndex * timelineRowHeight) ]
 
         UserInputEvent data ->
             case data.inputType of
                 UserClicksButton _ ->
-                    [ cursorSvg color (adjustedColumIndex * timelineColumnWidth) (rowIndex * timelineRowHeight) timelineColumnWidth ]
+                    [ cursorSvg (adjustedColumIndex * timelineColumnWidth) (rowIndex * timelineRowHeight) timelineColumnWidth ]
 
                 UserInputsText _ _ ->
-                    [ cursorTextSvg color (adjustedColumIndex * timelineColumnWidth) (rowIndex * timelineRowHeight) ]
+                    [ cursorTextSvg (adjustedColumIndex * timelineColumnWidth) (rowIndex * timelineRowHeight) ]
 
                 UserPressesKey _ _ _ ->
-                    [ circleHelper "big-circle" ]
+                    [ circleHelper "e2e-big-circle" ]
 
                 UserClicksLink _ ->
-                    [ simpleLinkSvg color (adjustedColumIndex * timelineColumnWidth) (rowIndex * timelineRowHeight) ]
+                    [ simpleLinkSvg (adjustedColumIndex * timelineColumnWidth) (rowIndex * timelineRowHeight) ]
 
                 UserResizesWindow _ ->
-                    [ circleHelper "big-circle" ]
+                    [ circleHelper "e2e-big-circle" ]
 
                 UserPointerDownEvent _ _ ->
-                    [ cursorSvg color (adjustedColumIndex * timelineColumnWidth) (rowIndex * timelineRowHeight) timelineColumnWidth ]
+                    [ cursorSvg (adjustedColumIndex * timelineColumnWidth) (rowIndex * timelineRowHeight) timelineColumnWidth ]
 
                 UserPointerUpEvent _ _ ->
-                    [ cursorSvg color (adjustedColumIndex * timelineColumnWidth) (rowIndex * timelineRowHeight) timelineColumnWidth ]
+                    [ cursorSvg (adjustedColumIndex * timelineColumnWidth) (rowIndex * timelineRowHeight) timelineColumnWidth ]
 
                 UserPointerEnterEvent _ _ ->
-                    [ cursorSvg color (adjustedColumIndex * timelineColumnWidth) (rowIndex * timelineRowHeight) timelineColumnWidth ]
+                    [ cursorSvg (adjustedColumIndex * timelineColumnWidth) (rowIndex * timelineRowHeight) timelineColumnWidth ]
 
                 UserPointerLeaveEvent _ _ ->
-                    [ cursorSvg color (adjustedColumIndex * timelineColumnWidth) (rowIndex * timelineRowHeight) timelineColumnWidth ]
+                    [ cursorSvg (adjustedColumIndex * timelineColumnWidth) (rowIndex * timelineRowHeight) timelineColumnWidth ]
 
                 UserPointerOutEvent _ _ ->
-                    [ cursorSvg color (adjustedColumIndex * timelineColumnWidth) (rowIndex * timelineRowHeight) timelineColumnWidth ]
+                    [ cursorSvg (adjustedColumIndex * timelineColumnWidth) (rowIndex * timelineRowHeight) timelineColumnWidth ]
 
                 UserPointerMoveEvent _ _ ->
-                    [ cursorSvg color (adjustedColumIndex * timelineColumnWidth) (rowIndex * timelineRowHeight) timelineColumnWidth ]
+                    [ cursorSvg (adjustedColumIndex * timelineColumnWidth) (rowIndex * timelineRowHeight) timelineColumnWidth ]
 
                 UserPointerOverEvent _ _ ->
-                    [ cursorSvg color (adjustedColumIndex * timelineColumnWidth) (rowIndex * timelineRowHeight) timelineColumnWidth ]
+                    [ cursorSvg (adjustedColumIndex * timelineColumnWidth) (rowIndex * timelineRowHeight) timelineColumnWidth ]
 
                 UserPointerCancelEvent _ _ ->
-                    [ cursorSvg color (adjustedColumIndex * timelineColumnWidth) (rowIndex * timelineRowHeight) timelineColumnWidth ]
+                    [ cursorSvg (adjustedColumIndex * timelineColumnWidth) (rowIndex * timelineRowHeight) timelineColumnWidth ]
 
                 UserTouchCancelEvent _ _ ->
-                    [ circleHelper "big-circle" ]
+                    [ circleHelper "e2e-big-circle" ]
 
                 UserTouchStartEvent _ _ ->
-                    [ circleHelper "big-circle" ]
+                    [ circleHelper "e2e-big-circle" ]
 
                 UserTouchEndEvent _ _ ->
-                    [ circleHelper "big-circle" ]
+                    [ circleHelper "e2e-big-circle" ]
 
                 UserTouchMoveEvent _ _ ->
-                    [ circleHelper "big-circle" ]
+                    [ circleHelper "e2e-big-circle" ]
 
                 UserMouseEnterEvent _ _ ->
-                    [ cursorSvg color (adjustedColumIndex * timelineColumnWidth) (rowIndex * timelineRowHeight) timelineColumnWidth ]
+                    [ cursorSvg (adjustedColumIndex * timelineColumnWidth) (rowIndex * timelineRowHeight) timelineColumnWidth ]
 
                 UserMouseLeaveEvent _ _ ->
-                    [ cursorSvg color (adjustedColumIndex * timelineColumnWidth) (rowIndex * timelineRowHeight) timelineColumnWidth ]
+                    [ cursorSvg (adjustedColumIndex * timelineColumnWidth) (rowIndex * timelineRowHeight) timelineColumnWidth ]
 
                 UserMouseOutEvent _ _ ->
-                    [ cursorSvg color (adjustedColumIndex * timelineColumnWidth) (rowIndex * timelineRowHeight) timelineColumnWidth ]
+                    [ cursorSvg (adjustedColumIndex * timelineColumnWidth) (rowIndex * timelineRowHeight) timelineColumnWidth ]
 
                 UserMouseMoveEvent _ _ ->
-                    [ cursorSvg color (adjustedColumIndex * timelineColumnWidth) (rowIndex * timelineRowHeight) timelineColumnWidth ]
+                    [ cursorSvg (adjustedColumIndex * timelineColumnWidth) (rowIndex * timelineRowHeight) timelineColumnWidth ]
 
                 UserMouseOverEvent _ _ ->
-                    [ cursorSvg color (adjustedColumIndex * timelineColumnWidth) (rowIndex * timelineRowHeight) timelineColumnWidth ]
+                    [ cursorSvg (adjustedColumIndex * timelineColumnWidth) (rowIndex * timelineRowHeight) timelineColumnWidth ]
 
                 UserMouseUpEvent _ _ ->
-                    [ cursorSvg color (adjustedColumIndex * timelineColumnWidth) (rowIndex * timelineRowHeight) timelineColumnWidth ]
+                    [ cursorSvg (adjustedColumIndex * timelineColumnWidth) (rowIndex * timelineRowHeight) timelineColumnWidth ]
 
                 UserMouseDownEvent _ _ ->
-                    [ cursorSvg color (adjustedColumIndex * timelineColumnWidth) (rowIndex * timelineRowHeight) timelineColumnWidth ]
+                    [ cursorSvg (adjustedColumIndex * timelineColumnWidth) (rowIndex * timelineRowHeight) timelineColumnWidth ]
 
                 UserFocusEvent _ ->
-                    [ circleHelper "big-circle" ]
+                    [ circleHelper "e2e-big-circle" ]
 
                 UserBlurEvent _ ->
-                    [ circleHelper "big-circle" ]
+                    [ circleHelper "e2e-big-circle" ]
 
                 UserWheelEvent _ ->
-                    [ circleHelper "big-circle" ]
+                    [ circleHelper "e2e-big-circle" ]
 
                 UserCustomEvent _ _ ->
-                    [ circleHelper "big-circle" ]
+                    [ circleHelper "e2e-big-circle" ]
 
         SnapshotEvent _ ->
-            [ cameraSvg color (adjustedColumIndex * timelineColumnWidth) (rowIndex * timelineRowHeight) ]
+            [ cameraSvg (adjustedColumIndex * timelineColumnWidth) (rowIndex * timelineRowHeight) ]
 
         ManuallySendToBackend _ ->
-            [ circleHelper "big-circle" ]
+            [ circleHelper "e2e-big-circle" ]
 
         ManuallySendPortEvent _ ->
-            [ circleHelper "big-circle" ]
+            [ circleHelper "e2e-big-circle" ]
 
         EffectFailedEvent _ _ ->
-            [ circleHelper "circle" ]
+            [ circleHelper "e2e-circle" ]
 
         NavigateBack _ ->
-            [ circleHelper "big-circle" ]
+            [ circleHelper "e2e-big-circle" ]
 
         NavigateForward _ ->
-            [ circleHelper "big-circle" ]
+            [ circleHelper "e2e-big-circle" ]
 
         SetLatency _ _ ->
-            [ circleHelper "big-circle" ]
+            [ circleHelper "e2e-big-circle" ]
 
         CollapsableGroupStart _ ->
             let
@@ -7169,7 +7179,6 @@ countCollapsedEvents collapsedRanges2 existingTimelines adjustedColumIndex range
                                         eventToArrows
                                             timelines
                                             collapsedRanges2
-                                            testView2.timelineIndex
                                             adjustedColumIndex
                                             event
                                             timeline.rowIndex
@@ -7188,7 +7197,6 @@ countCollapsedEvents collapsedRanges2 existingTimelines adjustedColumIndex range
                                         eventToArrows
                                             timelines
                                             collapsedRanges2
-                                            testView2.timelineIndex
                                             adjustedColumIndex
                                             event
                                             rowIndex
@@ -7294,8 +7302,8 @@ collapsableGroupStart isCollapsed left top =
 
 
 {-| -}
-cameraSvg : String -> Int -> Int -> Html msg
-cameraSvg color left top =
+cameraSvg : Int -> Int -> Html msg
+cameraSvg left top =
     Svg.svg
         [ Svg.Attributes.width (String.fromInt timelineColumnWidth)
         , Html.Attributes.style "left" (px left)
@@ -7312,7 +7320,7 @@ cameraSvg color left top =
             ]
             []
         , Svg.path
-            [ Svg.Attributes.fill color
+            [ Svg.Attributes.fill "currentColor"
             , Svg.Attributes.d "M208,52H182.42L170,33.34A12,12,0,0,0,160,28H96a12,12,0,0,0-10,5.34L73.57,52H48A28,28,0,0,0,20,80V192a28,28,0,0,0,28,28H208a28,28,0,0,0,28-28V80A28,28,0,0,0,208,52Zm4,140a4,4,0,0,1-4,4H48a4,4,0,0,1-4-4V80a4,4,0,0,1,4-4H80a12,12,0,0,0,10-5.34L102.42,52h51.15L166,70.66A12,12,0,0,0,176,76h32a4,4,0,0,1,4,4ZM128,84a48,48,0,1,0,48,48A48.05,48.05,0,0,0,128,84Zm0,72a24,24,0,1,1,24-24A24,24,0,0,1,128,156Z"
             ]
             []
@@ -7320,8 +7328,8 @@ cameraSvg color left top =
 
 
 {-| -}
-simpleLinkSvg : String -> Int -> Int -> Svg msg
-simpleLinkSvg color left top =
+simpleLinkSvg : Int -> Int -> Svg msg
+simpleLinkSvg left top =
     Svg.svg
         [ Svg.Attributes.width (String.fromInt timelineColumnWidth)
         , Html.Attributes.style "left" (px left)
@@ -7339,7 +7347,7 @@ simpleLinkSvg color left top =
             ]
             []
         , Svg.path
-            [ Svg.Attributes.fill color
+            [ Svg.Attributes.fill "currentColor"
             , Svg.Attributes.d "M87.5,151.52l64-64a12,12,0,0,1,17,17l-64,64a12,12,0,0,1-17-17Zm131-114a60.08,60.08,0,0,0-84.87,0L103.51,67.61a12,12,0,0,0,17,17l30.07-30.06a36,36,0,0,1,50.93,50.92L171.4,135.52a12,12,0,1,0,17,17l30.08-30.06A60.09,60.09,0,0,0,218.45,37.55ZM135.52,171.4l-30.07,30.08a36,36,0,0,1-50.92-50.93l30.06-30.07a12,12,0,0,0-17-17L37.55,133.58a60,60,0,0,0,84.88,84.87l30.06-30.07a12,12,0,0,0-17-17Z"
             ]
             []
@@ -7347,8 +7355,8 @@ simpleLinkSvg color left top =
 
 
 {-| -}
-cursorTextSvg : String -> Int -> Int -> Svg msg
-cursorTextSvg color left top =
+cursorTextSvg : Int -> Int -> Svg msg
+cursorTextSvg left top =
     Svg.svg
         [ Svg.Attributes.width (String.fromInt timelineColumnWidth)
         , Html.Attributes.style "left" (px left)
@@ -7365,7 +7373,7 @@ cursorTextSvg color left top =
             ]
             []
         , Svg.path
-            [ Svg.Attributes.fill color
+            [ Svg.Attributes.fill "currentColor"
             , Svg.Attributes.d "M188,208a12,12,0,0,1-12,12H160a43.86,43.86,0,0,1-32-13.85A43.86,43.86,0,0,1,96,220H80a12,12,0,0,1,0-24H96a20,20,0,0,0,20-20V140H104a12,12,0,0,1,0-24h12V80A20,20,0,0,0,96,60H80a12,12,0,0,1,0-24H96a43.86,43.86,0,0,1,32,13.85A43.86,43.86,0,0,1,160,36h16a12,12,0,0,1,0,24H160a20,20,0,0,0-20,20v36h12a12,12,0,0,1,0,24H140v36a20,20,0,0,0,20,20h16A12,12,0,0,1,188,208Z"
             ]
             []
@@ -7373,8 +7381,8 @@ cursorTextSvg color left top =
 
 
 {-| -}
-cursorSvg : String -> Int -> Int -> Int -> Svg msg
-cursorSvg color left top width =
+cursorSvg : Int -> Int -> Int -> Svg msg
+cursorSvg left top width =
     Svg.svg
         [ Svg.Attributes.width (String.fromInt width)
         , Html.Attributes.style "left" (px left)
@@ -7391,7 +7399,7 @@ cursorSvg color left top width =
             ]
             []
         , Svg.path
-            [ Svg.Attributes.fill color
+            [ Svg.Attributes.fill "currentColor"
             , Svg.Attributes.d "M224.15,179.17l-46.83-46.82,37.93-13.51.76-.3a20,20,0,0,0-1.76-37.27L54.16,29A20,20,0,0,0,29,54.16L81.27,214.24A20,20,0,0,0,118.54,216c.11-.25.21-.5.3-.76l13.51-37.92,46.83,46.82a20,20,0,0,0,28.28,0l16.69-16.68A20,20,0,0,0,224.15,179.17Zm-30.83,25.17-48.48-48.48A20,20,0,0,0,130.7,150a20.66,20.66,0,0,0-3.74.35A20,20,0,0,0,112.35,162c-.11.25-.21.5-.3.76L100.4,195.5,54.29,54.29l141.21,46.1-32.71,11.66c-.26.09-.51.19-.76.3a20,20,0,0,0-6.17,32.48h0l48.49,48.48Z"
             ]
             []
@@ -7400,8 +7408,8 @@ cursorSvg color left top width =
 
 {-| Original SVG from <https://upload.wikimedia.org/wikipedia/commons/5/55/Magnifying_glass_icon.svg>
 -}
-magnifyingGlassSvg : String -> Int -> Int -> Svg msg
-magnifyingGlassSvg color left top =
+magnifyingGlassSvg : Int -> Int -> Svg msg
+magnifyingGlassSvg left top =
     Svg.svg
         [ Svg.Attributes.width (String.fromInt timelineColumnWidth)
         , Html.Attributes.style "left" (px left)
@@ -7420,7 +7428,7 @@ magnifyingGlassSvg color left top =
             []
         , Svg.path
             [ Svg.Attributes.fill "none"
-            , Svg.Attributes.stroke color
+            , Svg.Attributes.stroke "currentColor"
             , Svg.Attributes.strokeWidth "80"
             , Svg.Attributes.strokeLinecap "round"
             , Svg.Attributes.d "m280,278a153,153 0 1,0-2,2l170,170m-91-117 110,110-26,26-110-110"
@@ -7468,10 +7476,9 @@ currentAndPreviousStepIndex testView_ =
 {-| -}
 timelineViewData :
     List CollapsableRange
-    -> Int
     -> TestView toBackend frontendMsg frontendModel toFrontend backendMsg backendModel
     -> List ( CurrentTimeline, TimelineViewData toBackend frontendMsg frontendModel toFrontend backendMsg backendModel )
-timelineViewData collapsedRanges2 timelineIndex testView2 =
+timelineViewData collapsedRanges2 testView2 =
     let
         currentAndPreviousStepIndex2 : { previousStep : Maybe Int, currentStep : Maybe Int }
         currentAndPreviousStepIndex2 =
@@ -7480,7 +7487,6 @@ timelineViewData collapsedRanges2 timelineIndex testView2 =
     Array.foldl
         (addTimelineEvent
             testView2
-            timelineIndex
             { currentAndPreviousStepIndex2
                 | previousStep =
                     if testView2.showModel then
