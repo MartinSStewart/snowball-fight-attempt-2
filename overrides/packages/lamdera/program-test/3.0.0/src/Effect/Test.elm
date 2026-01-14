@@ -6725,6 +6725,15 @@ horizontalLine columnStart columnEnd rowIndex color =
         []
 
 
+timelineEventsView : List (Html msg) -> Html msg
+timelineEventsView events =
+    let
+        _ =
+            Debug.log "timelineEventsView" ()
+    in
+    Html.div [] events
+
+
 {-| -}
 timelineViewHelper :
     SeqSet Int
@@ -6749,10 +6758,11 @@ timelineViewHelper collapsedGroups collapsableGroupRanges width timelineIndex st
         timelineCount =
             List.length timelines
 
-        a =
+        timelineEvents : List (Html (Msg toBackend frontendMsg frontendModel toFrontend backendMsg backendModel))
+        timelineEvents =
             List.concatMap
                 (\( timelineType, timeline ) ->
-                    horizontalLine
+                    [ horizontalLine
                         timeline.columnStart
                         (case timelineType of
                             FrontendTimeline _ ->
@@ -6768,44 +6778,63 @@ timelineViewHelper collapsedGroups collapsableGroupRanges width timelineIndex st
                          else
                             unselectedTimelineColor
                         )
-                        :: timeline.events
+                    , Html.div
+                        [ Html.Attributes.style
+                            "color"
+                            (if timelineIndex == timeline.rowIndex then
+                                "white"
+
+                             else
+                                unselectedTimelineColor
+                            )
+                        ]
+                        [ Html.Lazy.lazy timelineEventsView timeline.events ]
+                    ]
                 )
                 timelines
     in
     timelineCss
         :: dynamicTimelineCss timelineCount timelineIndex
-        :: List.filterMap
-            (\index ->
-                let
-                    columnIndex : Int
-                    columnIndex =
-                        adjustColumnIndex collapsedRanges2 index
-                in
-                if isEventHidden collapsedRanges2 index then
-                    Nothing
-
-                else
-                    Html.div
-                        ([ Html.Attributes.style "left" (px (columnIndex * timelineColumnWidth))
-                         , Html.Attributes.style "width" (px timelineColumnWidth)
-                         , Html.Attributes.style "height" (px ((timelineCount + 1) * timelineRowHeight))
-                         , Html.Attributes.style "position" "absolute"
-                         , Html.Events.onClick (PressedTimelineEvent index)
-                         ]
-                            ++ (if index == stepIndex then
-                                    [ Html.Attributes.id timelineEventId
-                                    , Html.Attributes.style "background-color" "rgba(255,255,255,0.4)"
-                                    ]
-
-                                else
-                                    []
-                               )
-                        )
-                        []
-                        |> Just
-            )
-            (List.range 0 (Array.length steps - 1))
-        ++ a
+        --:: List.filterMap
+        --    (\index ->
+        --        let
+        --            columnIndex : Int
+        --            columnIndex =
+        --                adjustColumnIndex collapsedRanges2 index
+        --        in
+        --        if isEventHidden collapsedRanges2 index then
+        --            Nothing
+        --
+        --        else
+        --            Html.div
+        --                ([ Html.Attributes.style "left" (px (columnIndex * timelineColumnWidth))
+        --                 , Html.Attributes.style "width" (px timelineColumnWidth)
+        --                 , Html.Attributes.style "height" (px ((timelineCount + 1) * timelineRowHeight))
+        --                 , Html.Attributes.style "position" "absolute"
+        --                 , Html.Events.onClick (PressedTimelineEvent index)
+        --                 ]
+        --                    ++ (if index == stepIndex then
+        --                            [ Html.Attributes.id timelineEventId
+        --                            , Html.Attributes.style "background-color" "rgba(255,255,255,0.4)"
+        --                            ]
+        --
+        --                        else
+        --                            []
+        --                       )
+        --                )
+        --                []
+        --                |> Just
+        --    )
+        --    (List.range 0 (Array.length steps - 1))
+        :: Html.div
+            [ Html.Attributes.style "left" (px (adjustColumnIndex collapsedRanges2 stepIndex * timelineColumnWidth))
+            , Html.Attributes.style "width" (px timelineColumnWidth)
+            , Html.Attributes.style "height" (px ((timelineCount + 1) * timelineRowHeight))
+            , Html.Attributes.style "position" "absolute"
+            , Html.Attributes.style "background-color" "rgba(255,255,255,0.4)"
+            ]
+            []
+        :: timelineEvents
         |> Html.div
             [ Html.Attributes.style "width" (px width)
             , Html.Attributes.style "height" (px ((timelineCount + 1) * timelineRowHeight))
@@ -6902,6 +6931,7 @@ timelineCss =
     border-radius: 8px;
     pointer-events: none;
     position: absolute;
+    background-color: currentColor;
 }
 .e2e-big-circle {
     width: 12px;
@@ -6910,6 +6940,7 @@ timelineCss =
     border-radius: 8px;
     pointer-events: none;
     position: absolute;
+    background-color: currentColor;
 }
     """
         ]
