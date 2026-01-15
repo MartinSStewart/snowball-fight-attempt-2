@@ -4415,7 +4415,8 @@ type Msg toBackend frontendMsg frontendModel toFrontend backendMsg backendModel
     | PressedCollapseField (List PathNode)
     | PressedArrowKey ArrowKey
     | GotWindowSize Int Int
-    | PressedTimelineEvent Int
+    | PressedTimelineEvent Float Float Float
+    | PressedTimelineEvent2 Float Float
     | PressedTimeline CurrentTimeline
     | GotButtonPosition HtmlId (Result Browser.Dom.Error Browser.Dom.Element)
 
@@ -4854,9 +4855,45 @@ update config msg (Model model) =
                     Cmd.none
             )
 
-        PressedTimelineEvent stepIndex ->
+        PressedTimelineEvent mouseX mouseY scrollLeft ->
+            ( Model model
+            , Browser.Dom.getElement timelineContainerId
+                |> Task.attempt
+                    (\result ->
+                        case result of
+                            Ok { element } ->
+                                PressedTimelineEvent2 (mouseX - element.x + scrollLeft) (mouseY - element.y)
+
+                            Err _ ->
+                                NoOp
+                    )
+            )
+
+        PressedTimelineEvent2 mouseX mouseY ->
             updateCurrentTest
                 (\test ->
+                    let
+                        collapsedRanges2 : List CollapsableRange
+                        collapsedRanges2 =
+                            collapsedRanges test.collapsedGroups test.collapsableGroupRanges
+                                --List.filter
+                                --    (\range -> SeqSet.member range.startIndex test.collapsedGroups)
+                                --    test.collapsableGroupRanges
+                                |> List.sortBy .startIndex
+
+                        stepIndex : Int
+                        stepIndex =
+                            List.foldl
+                                (\range stepIndex2 ->
+                                    if stepIndex2 > range.startIndex then
+                                        stepIndex2 + range.endIndex - range.startIndex
+
+                                    else
+                                        stepIndex2
+                                )
+                                (floor (mouseX / timelineColumnWidth))
+                                collapsedRanges2
+                    in
                     case
                         List.filter
                             (\range -> range.startIndex == stepIndex || range.endIndex == stepIndex)
@@ -6697,14 +6734,13 @@ timelineView windowWidth testView_ =
                 )
                 testView_.timelineViewData
             )
-        , Html.Lazy.lazy7
+        , Html.Lazy.lazy6
             timelineViewHelper
             testView_.collapsedGroups
             testView_.collapsableGroupRanges
             (windowWidth - sideBarWidth - 1 {- The extra minus 1 is to account for rounding errors -})
             testView_.timelineIndex
             testView_.stepIndex
-            testView_.steps
             testView_.timelineViewData
         ]
 
@@ -6741,10 +6777,9 @@ timelineViewHelper :
     -> Int
     -> Int
     -> Int
-    -> Array (Event toBackend frontendMsg frontendModel toFrontend backendMsg backendModel)
     -> List ( CurrentTimeline, TimelineViewData toBackend frontendMsg frontendModel toFrontend backendMsg backendModel )
     -> Html (Msg toBackend frontendMsg frontendModel toFrontend backendMsg backendModel)
-timelineViewHelper collapsedGroups collapsableGroupRanges width timelineIndex stepIndex steps timelines =
+timelineViewHelper collapsedGroups collapsableGroupRanges width timelineIndex stepIndex timelines =
     let
         maxColumnEnd : Int
         maxColumnEnd =
@@ -6795,37 +6830,21 @@ timelineViewHelper collapsedGroups collapsableGroupRanges width timelineIndex st
     in
     timelineCss
         :: dynamicTimelineCss timelineCount timelineIndex
-        --:: List.filterMap
-        --    (\index ->
-        --        let
-        --            columnIndex : Int
-        --            columnIndex =
-        --                adjustColumnIndex collapsedRanges2 index
-        --        in
-        --        if isEventHidden collapsedRanges2 index then
-        --            Nothing
-        --
-        --        else
-        --            Html.div
-        --                ([ Html.Attributes.style "left" (px (columnIndex * timelineColumnWidth))
-        --                 , Html.Attributes.style "width" (px timelineColumnWidth)
-        --                 , Html.Attributes.style "height" (px ((timelineCount + 1) * timelineRowHeight))
-        --                 , Html.Attributes.style "position" "absolute"
-        --                 , Html.Events.onClick (PressedTimelineEvent index)
-        --                 ]
-        --                    ++ (if index == stepIndex then
-        --                            [ Html.Attributes.id timelineEventId
-        --                            , Html.Attributes.style "background-color" "rgba(255,255,255,0.4)"
-        --                            ]
-        --
-        --                        else
-        --                            []
-        --                       )
-        --                )
-        --                []
-        --                |> Just
-        --    )
-        --    (List.range 0 (Array.length steps - 1))
+        --:: Html.div
+        --    [ Html.Attributes.style "width" (px (maxColumnEnd * timelineColumnWidth))
+        --    , Html.Attributes.style "height" (px ((timelineCount + 1) * timelineRowHeight))
+        --    , Html.Attributes.style "position" "absolute"
+        --    , Html.Attributes.style "left" "0"
+        --    , Html.Attributes.style "top" "0"
+        --    , Html.Events.on
+        --        "click"
+        --        (Json.Decode.map2
+        --            PressedTimelineEvent
+        --            (Json.Decode.field "x" Json.Decode.float)
+        --            (Json.Decode.field "y" Json.Decode.float)
+        --        )
+        --    ]
+        --    []
         :: Html.div
             [ Html.Attributes.style "left" (px (adjustColumnIndex collapsedRanges2 stepIndex * timelineColumnWidth))
             , Html.Attributes.style "width" (px timelineColumnWidth)
@@ -6846,6 +6865,14 @@ timelineViewHelper collapsedGroups collapsableGroupRanges width timelineIndex st
             , Html.Attributes.style "display" "inline-block"
             , Html.Attributes.id timelineContainerId
             , Html.Attributes.style "color" unselectedTimelineColor
+            , Html.Events.on
+                "click"
+                (Json.Decode.map3
+                    PressedTimelineEvent
+                    (Json.Decode.field "x" Json.Decode.float)
+                    (Json.Decode.field "y" Json.Decode.float)
+                    (Json.Decode.at [ "target", "scrollLeft" ] Json.Decode.float)
+                )
             ]
 
 
