@@ -4450,11 +4450,18 @@ updateTimelineViewData :
     TestView toBackend frontendMsg frontendModel toFrontend backendMsg backendModel
     -> TestView toBackend frontendMsg frontendModel toFrontend backendMsg backendModel
 updateTimelineViewData test =
+    let
+        collapsedRanges2 =
+            collapsedRanges test.collapsedGroups test.collapsableGroupRanges
+    in
     { test
         | timelineViewData =
-            timelineViewData
-                (collapsedRanges test.collapsedGroups test.collapsableGroupRanges)
-                test
+            Array.foldl
+                (addTimelineEvent test collapsedRanges2)
+                { columnIndex = 0, dict = SeqDict.singleton BackendTimeline { events = [], columnStart = 0, columnEnd = 0, rowIndex = 0 } }
+                test.steps
+                |> .dict
+                |> SeqDict.toList
     }
 
 
@@ -4793,7 +4800,13 @@ update config msg (Model model) =
                 (\currentTest ->
                     case arrowKey of
                         ArrowRight ->
-                            case nextTimelineStep False currentTest.stepIndex (currentTimeline currentTest) currentTest of
+                            case
+                                nextTimelineStep
+                                    False
+                                    currentTest.stepIndex
+                                    (currentTimeline currentTest.timelineIndex currentTest.timelines)
+                                    currentTest
+                            of
                                 Just ( nextIndex, _ ) ->
                                     stepTo nextIndex currentTest
 
@@ -4801,7 +4814,16 @@ update config msg (Model model) =
                                     ( currentTest, Cmd.none )
 
                         ArrowLeft ->
-                            case previousTimelineStep True False currentTest.stepIndex (currentTimeline currentTest) currentTest of
+                            case
+                                previousTimelineStep
+                                    True
+                                    False
+                                    currentTest.stepIndex
+                                    (currentTimeline currentTest.timelineIndex currentTest.timelines)
+                                    currentTest.steps
+                                    currentTest.collapsedGroups
+                                    currentTest.collapsableGroupRanges
+                            of
                                 Just ( previousIndex, _ ) ->
                                     stepTo previousIndex currentTest
 
@@ -4876,9 +4898,6 @@ update config msg (Model model) =
                         collapsedRanges2 : List CollapsableRange
                         collapsedRanges2 =
                             collapsedRanges test.collapsedGroups test.collapsableGroupRanges
-                                --List.filter
-                                --    (\range -> SeqSet.member range.startIndex test.collapsedGroups)
-                                --    test.collapsableGroupRanges
                                 |> List.sortBy .startIndex
 
                         stepIndex : Int
@@ -5275,7 +5294,13 @@ checkCachedElmValue ( Model model, cmdA ) =
                                     let
                                         currentAndPreviousStep : { previousStep : Maybe Int, currentStep : Maybe Int }
                                         currentAndPreviousStep =
-                                            currentAndPreviousStepIndex currentTest
+                                            currentAndPreviousStepIndex
+                                                currentTest.timelineIndex
+                                                currentTest.timelines
+                                                currentTest.stepIndex
+                                                currentTest.steps
+                                                currentTest.collapsedGroups
+                                                currentTest.collapsableGroupRanges
 
                                         state : State toBackend frontendMsg frontendModel toFrontend backendMsg backendModel
                                         state =
@@ -5523,9 +5548,11 @@ previousTimelineStep :
     -> Bool
     -> Int
     -> CurrentTimeline
-    -> TestView toBackend frontendMsg frontendModel toFrontend backendMsg backendModel
+    -> Array (Event toBackend frontendMsg frontendModel toFrontend backendMsg backendModel)
+    -> SeqSet Int
+    -> List CollapsableRange
     -> Maybe ( Int, Event toBackend frontendMsg frontendModel toFrontend backendMsg backendModel )
-previousTimelineStep skipCollapsedEvents skipTestEvents stepIndex timeline test =
+previousTimelineStep skipCollapsedEvents skipTestEvents stepIndex timeline steps collapsedGroups collapsableGroupRanges =
     if stepIndex <= 0 then
         Nothing
 
@@ -5533,9 +5560,9 @@ previousTimelineStep skipCollapsedEvents skipTestEvents stepIndex timeline test 
         let
             collapsedRanges2 : List CollapsableRange
             collapsedRanges2 =
-                collapsedRanges test.collapsedGroups test.collapsableGroupRanges
+                collapsedRanges collapsedGroups collapsableGroupRanges
         in
-        Array.slice 0 stepIndex test.steps
+        Array.slice 0 stepIndex steps
             |> Array.foldr
                 (\step state ->
                     case state of
@@ -5573,9 +5600,9 @@ type Fold c d
 
 
 {-| -}
-currentTimeline : TestView toBackend frontendMsg frontendModel toFrontend backendMsg backendModel -> CurrentTimeline
-currentTimeline currentTest =
-    Array.get currentTest.timelineIndex currentTest.timelines |> Maybe.withDefault BackendTimeline
+currentTimeline : Int -> Array CurrentTimeline -> CurrentTimeline
+currentTimeline timelineIndex timelines =
+    Array.get timelineIndex timelines |> Maybe.withDefault BackendTimeline
 
 
 {-| -}
@@ -6467,7 +6494,6 @@ eventToArrows timelines collapsedRanges2 adjustedColumnIndex event rowIndex =
 {-| -}
 addTimelineEvent :
     TestView toBackend frontendMsg frontendModel toFrontend backendMsg backendModel
-    -> { previousStep : Maybe Int, currentStep : Maybe Int }
     -> List CollapsableRange
     -> Event toBackend frontendMsg frontendModel toFrontend backendMsg backendModel
     ->
@@ -6478,7 +6504,7 @@ addTimelineEvent :
         { columnIndex : Int
         , dict : SeqDict CurrentTimeline (TimelineViewData toBackend frontendMsg frontendModel toFrontend backendMsg backendModel)
         }
-addTimelineEvent testView2 { previousStep, currentStep } collapsedRanges2 event state =
+addTimelineEvent testView2 collapsedRanges2 event state =
     let
         adjustedColumnIndex : Int
         adjustedColumnIndex =
@@ -6493,21 +6519,6 @@ addTimelineEvent testView2 { previousStep, currentStep } collapsedRanges2 event 
             SeqDict.update
                 (eventTypeToTimelineType event.eventType)
                 (\maybeTimeline ->
-                    let
-                        color : Int -> String
-                        color rowIndex =
-                            --if currentTimelineIndex /= rowIndex then
-                            --    unselectedTimelineColor
-                            --
-                            --else if previousStep == Just state.columnIndex then
-                            --    "red"
-                            --
-                            --else if currentStep == Just state.columnIndex then
-                            --    "green"
-                            --
-                            --else
-                            "white"
-                    in
                     (case maybeTimeline of
                         Just timeline ->
                             { events =
@@ -6690,7 +6701,7 @@ timelineView windowWidth testView_ =
 
         currentTimeline_ : CurrentTimeline
         currentTimeline_ =
-            currentTimeline testView_
+            currentTimeline testView_.timelineIndex testView_.timelines
     in
     Html.div
         []
@@ -6734,13 +6745,15 @@ timelineView windowWidth testView_ =
                 )
                 testView_.timelineViewData
             )
-        , Html.Lazy.lazy6
+        , Html.Lazy.lazy8
             timelineViewHelper
             testView_.collapsedGroups
             testView_.collapsableGroupRanges
             (windowWidth - sideBarWidth - 1 {- The extra minus 1 is to account for rounding errors -})
             testView_.timelineIndex
             testView_.stepIndex
+            testView_.timelines
+            testView_.steps
             testView_.timelineViewData
         ]
 
@@ -6777,13 +6790,15 @@ timelineViewHelper :
     -> Int
     -> Int
     -> Int
+    -> Array CurrentTimeline
+    -> Array (Event toBackend frontendMsg frontendModel toFrontend backendMsg backendModel)
     -> List ( CurrentTimeline, TimelineViewData toBackend frontendMsg frontendModel toFrontend backendMsg backendModel )
     -> Html (Msg toBackend frontendMsg frontendModel toFrontend backendMsg backendModel)
-timelineViewHelper collapsedGroups collapsableGroupRanges width timelineIndex stepIndex timelines =
+timelineViewHelper collapsedGroups collapsableGroupRanges width timelineIndex stepIndex timelines steps timelineViewData2 =
     let
         maxColumnEnd : Int
         maxColumnEnd =
-            List.map (\( _, timeline ) -> timeline.columnEnd) timelines |> List.maximum |> Maybe.withDefault 0
+            List.map (\( _, timeline ) -> timeline.columnEnd) timelineViewData2 |> List.maximum |> Maybe.withDefault 0
 
         collapsedRanges2 : List CollapsableRange
         collapsedRanges2 =
@@ -6791,7 +6806,7 @@ timelineViewHelper collapsedGroups collapsableGroupRanges width timelineIndex st
 
         timelineCount : Int
         timelineCount =
-            List.length timelines
+            List.length timelineViewData2
 
         timelineEvents : List (Html (Msg toBackend frontendMsg frontendModel toFrontend backendMsg backendModel))
         timelineEvents =
@@ -6826,33 +6841,58 @@ timelineViewHelper collapsedGroups collapsableGroupRanges width timelineIndex st
                         [ Html.Lazy.lazy timelineEventsView timeline.events ]
                     ]
                 )
+                timelineViewData2
+
+        { previousStep, currentStep } =
+            currentAndPreviousStepIndex
+                timelineIndex
                 timelines
+                stepIndex
+                steps
+                collapsedGroups
+                collapsableGroupRanges
     in
     timelineCss
         :: dynamicTimelineCss timelineCount timelineIndex
-        --:: Html.div
-        --    [ Html.Attributes.style "width" (px (maxColumnEnd * timelineColumnWidth))
-        --    , Html.Attributes.style "height" (px ((timelineCount + 1) * timelineRowHeight))
-        --    , Html.Attributes.style "position" "absolute"
-        --    , Html.Attributes.style "left" "0"
-        --    , Html.Attributes.style "top" "0"
-        --    , Html.Events.on
-        --        "click"
-        --        (Json.Decode.map2
-        --            PressedTimelineEvent
-        --            (Json.Decode.field "x" Json.Decode.float)
-        --            (Json.Decode.field "y" Json.Decode.float)
-        --        )
-        --    ]
-        --    []
         :: Html.div
             [ Html.Attributes.style "left" (px (adjustColumnIndex collapsedRanges2 stepIndex * timelineColumnWidth))
             , Html.Attributes.style "width" (px timelineColumnWidth)
             , Html.Attributes.style "height" (px ((timelineCount + 1) * timelineRowHeight))
             , Html.Attributes.style "position" "absolute"
             , Html.Attributes.style "background-color" "rgba(255,255,255,0.4)"
+            , Html.Attributes.style "pointer-events" "none"
             ]
             []
+        :: (case currentStep of
+                Just currentStep2 ->
+                    Html.div
+                        [ Html.Attributes.style "left" (px (adjustColumnIndex collapsedRanges2 currentStep2 * timelineColumnWidth))
+                        , Html.Attributes.style "width" (px timelineColumnWidth)
+                        , Html.Attributes.style "height" (px ((timelineCount + 1) * timelineRowHeight))
+                        , Html.Attributes.style "position" "absolute"
+                        , Html.Attributes.style "background-color" "green"
+                        , Html.Attributes.style "pointer-events" "none"
+                        ]
+                        []
+
+                Nothing ->
+                    Html.div [] []
+           )
+        :: (case previousStep of
+                Just previousStep2 ->
+                    Html.div
+                        [ Html.Attributes.style "left" (px (adjustColumnIndex collapsedRanges2 previousStep2 * timelineColumnWidth))
+                        , Html.Attributes.style "width" (px timelineColumnWidth)
+                        , Html.Attributes.style "height" (px ((timelineCount + 1) * timelineRowHeight))
+                        , Html.Attributes.style "position" "absolute"
+                        , Html.Attributes.style "background-color" "red"
+                        , Html.Attributes.style "pointer-events" "none"
+                        ]
+                        []
+
+                Nothing ->
+                    Html.div [] []
+           )
         :: timelineEvents
         |> Html.div
             [ Html.Attributes.style "width" (px width)
@@ -7517,48 +7557,40 @@ xSvg color left top =
 
 {-| -}
 currentAndPreviousStepIndex :
-    TestView toBackend frontendMsg frontendModel toFrontend backendMsg backendModel
+    Int
+    -> Array CurrentTimeline
+    -> Int
+    -> Array (Event toBackend frontendMsg frontendModel toFrontend backendMsg backendModel)
+    -> SeqSet Int
+    -> List CollapsableRange
     -> { previousStep : Maybe Int, currentStep : Maybe Int }
-currentAndPreviousStepIndex testView_ =
-    case previousTimelineStep False True (testView_.stepIndex + 1) (currentTimeline testView_) testView_ of
+currentAndPreviousStepIndex timelineIndex timelines stepIndex steps collapsedGroups collapsableGroupRanges =
+    case
+        previousTimelineStep
+            False
+            True
+            (stepIndex + 1)
+            (currentTimeline timelineIndex timelines)
+            steps
+            collapsedGroups
+            collapsableGroupRanges
+    of
         Just ( currentIndex, _ ) ->
             { currentStep = Just currentIndex
             , previousStep =
-                previousTimelineStep False True currentIndex (currentTimeline testView_) testView_ |> Maybe.map Tuple.first
+                previousTimelineStep
+                    False
+                    True
+                    currentIndex
+                    (currentTimeline timelineIndex timelines)
+                    steps
+                    collapsedGroups
+                    collapsableGroupRanges
+                    |> Maybe.map Tuple.first
             }
 
         Nothing ->
             { previousStep = Nothing, currentStep = Nothing }
-
-
-{-| -}
-timelineViewData :
-    List CollapsableRange
-    -> TestView toBackend frontendMsg frontendModel toFrontend backendMsg backendModel
-    -> List ( CurrentTimeline, TimelineViewData toBackend frontendMsg frontendModel toFrontend backendMsg backendModel )
-timelineViewData collapsedRanges2 testView2 =
-    let
-        currentAndPreviousStepIndex2 : { previousStep : Maybe Int, currentStep : Maybe Int }
-        currentAndPreviousStepIndex2 =
-            currentAndPreviousStepIndex testView2
-    in
-    Array.foldl
-        (addTimelineEvent
-            testView2
-            { currentAndPreviousStepIndex2
-                | previousStep =
-                    if testView2.showModel then
-                        currentAndPreviousStepIndex2.previousStep
-
-                    else
-                        Nothing
-            }
-            collapsedRanges2
-        )
-        { columnIndex = 0, dict = SeqDict.singleton BackendTimeline { events = [], columnStart = 0, columnEnd = 0, rowIndex = 0 } }
-        testView2.steps
-        |> .dict
-        |> SeqDict.toList
 
 
 {-| -}
@@ -7600,7 +7632,13 @@ testView windowWidth instructions testView_ =
             let
                 currentAndPreviousStep : { previousStep : Maybe Int, currentStep : Maybe Int }
                 currentAndPreviousStep =
-                    currentAndPreviousStepIndex testView_
+                    currentAndPreviousStepIndex
+                        testView_.timelineIndex
+                        testView_.timelines
+                        testView_.stepIndex
+                        testView_.steps
+                        testView_.collapsedGroups
+                        testView_.collapsableGroupRanges
             in
             if testView_.showModel then
                 let
@@ -7644,7 +7682,7 @@ testView windowWidth instructions testView_ =
 
             else
                 testOverlay windowWidth testView_ currentStep
-                    :: (case currentTimeline testView_ of
+                    :: (case currentTimeline testView_.timelineIndex testView_.timelines of
                             FrontendTimeline clientId ->
                                 case Maybe.andThen (\a -> Array.get a testView_.steps) currentAndPreviousStep.currentStep of
                                     Just currentStep2 ->
