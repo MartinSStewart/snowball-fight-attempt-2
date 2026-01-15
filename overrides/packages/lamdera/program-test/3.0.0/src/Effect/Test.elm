@@ -4376,16 +4376,23 @@ type alias TestView toBackend frontendMsg frontendModel toFrontend backendMsg ba
     , testName : String
     , stepIndex : Int
     , steps : Array (Event toBackend frontendMsg frontendModel toFrontend backendMsg backendModel)
-    , timelines : Array CurrentTimeline
+    , precomputed : TestViewPrecomputed
     , timelineIndex : Int
     , overlayPosition : OverlayPosition
     , showModel : Bool
     , collapsedFields : SeqDict (List PathNode) CollapsedField
     , -- Values are the start index for each collapsable group
       collapsedGroups : SeqSet Int
-    , collapsableGroupRanges : List CollapsableRange
     , buttonCursor : Maybe { htmlId : HtmlId, x : Float, y : Float, width : Float, height : Float }
     , timelineViewData : List ( CurrentTimeline, TimelineViewData toBackend frontendMsg frontendModel toFrontend backendMsg backendModel )
+    }
+
+
+{-| Data that doesn't change once a test is loaded
+-}
+type alias TestViewPrecomputed =
+    { collapsableGroupRanges : List CollapsableRange
+    , timelines : Array CurrentTimeline
     }
 
 
@@ -4452,7 +4459,7 @@ updateTimelineViewData :
 updateTimelineViewData test =
     let
         collapsedRanges2 =
-            collapsedRanges test.collapsedGroups test.collapsableGroupRanges
+            collapsedRanges test.collapsedGroups test.precomputed.collapsableGroupRanges
     in
     { test
         | timelineViewData =
@@ -4539,7 +4546,10 @@ viewTest test index stepIndex timelineIndex position expandedCollapsableGroups2 
             { index = index
             , testName = state.testName
             , steps = state.history
-            , timelines = timelines
+            , precomputed =
+                { timelines = timelines
+                , collapsableGroupRanges = collapsableGroupRanges
+                }
             , timelineIndex = clamp 0 (Array.length timelines - 1) timelineIndex
             , stepIndex = stepIndex2
             , overlayPosition = position
@@ -4570,7 +4580,6 @@ viewTest test index stepIndex timelineIndex position expandedCollapsableGroups2 
                     |> Tuple.second
             , collapsedFields = SeqDict.empty
             , buttonCursor = Nothing
-            , collapsableGroupRanges = collapsableGroupRanges
             , timelineViewData = []
             }
     in
@@ -4583,7 +4592,7 @@ viewTest test index stepIndex timelineIndex position expandedCollapsableGroups2 
                         stepIndex3 : Int
                         stepIndex3 =
                             adjustColumnIndex
-                                (collapsedRanges currentTest.collapsedGroups currentTest.collapsableGroupRanges)
+                                (collapsedRanges currentTest.collapsedGroups currentTest.precomputed.collapsableGroupRanges)
                                 stepIndex
                     in
                     Browser.Dom.setViewportOf
@@ -4804,7 +4813,7 @@ update config msg (Model model) =
                                 nextTimelineStep
                                     False
                                     currentTest.stepIndex
-                                    (currentTimeline currentTest.timelineIndex currentTest.timelines)
+                                    (currentTimeline currentTest.timelineIndex currentTest.precomputed.timelines)
                                     currentTest
                             of
                                 Just ( nextIndex, _ ) ->
@@ -4819,10 +4828,10 @@ update config msg (Model model) =
                                     True
                                     False
                                     currentTest.stepIndex
-                                    (currentTimeline currentTest.timelineIndex currentTest.timelines)
+                                    (currentTimeline currentTest.timelineIndex currentTest.precomputed.timelines)
                                     currentTest.steps
                                     currentTest.collapsedGroups
-                                    currentTest.collapsableGroupRanges
+                                    currentTest.precomputed.collapsableGroupRanges
                             of
                                 Just ( previousIndex, _ ) ->
                                     stepTo previousIndex currentTest
@@ -4848,7 +4857,7 @@ update config msg (Model model) =
                         ArrowDown ->
                             let
                                 timelineIndex =
-                                    currentTest.timelineIndex + 1 |> min (Array.length currentTest.timelines - 1)
+                                    currentTest.timelineIndex + 1 |> min (Array.length currentTest.precomputed.timelines - 1)
                             in
                             ( { currentTest | timelineIndex = timelineIndex }
                             , writeLocalStorage
@@ -4897,7 +4906,7 @@ update config msg (Model model) =
                     let
                         collapsedRanges2 : List CollapsableRange
                         collapsedRanges2 =
-                            collapsedRanges test.collapsedGroups test.collapsableGroupRanges
+                            collapsedRanges test.collapsedGroups test.precomputed.collapsableGroupRanges
                                 |> List.sortBy .startIndex
 
                         stepIndex : Int
@@ -4916,7 +4925,7 @@ update config msg (Model model) =
                     case
                         List.filter
                             (\range -> range.startIndex == stepIndex || range.endIndex == stepIndex)
-                            test.collapsableGroupRanges
+                            test.precomputed.collapsableGroupRanges
                     of
                         head :: _ ->
                             let
@@ -4949,7 +4958,7 @@ update config msg (Model model) =
         PressedTimeline timelineType ->
             updateCurrentTest
                 (\currentTest ->
-                    case arrayFindIndex timelineType currentTest.timelines of
+                    case arrayFindIndex timelineType currentTest.precomputed.timelines of
                         Just timelineIndex ->
                             ( { currentTest | timelineIndex = timelineIndex }, Cmd.none )
 
@@ -5146,7 +5155,7 @@ expandedCollapsableGroups testView2 =
             , isCollapsed = SeqSet.member collapsableRange.startIndex testView2.collapsedGroups
             }
         )
-        testView2.collapsableGroupRanges
+        testView2.precomputed.collapsableGroupRanges
 
 
 {-| -}
@@ -5166,7 +5175,7 @@ stepTo stepIndex currentTest =
                     eventTypeToTimelineType step.eventType
 
                 timelineIndex =
-                    arrayFindIndex newTimeline currentTest.timelines |> Maybe.withDefault currentTest.timelineIndex
+                    arrayFindIndex newTimeline currentTest.precomputed.timelines |> Maybe.withDefault currentTest.timelineIndex
             in
             ( { currentTest | stepIndex = stepIndex, timelineIndex = timelineIndex }
             , Cmd.batch
@@ -5184,7 +5193,7 @@ stepTo stepIndex currentTest =
                                 stepIndex2 : Int
                                 stepIndex2 =
                                     adjustColumnIndex
-                                        (collapsedRanges currentTest.collapsedGroups currentTest.collapsableGroupRanges)
+                                        (collapsedRanges currentTest.collapsedGroups currentTest.precomputed.collapsableGroupRanges)
                                         stepIndex
                             in
                             Browser.Dom.setViewportOf
@@ -5296,11 +5305,10 @@ checkCachedElmValue ( Model model, cmdA ) =
                                         currentAndPreviousStep =
                                             currentAndPreviousStepIndex
                                                 currentTest.timelineIndex
-                                                currentTest.timelines
                                                 currentTest.stepIndex
-                                                currentTest.steps
                                                 currentTest.collapsedGroups
-                                                currentTest.collapsableGroupRanges
+                                                currentTest.steps
+                                                currentTest.precomputed
 
                                         state : State toBackend frontendMsg frontendModel toFrontend backendMsg backendModel
                                         state =
@@ -5512,7 +5520,7 @@ nextTimelineStep skipTestEvents stepIndex timeline test =
         let
             collapsedRanges2 : List CollapsableRange
             collapsedRanges2 =
-                collapsedRanges test.collapsedGroups test.collapsableGroupRanges
+                collapsedRanges test.collapsedGroups test.precomputed.collapsableGroupRanges
         in
         Array.slice (stepIndex + 1) (Array.length test.steps) test.steps
             |> Array.foldl
@@ -6390,7 +6398,7 @@ unselectedTimelineColor =
     "#626262"
 
 
-timelineArrow : Int -> Int -> Int -> Int -> List (Html msg)
+timelineArrow : Int -> Int -> Int -> Int -> Html msg
 timelineArrow rowIndexStart rowIndexEnd startIndex endIndex =
     let
         xA =
@@ -6399,19 +6407,89 @@ timelineArrow rowIndexStart rowIndexEnd startIndex endIndex =
         yA =
             rowIndexStart * timelineRowHeight + timelineRowHeight // 4 |> toFloat
 
-        xB =
+        xB_ =
             endIndex * timelineColumnWidth + timelineColumnWidth // 2 |> toFloat
 
-        yB =
+        yB_ =
             rowIndexEnd * timelineRowHeight + timelineRowHeight // 4 |> toFloat
 
         length =
-            (xB - xA) ^ 2 + (yB - yA) ^ 2 |> sqrt
+            (xB_ - xA) ^ 2 + (yB_ - yA) ^ 2 |> sqrt
 
         length2 =
             (length - 4) / length
+
+        xB =
+            length2 * (xB_ - xA) + xA
+
+        yB =
+            length2 * (yB_ - yA) + yA
+
+        lineLength =
+            (xB - xA) ^ 2 + (yB - yA) ^ 2 |> sqrt
+
+        offset =
+            (lineLength - 6) / lineLength
+
+        xC =
+            offset * (xB - xA) + xA
+
+        yC =
+            offset * (yB - yA) + yA
+
+        arrowWidthScalar =
+            0.666
+
+        xD =
+            -(yB - yC) * arrowWidthScalar + xC
+
+        yD =
+            (xB - xC) * arrowWidthScalar + yC
+
+        xF =
+            (yB - yC) * arrowWidthScalar + xC
+
+        yF =
+            -(xB - xC) * arrowWidthScalar + yC
+
+        maxX =
+            max xA xB + 10
+
+        maxY =
+            max yA yB + 10
     in
-    [ arrowSvg xA yA (length2 * (xB - xA) + xA) (length2 * (yB - yA) + yA) ]
+    Html.div
+        [ Html.Attributes.class ("e2e-timeline-row" ++ String.fromInt rowIndexStart) ]
+        [ Svg.svg
+            [ Svg.Attributes.width (String.fromFloat maxX)
+            , Svg.Attributes.height (String.fromFloat maxY)
+            , "0 0 " ++ String.fromFloat maxX ++ " " ++ String.fromFloat maxY |> Svg.Attributes.viewBox
+            , Html.Attributes.style "position" "absolute"
+            , Html.Attributes.style "top" "0"
+            , Html.Attributes.style "pointer-events" "none"
+            ]
+            [ Svg.line
+                [ Svg.Attributes.x1 (String.fromFloat xA)
+                , Svg.Attributes.y1 (String.fromFloat yA)
+                , Svg.Attributes.x2 (String.fromFloat xC)
+                , Svg.Attributes.y2 (String.fromFloat yC)
+                , Svg.Attributes.width "20"
+                , Html.Attributes.style "stroke" "currentColor"
+                , Html.Attributes.style "stroke-width" "2"
+                ]
+                []
+            , Svg.polygon
+                [ Html.Attributes.style "fill" "currentColor"
+                , (String.fromFloat xD ++ "," ++ String.fromFloat yD)
+                    ++ " "
+                    ++ (String.fromFloat xB ++ "," ++ String.fromFloat yB)
+                    ++ " "
+                    ++ (String.fromFloat xF ++ "," ++ String.fromFloat yF)
+                    |> Svg.Attributes.points
+                ]
+                []
+            ]
+        ]
 
 
 eventToArrows :
@@ -6427,20 +6505,22 @@ eventToArrows timelines collapsedRanges2 adjustedColumnIndex event rowIndex =
             []
 
         UpdateFromBackendEvent data ->
-            timelineArrow
+            [ timelineArrow
                 0
                 rowIndex
                 (adjustColumnIndex collapsedRanges2 data.stepIndex)
                 adjustedColumnIndex
+            ]
 
         UpdateFromFrontendEvent data ->
             case SeqDict.get (FrontendTimeline data.clientId) timelines of
                 Just timeline ->
-                    timelineArrow
+                    [ timelineArrow
                         timeline.rowIndex
                         rowIndex
                         (adjustColumnIndex collapsedRanges2 data.stepIndex)
                         adjustedColumnIndex
+                    ]
 
                 Nothing ->
                     []
@@ -6594,74 +6674,6 @@ adjustColumnIndex collapsedRanges2 columnIndex2 =
 
 
 {-| -}
-arrowSvg : Float -> Float -> Float -> Float -> Html msg
-arrowSvg xA yA xB yB =
-    let
-        length =
-            (xB - xA) ^ 2 + (yB - yA) ^ 2 |> sqrt
-
-        offset =
-            (length - 6) / length
-
-        xC =
-            offset * (xB - xA) + xA
-
-        yC =
-            offset * (yB - yA) + yA
-
-        arrowWidthScalar =
-            0.666
-
-        xD =
-            -(yB - yC) * arrowWidthScalar + xC
-
-        yD =
-            (xB - xC) * arrowWidthScalar + yC
-
-        xF =
-            (yB - yC) * arrowWidthScalar + xC
-
-        yF =
-            -(xB - xC) * arrowWidthScalar + yC
-
-        maxX =
-            max xA xB + 10
-
-        maxY =
-            max yA yB + 10
-    in
-    Svg.svg
-        [ Svg.Attributes.width (String.fromFloat maxX)
-        , Svg.Attributes.height (String.fromFloat maxY)
-        , "0 0 " ++ String.fromFloat maxX ++ " " ++ String.fromFloat maxY |> Svg.Attributes.viewBox
-        , Html.Attributes.style "position" "absolute"
-        , Html.Attributes.style "top" "0"
-        , Html.Attributes.style "pointer-events" "none"
-        ]
-        [ Svg.line
-            [ Svg.Attributes.x1 (String.fromFloat xA)
-            , Svg.Attributes.y1 (String.fromFloat yA)
-            , Svg.Attributes.x2 (String.fromFloat xC)
-            , Svg.Attributes.y2 (String.fromFloat yC)
-            , Svg.Attributes.width "20"
-            , Html.Attributes.style "stroke" "currentColor"
-            , Html.Attributes.style "stroke-width" "2"
-            ]
-            []
-        , Svg.polygon
-            [ Html.Attributes.style "fill" "currentColor"
-            , (String.fromFloat xD ++ "," ++ String.fromFloat yD)
-                ++ " "
-                ++ (String.fromFloat xB ++ "," ++ String.fromFloat yB)
-                ++ " "
-                ++ (String.fromFloat xF ++ "," ++ String.fromFloat yF)
-                |> Svg.Attributes.points
-            ]
-            []
-        ]
-
-
-{-| -}
 timelineRowHeight : number
 timelineRowHeight =
     32
@@ -6701,7 +6713,7 @@ timelineView windowWidth testView_ =
 
         currentTimeline_ : CurrentTimeline
         currentTimeline_ =
-            currentTimeline testView_.timelineIndex testView_.timelines
+            currentTimeline testView_.timelineIndex testView_.precomputed.timelines
     in
     Html.div
         []
@@ -6748,13 +6760,13 @@ timelineView windowWidth testView_ =
         , Html.Lazy.lazy8
             timelineViewHelper
             testView_.collapsedGroups
-            testView_.collapsableGroupRanges
             (windowWidth - sideBarWidth - 1 {- The extra minus 1 is to account for rounding errors -})
             testView_.timelineIndex
             testView_.stepIndex
-            testView_.timelines
             testView_.steps
+            testView_.precomputed
             testView_.timelineViewData
+            testView_.showModel
         ]
 
 
@@ -6786,15 +6798,15 @@ timelineEventsView events =
 {-| -}
 timelineViewHelper :
     SeqSet Int
-    -> List CollapsableRange
     -> Int
     -> Int
     -> Int
-    -> Array CurrentTimeline
     -> Array (Event toBackend frontendMsg frontendModel toFrontend backendMsg backendModel)
+    -> TestViewPrecomputed
     -> List ( CurrentTimeline, TimelineViewData toBackend frontendMsg frontendModel toFrontend backendMsg backendModel )
+    -> Bool
     -> Html (Msg toBackend frontendMsg frontendModel toFrontend backendMsg backendModel)
-timelineViewHelper collapsedGroups collapsableGroupRanges width timelineIndex stepIndex timelines steps timelineViewData2 =
+timelineViewHelper collapsedGroups width timelineIndex stepIndex steps precomputed timelineViewData2 showModel =
     let
         maxColumnEnd : Int
         maxColumnEnd =
@@ -6802,7 +6814,7 @@ timelineViewHelper collapsedGroups collapsableGroupRanges width timelineIndex st
 
         collapsedRanges2 : List CollapsableRange
         collapsedRanges2 =
-            collapsedRanges collapsedGroups collapsableGroupRanges
+            collapsedRanges collapsedGroups precomputed.collapsableGroupRanges
 
         timelineCount : Int
         timelineCount =
@@ -6846,25 +6858,15 @@ timelineViewHelper collapsedGroups collapsableGroupRanges width timelineIndex st
         { previousStep, currentStep } =
             currentAndPreviousStepIndex
                 timelineIndex
-                timelines
                 stepIndex
-                steps
                 collapsedGroups
-                collapsableGroupRanges
+                steps
+                precomputed
     in
     timelineCss
         :: dynamicTimelineCss timelineCount timelineIndex
-        :: Html.div
-            [ Html.Attributes.style "left" (px (adjustColumnIndex collapsedRanges2 stepIndex * timelineColumnWidth))
-            , Html.Attributes.style "width" (px timelineColumnWidth)
-            , Html.Attributes.style "height" (px ((timelineCount + 1) * timelineRowHeight))
-            , Html.Attributes.style "position" "absolute"
-            , Html.Attributes.style "background-color" "rgba(255,255,255,0.4)"
-            , Html.Attributes.style "pointer-events" "none"
-            ]
-            []
-        :: (case currentStep of
-                Just currentStep2 ->
+        :: (case ( currentStep, showModel ) of
+                ( Just currentStep2, True ) ->
                     Html.div
                         [ Html.Attributes.style "left" (px (adjustColumnIndex collapsedRanges2 currentStep2 * timelineColumnWidth))
                         , Html.Attributes.style "width" (px timelineColumnWidth)
@@ -6875,11 +6877,11 @@ timelineViewHelper collapsedGroups collapsableGroupRanges width timelineIndex st
                         ]
                         []
 
-                Nothing ->
+                _ ->
                     Html.div [] []
            )
-        :: (case previousStep of
-                Just previousStep2 ->
+        :: (case ( previousStep, showModel ) of
+                ( Just previousStep2, True ) ->
                     Html.div
                         [ Html.Attributes.style "left" (px (adjustColumnIndex collapsedRanges2 previousStep2 * timelineColumnWidth))
                         , Html.Attributes.style "width" (px timelineColumnWidth)
@@ -6890,9 +6892,18 @@ timelineViewHelper collapsedGroups collapsableGroupRanges width timelineIndex st
                         ]
                         []
 
-                Nothing ->
+                _ ->
                     Html.div [] []
            )
+        :: Html.div
+            [ Html.Attributes.style "left" (px (adjustColumnIndex collapsedRanges2 stepIndex * timelineColumnWidth))
+            , Html.Attributes.style "width" (px timelineColumnWidth)
+            , Html.Attributes.style "height" (px ((timelineCount + 1) * timelineRowHeight))
+            , Html.Attributes.style "position" "absolute"
+            , Html.Attributes.style "background-color" "rgba(255,255,255,0.4)"
+            , Html.Attributes.style "pointer-events" "none"
+            ]
+            []
         :: timelineEvents
         |> Html.div
             [ Html.Attributes.style "width" (px width)
@@ -7203,7 +7214,7 @@ eventIcon timelines testView2 event collapsedRanges2 adjustedColumIndex columnIn
                 isCollapsed =
                     SeqSet.member columnIndex testView2.collapsedGroups
             in
-            (case List.filter (\a -> a.startIndex == columnIndex) testView2.collapsableGroupRanges of
+            (case List.filter (\a -> a.startIndex == columnIndex) testView2.precomputed.collapsableGroupRanges of
                 head :: _ ->
                     if isCollapsed then
                         countCollapsedEvents collapsedRanges2 timelines adjustedColumIndex head testView2
@@ -7212,7 +7223,7 @@ eventIcon timelines testView2 event collapsedRanges2 adjustedColumIndex columnIn
                         [ horizontalLine
                             adjustedColumIndex
                             (adjustColumnIndex collapsedRanges2 head.endIndex)
-                            (Array.length testView2.timelines)
+                            (Array.length testView2.precomputed.timelines)
                             "white"
                         ]
 
@@ -7222,7 +7233,7 @@ eventIcon timelines testView2 event collapsedRanges2 adjustedColumIndex columnIn
                 ++ [ collapsableGroupStart
                         isCollapsed
                         (adjustedColumIndex * timelineColumnWidth)
-                        (Array.length testView2.timelines * timelineRowHeight + 1)
+                        (Array.length testView2.precomputed.timelines * timelineRowHeight + 1)
                    ]
 
         CollapsableGroupEnd string ->
@@ -7233,7 +7244,7 @@ eventIcon timelines testView2 event collapsedRanges2 adjustedColumIndex columnIn
             [ Html.div
                 [ Html.Attributes.style "position" "absolute"
                 , Html.Attributes.style "left" (px (adjustedColumIndex * timelineColumnWidth + 1 + timelineColumnWidth // 2))
-                , Html.Attributes.style "top" (px (Array.length testView2.timelines * timelineRowHeight + 7 - height))
+                , Html.Attributes.style "top" (px (Array.length testView2.precomputed.timelines * timelineRowHeight + 7 - height))
                 , Html.Attributes.style "height" (String.fromInt height ++ "px")
                 , Html.Attributes.style "pointer-events" "none"
                 , Html.Attributes.style "width" "2px"
@@ -7558,22 +7569,21 @@ xSvg color left top =
 {-| -}
 currentAndPreviousStepIndex :
     Int
-    -> Array CurrentTimeline
     -> Int
-    -> Array (Event toBackend frontendMsg frontendModel toFrontend backendMsg backendModel)
     -> SeqSet Int
-    -> List CollapsableRange
+    -> Array (Event toBackend frontendMsg frontendModel toFrontend backendMsg backendModel)
+    -> TestViewPrecomputed
     -> { previousStep : Maybe Int, currentStep : Maybe Int }
-currentAndPreviousStepIndex timelineIndex timelines stepIndex steps collapsedGroups collapsableGroupRanges =
+currentAndPreviousStepIndex timelineIndex stepIndex collapsedGroups steps precomputed =
     case
         previousTimelineStep
             False
             True
             (stepIndex + 1)
-            (currentTimeline timelineIndex timelines)
+            (currentTimeline timelineIndex precomputed.timelines)
             steps
             collapsedGroups
-            collapsableGroupRanges
+            precomputed.collapsableGroupRanges
     of
         Just ( currentIndex, _ ) ->
             { currentStep = Just currentIndex
@@ -7582,10 +7592,10 @@ currentAndPreviousStepIndex timelineIndex timelines stepIndex steps collapsedGro
                     False
                     True
                     currentIndex
-                    (currentTimeline timelineIndex timelines)
+                    (currentTimeline timelineIndex precomputed.timelines)
                     steps
                     collapsedGroups
-                    collapsableGroupRanges
+                    precomputed.collapsableGroupRanges
                     |> Maybe.map Tuple.first
             }
 
@@ -7634,17 +7644,16 @@ testView windowWidth instructions testView_ =
                 currentAndPreviousStep =
                     currentAndPreviousStepIndex
                         testView_.timelineIndex
-                        testView_.timelines
                         testView_.stepIndex
-                        testView_.steps
                         testView_.collapsedGroups
-                        testView_.collapsableGroupRanges
+                        testView_.steps
+                        testView_.precomputed
             in
             if testView_.showModel then
                 let
                     overlayHeight : Int
                     overlayHeight =
-                        90 + Array.length testView_.timelines * timelineRowHeight
+                        90 + Array.length testView_.precomputed.timelines * timelineRowHeight
                 in
                 [ testOverlay windowWidth testView_ currentStep
                 , Html.div
@@ -7682,7 +7691,7 @@ testView windowWidth instructions testView_ =
 
             else
                 testOverlay windowWidth testView_ currentStep
-                    :: (case currentTimeline testView_.timelineIndex testView_.timelines of
+                    :: (case currentTimeline testView_.timelineIndex testView_.precomputed.timelines of
                             FrontendTimeline clientId ->
                                 case Maybe.andThen (\a -> Array.get a testView_.steps) currentAndPreviousStep.currentStep of
                                     Just currentStep2 ->
