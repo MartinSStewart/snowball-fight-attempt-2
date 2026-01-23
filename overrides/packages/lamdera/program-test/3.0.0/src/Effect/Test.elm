@@ -7234,13 +7234,13 @@ eventIcon timelines testView2 event collapsedRanges2 adjustedColumIndex columnIn
                 [] ->
                     []
             )
-                ++ [ collapsableGroupStart
+                ++ [ collapsableGroupIcon
                         isCollapsed
                         (adjustedColumIndex * timelineColumnWidth)
                         (Array.length testView2.precomputed.timelines * timelineRowHeight + 1)
                    ]
 
-        CollapsableGroupEnd string ->
+        CollapsableGroupEnd _ ->
             let
                 height =
                     6
@@ -7283,6 +7283,11 @@ countCollapsedEvents collapsedRanges2 existingTimelines adjustedColumIndex range
                     timelines
 
                 _ ->
+                    let
+                        noErrors : Bool
+                        noErrors =
+                            List.isEmpty event.testErrors
+                    in
                     SeqDict.update
                         (eventTypeToTimelineType event.eventType)
                         (\maybeTimeline ->
@@ -7298,6 +7303,7 @@ countCollapsedEvents collapsedRanges2 existingTimelines adjustedColumIndex range
                                             ++ timeline.arrows
                                     , rowIndex = timeline.rowIndex
                                     , eventCount = timeline.eventCount + 1
+                                    , noErrors = noErrors && timeline.noErrors
                                     }
 
                                 Nothing ->
@@ -7315,13 +7321,14 @@ countCollapsedEvents collapsedRanges2 existingTimelines adjustedColumIndex range
                                             rowIndex
                                     , rowIndex = rowIndex
                                     , eventCount = 1
+                                    , noErrors = noErrors
                                     }
                             )
                                 |> Just
                         )
                         timelines
         )
-        (SeqDict.map (\_ data -> { arrows = [], eventCount = 0, rowIndex = data.rowIndex }) existingTimelines)
+        (SeqDict.map (\_ data -> { arrows = [], eventCount = 0, rowIndex = data.rowIndex, noErrors = True }) existingTimelines)
         (Array.slice (range.startIndex + 1) range.endIndex testView2.steps)
         |> SeqDict.toList
         |> List.sortBy (\( _, data ) -> data.rowIndex)
@@ -7331,10 +7338,17 @@ countCollapsedEvents collapsedRanges2 existingTimelines adjustedColumIndex range
                     []
 
                 else
+                    let
+                        left =
+                            adjustedColumIndex * timelineColumnWidth
+
+                        top =
+                            data.rowIndex * timelineRowHeight + 1
+                    in
                     Html.div
                         [ Html.Attributes.style "background-color" "white"
-                        , Html.Attributes.style "left" (px (adjustedColumIndex * timelineColumnWidth))
-                        , Html.Attributes.style "top" (px (data.rowIndex * timelineRowHeight + 1))
+                        , Html.Attributes.style "left" (px left)
+                        , Html.Attributes.style "top" (px top)
                         , Html.Attributes.style "width" "14px"
                         , Html.Attributes.style "height" "14px"
                         , Html.Attributes.style "border-radius" "4px"
@@ -7369,13 +7383,18 @@ countCollapsedEvents collapsedRanges2 existingTimelines adjustedColumIndex range
                                 )
                             ]
                             [ Html.text (String.fromInt data.eventCount) ]
+                        , if data.noErrors then
+                            Html.text ""
+
+                          else
+                            xSvg "red" 4 -3
                         ]
                         :: data.arrows
             )
 
 
-collapsableGroupStart : Bool -> Int -> Int -> Html msg
-collapsableGroupStart isCollapsed left top =
+collapsableGroupIcon : Bool -> Int -> Int -> Html msg
+collapsableGroupIcon isCollapsed left top =
     Svg.svg
         [ Svg.Attributes.width (String.fromInt timelineColumnWidth)
         , Html.Attributes.style "left" (px left)

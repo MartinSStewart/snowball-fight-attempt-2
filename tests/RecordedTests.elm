@@ -214,25 +214,23 @@ tests textures fileData =
                 [ userA.setNetworkLatency 0 { toBackendLatency = 50, toFrontendLatency = 50 }
                 , handleAudioPorts userA
                 , userA.click 500 (Dom.id "createNewMatch")
-                , --T.collapsableGroup
-                  --    "Second player"
-                  --    [
-                  T.connectFrontend
-                    100
-                    sessionId1
-                    "/"
-                    desktopWindow
-                    (\userB ->
-                        [ handleAudioPorts userB
-                        , userB.clickLink 500 (Route.encode (Route.InMatchRoute (Id.fromInt 0)))
-                        , userA.click 100 (Dom.id "startMatchSetup")
-                        , movePlayer 500 100 userA
-                        , movePlayer 500 400 userB
-                        , T.collapsableGroup "5 seconds of gameplay" [ checkPlayersInSync 5000 ]
-                        ]
-                    )
-
-                --]
+                , T.collapsableGroup
+                    "Second player"
+                    [ T.connectFrontend
+                        100
+                        sessionId1
+                        "/"
+                        desktopWindow
+                        (\userB ->
+                            [ handleAudioPorts userB
+                            , userB.clickLink 500 (Route.encode (Route.InMatchRoute (Id.fromInt 0)))
+                            , userA.click 100 (Dom.id "startMatchSetup")
+                            , movePlayer 500 100 userA
+                            , movePlayer 500 400 userB
+                            , T.collapsableGroup "5 seconds of gameplay" [ checkPlayersInSync 5000 ]
+                            ]
+                        )
+                    ]
                 , T.collapsableGroup
                     "Second player reconnect"
                     [ T.connectFrontend
