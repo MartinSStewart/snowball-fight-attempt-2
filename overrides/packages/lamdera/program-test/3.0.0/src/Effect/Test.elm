@@ -6465,7 +6465,7 @@ timelineArrow rowIndexStart rowIndexEnd startIndex endIndex =
             , Svg.Attributes.height (String.fromFloat maxY)
             , "0 0 " ++ String.fromFloat maxX ++ " " ++ String.fromFloat maxY |> Svg.Attributes.viewBox
             , Html.Attributes.style "position" "absolute"
-            , Html.Attributes.style "top" "0"
+            , Html.Attributes.style "top" (px timelineViewYOffset)
             , Html.Attributes.style "pointer-events" "none"
             ]
             [ Svg.line
@@ -6779,7 +6779,7 @@ horizontalLine columnStart columnEnd rowIndex color =
     Html.div
         [ Html.Attributes.style "position" "absolute"
         , Html.Attributes.style "left" (px (columnStart * timelineColumnWidth + timelineColumnWidth // 2))
-        , Html.Attributes.style "top" (px (rowIndex * timelineRowHeight + 7))
+        , Html.Attributes.style "top" (px (rowIndex * timelineRowHeight + 7 + timelineViewYOffset))
         , Html.Attributes.style "height" "2px"
         , Html.Attributes.style "pointer-events" "none"
         , Html.Attributes.style
@@ -6788,6 +6788,11 @@ horizontalLine columnStart columnEnd rowIndex color =
         , Html.Attributes.style "background-color" color
         ]
         []
+
+
+timelineViewYOffset : number
+timelineViewYOffset =
+    5
 
 
 timelineEventsView : List (Html msg) -> Html msg
@@ -6866,6 +6871,10 @@ timelineViewHelper collapsedGroups width timelineIndex stepIndex steps precomput
                 collapsedGroups
                 steps
                 precomputed
+
+        timelineHeight : Int
+        timelineHeight =
+            (timelineCount + 1) * timelineRowHeight + timelineViewYOffset
     in
     timelineCss
         :: dynamicTimelineCss timelineCount timelineIndex
@@ -6874,7 +6883,7 @@ timelineViewHelper collapsedGroups width timelineIndex stepIndex steps precomput
                     Html.div
                         [ Html.Attributes.style "left" (px (adjustColumnIndex collapsedRanges2 currentStep2 * timelineColumnWidth))
                         , Html.Attributes.style "width" (px timelineColumnWidth)
-                        , Html.Attributes.style "height" (px ((timelineCount + 1) * timelineRowHeight))
+                        , Html.Attributes.style "height" (px timelineHeight)
                         , Html.Attributes.style "position" "absolute"
                         , Html.Attributes.style "background-color" "green"
                         , Html.Attributes.style "pointer-events" "none"
@@ -6889,7 +6898,7 @@ timelineViewHelper collapsedGroups width timelineIndex stepIndex steps precomput
                     Html.div
                         [ Html.Attributes.style "left" (px (adjustColumnIndex collapsedRanges2 previousStep2 * timelineColumnWidth))
                         , Html.Attributes.style "width" (px timelineColumnWidth)
-                        , Html.Attributes.style "height" (px ((timelineCount + 1) * timelineRowHeight))
+                        , Html.Attributes.style "height" (px timelineHeight)
                         , Html.Attributes.style "position" "absolute"
                         , Html.Attributes.style "background-color" "red"
                         , Html.Attributes.style "pointer-events" "none"
@@ -6902,7 +6911,7 @@ timelineViewHelper collapsedGroups width timelineIndex stepIndex steps precomput
         :: Html.div
             [ Html.Attributes.style "left" (px (adjustColumnIndex collapsedRanges2 stepIndex * timelineColumnWidth))
             , Html.Attributes.style "width" (px timelineColumnWidth)
-            , Html.Attributes.style "height" (px ((timelineCount + 1) * timelineRowHeight))
+            , Html.Attributes.style "height" (px timelineHeight)
             , Html.Attributes.style "position" "absolute"
             , Html.Attributes.style "background-color" "rgba(255,255,255,0.4)"
             , Html.Attributes.style "pointer-events" "none"
@@ -6911,7 +6920,7 @@ timelineViewHelper collapsedGroups width timelineIndex stepIndex steps precomput
         :: timelineEvents
         |> Html.div
             [ Html.Attributes.style "width" (px width)
-            , Html.Attributes.style "height" (px ((timelineCount + 1) * timelineRowHeight))
+            , Html.Attributes.style "height" (px timelineHeight)
             , Html.Attributes.style "position" "relative"
             , Html.Attributes.style "overflow-x" "auto"
             , Html.Attributes.style "overflow-y" "clip"
@@ -7072,7 +7081,7 @@ eventIcon timelines testView2 event collapsedRanges2 adjustedColumIndex columnIn
         circleHelper class =
             Html.div
                 [ Html.Attributes.style "left" (px (adjustedColumIndex * timelineColumnWidth))
-                , Html.Attributes.style "top" (px (rowIndex * timelineRowHeight + 1))
+                , Html.Attributes.style "top" (px (rowIndex * timelineRowHeight + 1 + timelineViewYOffset))
                 , Html.Attributes.class class
                 ]
                 []
@@ -7103,48 +7112,48 @@ eventIcon timelines testView2 event collapsedRanges2 adjustedColumIndex columnIn
             [ circleHelper "e2e-circle" ]
 
         CheckStateEvent _ ->
-            [ magnifyingGlassSvg (adjustedColumIndex * timelineColumnWidth) (rowIndex * timelineRowHeight) ]
+            [ magnifyingGlassSvg (adjustedColumIndex * timelineColumnWidth) (rowIndex * timelineRowHeight + timelineViewYOffset) ]
 
         UserInputEvent data ->
             case data.inputType of
                 UserClicksButton _ ->
-                    [ cursorSvg (adjustedColumIndex * timelineColumnWidth) (rowIndex * timelineRowHeight) timelineColumnWidth ]
+                    [ cursorSvg (adjustedColumIndex * timelineColumnWidth) (rowIndex * timelineRowHeight + timelineViewYOffset) timelineColumnWidth ]
 
                 UserInputsText _ _ ->
-                    [ cursorTextSvg (adjustedColumIndex * timelineColumnWidth) (rowIndex * timelineRowHeight) ]
+                    [ cursorTextSvg (adjustedColumIndex * timelineColumnWidth) (rowIndex * timelineRowHeight + timelineViewYOffset) ]
 
                 UserPressesKey _ _ _ ->
                     [ circleHelper "e2e-big-circle" ]
 
                 UserClicksLink _ ->
-                    [ simpleLinkSvg (adjustedColumIndex * timelineColumnWidth) (rowIndex * timelineRowHeight) ]
+                    [ simpleLinkSvg (adjustedColumIndex * timelineColumnWidth) (rowIndex * timelineRowHeight + timelineViewYOffset) ]
 
                 UserResizesWindow _ ->
                     [ circleHelper "e2e-big-circle" ]
 
                 UserPointerDownEvent _ _ ->
-                    [ cursorSvg (adjustedColumIndex * timelineColumnWidth) (rowIndex * timelineRowHeight) timelineColumnWidth ]
+                    [ cursorSvg (adjustedColumIndex * timelineColumnWidth) (rowIndex * timelineRowHeight + timelineViewYOffset) timelineColumnWidth ]
 
                 UserPointerUpEvent _ _ ->
-                    [ cursorSvg (adjustedColumIndex * timelineColumnWidth) (rowIndex * timelineRowHeight) timelineColumnWidth ]
+                    [ cursorSvg (adjustedColumIndex * timelineColumnWidth) (rowIndex * timelineRowHeight + timelineViewYOffset) timelineColumnWidth ]
 
                 UserPointerEnterEvent _ _ ->
-                    [ cursorSvg (adjustedColumIndex * timelineColumnWidth) (rowIndex * timelineRowHeight) timelineColumnWidth ]
+                    [ cursorSvg (adjustedColumIndex * timelineColumnWidth) (rowIndex * timelineRowHeight + timelineViewYOffset) timelineColumnWidth ]
 
                 UserPointerLeaveEvent _ _ ->
-                    [ cursorSvg (adjustedColumIndex * timelineColumnWidth) (rowIndex * timelineRowHeight) timelineColumnWidth ]
+                    [ cursorSvg (adjustedColumIndex * timelineColumnWidth) (rowIndex * timelineRowHeight + timelineViewYOffset) timelineColumnWidth ]
 
                 UserPointerOutEvent _ _ ->
-                    [ cursorSvg (adjustedColumIndex * timelineColumnWidth) (rowIndex * timelineRowHeight) timelineColumnWidth ]
+                    [ cursorSvg (adjustedColumIndex * timelineColumnWidth) (rowIndex * timelineRowHeight + timelineViewYOffset) timelineColumnWidth ]
 
                 UserPointerMoveEvent _ _ ->
-                    [ cursorSvg (adjustedColumIndex * timelineColumnWidth) (rowIndex * timelineRowHeight) timelineColumnWidth ]
+                    [ cursorSvg (adjustedColumIndex * timelineColumnWidth) (rowIndex * timelineRowHeight + timelineViewYOffset) timelineColumnWidth ]
 
                 UserPointerOverEvent _ _ ->
-                    [ cursorSvg (adjustedColumIndex * timelineColumnWidth) (rowIndex * timelineRowHeight) timelineColumnWidth ]
+                    [ cursorSvg (adjustedColumIndex * timelineColumnWidth) (rowIndex * timelineRowHeight + timelineViewYOffset) timelineColumnWidth ]
 
                 UserPointerCancelEvent _ _ ->
-                    [ cursorSvg (adjustedColumIndex * timelineColumnWidth) (rowIndex * timelineRowHeight) timelineColumnWidth ]
+                    [ cursorSvg (adjustedColumIndex * timelineColumnWidth) (rowIndex * timelineRowHeight + timelineViewYOffset) timelineColumnWidth ]
 
                 UserTouchCancelEvent _ _ ->
                     [ circleHelper "e2e-big-circle" ]
@@ -7159,25 +7168,25 @@ eventIcon timelines testView2 event collapsedRanges2 adjustedColumIndex columnIn
                     [ circleHelper "e2e-big-circle" ]
 
                 UserMouseEnterEvent _ _ ->
-                    [ cursorSvg (adjustedColumIndex * timelineColumnWidth) (rowIndex * timelineRowHeight) timelineColumnWidth ]
+                    [ cursorSvg (adjustedColumIndex * timelineColumnWidth) (rowIndex * timelineRowHeight + timelineViewYOffset) timelineColumnWidth ]
 
                 UserMouseLeaveEvent _ _ ->
-                    [ cursorSvg (adjustedColumIndex * timelineColumnWidth) (rowIndex * timelineRowHeight) timelineColumnWidth ]
+                    [ cursorSvg (adjustedColumIndex * timelineColumnWidth) (rowIndex * timelineRowHeight + timelineViewYOffset) timelineColumnWidth ]
 
                 UserMouseOutEvent _ _ ->
-                    [ cursorSvg (adjustedColumIndex * timelineColumnWidth) (rowIndex * timelineRowHeight) timelineColumnWidth ]
+                    [ cursorSvg (adjustedColumIndex * timelineColumnWidth) (rowIndex * timelineRowHeight + timelineViewYOffset) timelineColumnWidth ]
 
                 UserMouseMoveEvent _ _ ->
-                    [ cursorSvg (adjustedColumIndex * timelineColumnWidth) (rowIndex * timelineRowHeight) timelineColumnWidth ]
+                    [ cursorSvg (adjustedColumIndex * timelineColumnWidth) (rowIndex * timelineRowHeight + timelineViewYOffset) timelineColumnWidth ]
 
                 UserMouseOverEvent _ _ ->
-                    [ cursorSvg (adjustedColumIndex * timelineColumnWidth) (rowIndex * timelineRowHeight) timelineColumnWidth ]
+                    [ cursorSvg (adjustedColumIndex * timelineColumnWidth) (rowIndex * timelineRowHeight + timelineViewYOffset) timelineColumnWidth ]
 
                 UserMouseUpEvent _ _ ->
-                    [ cursorSvg (adjustedColumIndex * timelineColumnWidth) (rowIndex * timelineRowHeight) timelineColumnWidth ]
+                    [ cursorSvg (adjustedColumIndex * timelineColumnWidth) (rowIndex * timelineRowHeight + timelineViewYOffset) timelineColumnWidth ]
 
                 UserMouseDownEvent _ _ ->
-                    [ cursorSvg (adjustedColumIndex * timelineColumnWidth) (rowIndex * timelineRowHeight) timelineColumnWidth ]
+                    [ cursorSvg (adjustedColumIndex * timelineColumnWidth) (rowIndex * timelineRowHeight + timelineViewYOffset) timelineColumnWidth ]
 
                 UserFocusEvent _ ->
                     [ circleHelper "e2e-big-circle" ]
@@ -7192,7 +7201,7 @@ eventIcon timelines testView2 event collapsedRanges2 adjustedColumIndex columnIn
                     [ circleHelper "e2e-big-circle" ]
 
         SnapshotEvent _ ->
-            [ cameraSvg (adjustedColumIndex * timelineColumnWidth) (rowIndex * timelineRowHeight) ]
+            [ cameraSvg (adjustedColumIndex * timelineColumnWidth) (rowIndex * timelineRowHeight + timelineViewYOffset) ]
 
         ManuallySendToBackend _ ->
             [ circleHelper "e2e-big-circle" ]
@@ -7237,7 +7246,7 @@ eventIcon timelines testView2 event collapsedRanges2 adjustedColumIndex columnIn
                 ++ [ collapsableGroupIcon
                         isCollapsed
                         (adjustedColumIndex * timelineColumnWidth)
-                        (Array.length testView2.precomputed.timelines * timelineRowHeight + 1)
+                        (Array.length testView2.precomputed.timelines * timelineRowHeight + 1 + timelineViewYOffset)
                    ]
 
         CollapsableGroupEnd _ ->
@@ -7248,7 +7257,7 @@ eventIcon timelines testView2 event collapsedRanges2 adjustedColumIndex columnIn
             [ Html.div
                 [ Html.Attributes.style "position" "absolute"
                 , Html.Attributes.style "left" (px (adjustedColumIndex * timelineColumnWidth + 1 + timelineColumnWidth // 2))
-                , Html.Attributes.style "top" (px (Array.length testView2.precomputed.timelines * timelineRowHeight + 7 - height))
+                , Html.Attributes.style "top" (px (Array.length testView2.precomputed.timelines * timelineRowHeight + 7 - height + timelineViewYOffset))
                 , Html.Attributes.style "height" (String.fromInt height ++ "px")
                 , Html.Attributes.style "pointer-events" "none"
                 , Html.Attributes.style "width" "2px"
@@ -7261,7 +7270,7 @@ eventIcon timelines testView2 event collapsedRanges2 adjustedColumIndex columnIn
                 []
 
             else
-                [ xSvg "red" (adjustedColumIndex * timelineColumnWidth) (rowIndex * timelineRowHeight) ]
+                [ xSvg "red" (adjustedColumIndex * timelineColumnWidth) (rowIndex * timelineRowHeight + timelineViewYOffset) ]
            )
 
 
@@ -7343,7 +7352,7 @@ countCollapsedEvents collapsedRanges2 existingTimelines adjustedColumIndex range
                             adjustedColumIndex * timelineColumnWidth
 
                         top =
-                            data.rowIndex * timelineRowHeight + 1
+                            data.rowIndex * timelineRowHeight + 1 + timelineViewYOffset
                     in
                     Html.div
                         [ Html.Attributes.style "background-color" "white"
@@ -7387,7 +7396,7 @@ countCollapsedEvents collapsedRanges2 existingTimelines adjustedColumIndex range
                             Html.text ""
 
                           else
-                            xSvg "red" 4 -3
+                            xSvg "red" 4 -6
                         ]
                         :: data.arrows
             )
