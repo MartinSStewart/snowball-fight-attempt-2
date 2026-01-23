@@ -6592,16 +6592,16 @@ addTimelineEvent testView2 collapsedRanges2 event state =
     in
     { columnIndex = state.columnIndex + 1
     , dict =
-        if isEventHidden collapsedRanges2 state.columnIndex then
-            state.dict
+        SeqDict.update
+            (eventTypeToTimelineType event.eventType)
+            (\maybeTimeline ->
+                (case maybeTimeline of
+                    Just timeline ->
+                        { events =
+                            if isEventHidden collapsedRanges2 state.columnIndex then
+                                timeline.events
 
-        else
-            SeqDict.update
-                (eventTypeToTimelineType event.eventType)
-                (\maybeTimeline ->
-                    (case maybeTimeline of
-                        Just timeline ->
-                            { events =
+                            else
                                 eventToArrows
                                     state.dict
                                     collapsedRanges2
@@ -6617,18 +6617,22 @@ addTimelineEvent testView2 collapsedRanges2 event state =
                                         state.columnIndex
                                         timeline.rowIndex
                                     ++ timeline.events
-                            , columnStart = timeline.columnStart
-                            , columnEnd = adjustedColumnIndex
-                            , rowIndex = timeline.rowIndex
-                            }
+                        , columnStart = timeline.columnStart
+                        , columnEnd = adjustedColumnIndex
+                        , rowIndex = timeline.rowIndex
+                        }
 
-                        Nothing ->
-                            let
-                                rowIndex : Int
-                                rowIndex =
-                                    SeqDict.size state.dict
-                            in
-                            { events =
+                    Nothing ->
+                        let
+                            rowIndex : Int
+                            rowIndex =
+                                SeqDict.size state.dict
+                        in
+                        { events =
+                            if isEventHidden collapsedRanges2 state.columnIndex then
+                                []
+
+                            else
                                 eventToArrows state.dict collapsedRanges2 adjustedColumnIndex event rowIndex
                                     ++ eventIcon
                                         state.dict
@@ -6638,14 +6642,14 @@ addTimelineEvent testView2 collapsedRanges2 event state =
                                         adjustedColumnIndex
                                         state.columnIndex
                                         rowIndex
-                            , columnStart = adjustedColumnIndex
-                            , columnEnd = adjustedColumnIndex
-                            , rowIndex = rowIndex
-                            }
-                    )
-                        |> Just
+                        , columnStart = adjustedColumnIndex
+                        , columnEnd = adjustedColumnIndex
+                        , rowIndex = rowIndex
+                        }
                 )
-                state.dict
+                    |> Just
+            )
+            state.dict
     }
 
 

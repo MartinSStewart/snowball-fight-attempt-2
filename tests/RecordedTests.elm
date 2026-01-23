@@ -214,7 +214,10 @@ tests textures fileData =
                 [ userA.setNetworkLatency 0 { toBackendLatency = 50, toFrontendLatency = 50 }
                 , handleAudioPorts userA
                 , userA.click 500 (Dom.id "createNewMatch")
-                , T.connectFrontend
+                , --T.collapsableGroup
+                  --    "Second player"
+                  --    [
+                  T.connectFrontend
                     100
                     sessionId1
                     "/"
@@ -225,21 +228,26 @@ tests textures fileData =
                         , userA.click 100 (Dom.id "startMatchSetup")
                         , movePlayer 500 100 userA
                         , movePlayer 500 400 userB
-                        , checkPlayersInSync 5000
+                        , T.collapsableGroup "5 seconds of gameplay" [ checkPlayersInSync 5000 ]
                         ]
                     )
-                , T.connectFrontend
-                    100
-                    sessionId1
-                    (Route.encode (Route.InMatchRoute (Id.fromInt 0)))
-                    desktopWindow
-                    (\userB ->
-                        [ handleAudioPorts userB
-                        , movePlayer 600 100 userA
-                        , movePlayer 600 400 userB
-                        , checkPlayersInSync 500
-                        ]
-                    )
+
+                --]
+                , T.collapsableGroup
+                    "Second player reconnect"
+                    [ T.connectFrontend
+                        100
+                        sessionId1
+                        (Route.encode (Route.InMatchRoute (Id.fromInt 0)))
+                        desktopWindow
+                        (\userB ->
+                            [ handleAudioPorts userB
+                            , movePlayer 600 100 userA
+                            , movePlayer 600 400 userB
+                            , T.collapsableGroup "Next 5 seconds of gameplay" [ checkPlayersInSync 500 ]
+                            ]
+                        )
+                    ]
                 ]
             )
         ]
@@ -299,10 +307,8 @@ handleAudioPorts :
     T.FrontendActions toBackend frontendMsg frontendModel toFrontend backendMsg backendModel
     -> T.Action toBackend frontendMsg frontendModel toFrontend backendMsg backendModel
 handleAudioPorts user =
-    [ user.portEvent 100 "audioPortFromJS" (stringToJson """{"type":2,"samplesPerSecond":48000}""")
-    , T.collapsableGroup "test" []
-    ]
-        ++ List.map
+    user.portEvent 100 "audioPortFromJS" (stringToJson """{"type":2,"samplesPerSecond":48000}""")
+        :: List.map
             (\index ->
                 user.portEvent
                     10
