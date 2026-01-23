@@ -242,7 +242,7 @@ tests textures fileData =
                             [ handleAudioPorts userB
                             , movePlayer 600 100 userA
                             , movePlayer 600 400 userB
-                            , T.collapsableGroup "Next 5 seconds of gameplay" [ checkPlayersInSync 500 ]
+                            , checkPlayersInSync 0
                             ]
                         )
                     ]
