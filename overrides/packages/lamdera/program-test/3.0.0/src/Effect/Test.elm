@@ -4375,6 +4375,7 @@ type alias TestView toBackend frontendMsg frontendModel toFrontend backendMsg ba
     { index : Int
     , testName : String
     , stepIndex : Int
+    , diffWithIndex : Maybe Int
     , steps : Array (Event toBackend frontendMsg frontendModel toFrontend backendMsg backendModel)
     , precomputed : TestViewPrecomputed
     , timelineIndex : Int
@@ -4422,10 +4423,15 @@ type Msg toBackend frontendMsg frontendModel toFrontend backendMsg backendModel
     | PressedCollapseField (List PathNode)
     | PressedArrowKey ArrowKey
     | GotWindowSize Int Int
-    | PressedTimelineEvent Float Float Float
-    | PressedTimelineEvent2 Float Float
+    | PressedTimelineEvent MouseButton Float Float Float
+    | PressedTimelineEvent2 MouseButton Float Float
     | PressedTimeline CurrentTimeline
     | GotButtonPosition HtmlId (Result Browser.Dom.Error Browser.Dom.Element)
+
+
+type MouseButton
+    = LeftMouseButton
+    | RightMouseButton
 
 
 {-| -}
@@ -4552,6 +4558,7 @@ viewTest test index stepIndex timelineIndex position expandedCollapsableGroups2 
                 }
             , timelineIndex = clamp 0 (Array.length timelines - 1) timelineIndex
             , stepIndex = stepIndex2
+            , diffWithIndex = Nothing
             , overlayPosition = position
             , showModel = False
             , collapsedGroups =
@@ -4698,7 +4705,6 @@ update config msg (Model model) =
                         maybeModelAndCmd =
                             case
                                 Lamdera.Debug.debugR currentTestLocalStorage { data = "" }
-                                    |> Debug.log "abc"
                                     |> Maybe.withDefault { data = "" }
                                     |> .data
                                     |> Json.Decode.decodeString localStorageDecoder
@@ -4886,21 +4892,24 @@ update config msg (Model model) =
                     Cmd.none
             )
 
-        PressedTimelineEvent mouseX mouseY scrollLeft ->
+        PressedTimelineEvent mouseButton mouseX mouseY scrollLeft ->
             ( Model model
             , Browser.Dom.getElement timelineContainerId
                 |> Task.attempt
                     (\result ->
                         case result of
                             Ok { element } ->
-                                PressedTimelineEvent2 (mouseX - element.x + scrollLeft) (mouseY - element.y)
+                                PressedTimelineEvent2
+                                    mouseButton
+                                    (mouseX - element.x + scrollLeft)
+                                    (mouseY - element.y)
 
                             Err _ ->
                                 NoOp
                     )
             )
 
-        PressedTimelineEvent2 mouseX mouseY ->
+        PressedTimelineEvent2 mouseButton mouseX mouseY ->
             updateCurrentTest
                 (\test ->
                     let
@@ -4922,36 +4931,60 @@ update config msg (Model model) =
                                 (floor (mouseX / timelineColumnWidth))
                                 collapsedRanges2
                     in
-                    case
-                        List.filter
-                            (\range -> range.startIndex == stepIndex || range.endIndex == stepIndex)
-                            test.precomputed.collapsableGroupRanges
-                    of
-                        head :: _ ->
+                    case mouseButton of
+                        LeftMouseButton ->
+                            case
+                                List.filter
+                                    (\range -> range.startIndex == stepIndex || range.endIndex == stepIndex)
+                                    test.precomputed.collapsableGroupRanges
+                            of
+                                head :: _ ->
+                                    let
+                                        test2 : TestView toBackend frontendMsg frontendModel toFrontend backendMsg backendModel
+                                        test2 =
+                                            { test
+                                                | collapsedGroups =
+                                                    if SeqSet.member head.startIndex test.collapsedGroups then
+                                                        SeqSet.remove head.startIndex test.collapsedGroups
+
+                                                    else
+                                                        SeqSet.insert head.startIndex test.collapsedGroups
+                                            }
+                                    in
+                                    ( updateTimelineViewData test2
+                                    , writeLocalStorage
+                                        { testName = test2.testName
+                                        , stepIndex = test2.stepIndex
+                                        , timelineIndex = test2.timelineIndex
+                                        , position = test2.overlayPosition
+                                        , collapsableGroups = expandedCollapsableGroups test2
+                                        }
+                                    )
+
+                                [] ->
+                                    stepTo stepIndex test
+
+                        RightMouseButton ->
                             let
-                                test2 : TestView toBackend frontendMsg frontendModel toFrontend backendMsg backendModel
-                                test2 =
-                                    { test
-                                        | collapsedGroups =
-                                            if SeqSet.member head.startIndex test.collapsedGroups then
-                                                SeqSet.remove head.startIndex test.collapsedGroups
-
-                                            else
-                                                SeqSet.insert head.startIndex test.collapsedGroups
-                                    }
+                                currentAndPreviousStep : { previousStep : Maybe Int, currentStep : Maybe Int }
+                                currentAndPreviousStep =
+                                    currentAndPreviousStepIndex
+                                        test.timelineIndex
+                                        stepIndex
+                                        test.collapsedGroups
+                                        test.steps
+                                        test.precomputed
                             in
-                            ( updateTimelineViewData test2
-                            , writeLocalStorage
-                                { testName = test2.testName
-                                , stepIndex = test2.stepIndex
-                                , timelineIndex = test2.timelineIndex
-                                , position = test2.overlayPosition
-                                , collapsableGroups = expandedCollapsableGroups test2
-                                }
-                            )
+                            case currentAndPreviousStep.currentStep of
+                                Just currentStepIndex ->
+                                    ( { test
+                                        | diffWithIndex = Just currentStepIndex
+                                      }
+                                    , Cmd.none
+                                    )
 
-                        [] ->
-                            stepTo stepIndex test
+                                Nothing ->
+                                    ( test, Cmd.none )
                 )
                 (Model model)
 
@@ -5335,7 +5368,7 @@ checkCachedElmValue ( Model model, cmdA ) =
                                     in
                                     { currentTest
                                         | steps =
-                                            case currentAndPreviousStep.previousStep of
+                                            case maybeOr currentTest.diffWithIndex currentAndPreviousStep.previousStep of
                                                 Just previousIndex ->
                                                     updateAt
                                                         previousIndex
@@ -6766,17 +6799,192 @@ timelineView windowWidth testView_ =
                 )
                 testView_.timelineViewData
             )
-        , Html.Lazy.lazy8
-            timelineViewHelper
-            testView_.collapsedGroups
-            (windowWidth - sideBarWidth - 1 {- The extra minus 1 is to account for rounding errors -})
-            testView_.timelineIndex
-            testView_.stepIndex
-            testView_.steps
-            testView_.precomputed
-            testView_.timelineViewData
-            testView_.showModel
+        , if testView_.showModel then
+            Html.Lazy.lazy8
+                timelineViewHelperShowModel
+                testView_.collapsedGroups
+                (windowWidth - sideBarWidth - 1 {- The extra minus 1 is to account for rounding errors -})
+                testView_.timelineIndex
+                testView_.stepIndex
+                testView_.steps
+                testView_.precomputed
+                testView_.timelineViewData
+                testView_.diffWithIndex
+
+          else
+            Html.Lazy.lazy6
+                timelineViewHelperHideModel
+                testView_.collapsedGroups
+                (windowWidth - sideBarWidth - 1 {- The extra minus 1 is to account for rounding errors -})
+                testView_.timelineIndex
+                testView_.stepIndex
+                testView_.precomputed
+                testView_.timelineViewData
         ]
+
+
+maybeOr : Maybe a -> Maybe a -> Maybe a
+maybeOr maybeA maybeB =
+    case maybeA of
+        Just _ ->
+            maybeA
+
+        Nothing ->
+            maybeB
+
+
+timelineViewHelperShowModel :
+    SeqSet Int
+    -> Int
+    -> Int
+    -> Int
+    -> Array (Event toBackend frontendMsg frontendModel toFrontend backendMsg backendModel)
+    -> TestViewPrecomputed
+    -> List ( CurrentTimeline, TimelineViewData toBackend frontendMsg frontendModel toFrontend backendMsg backendModel )
+    -> Maybe Int
+    -> Html (Msg toBackend frontendMsg frontendModel toFrontend backendMsg backendModel)
+timelineViewHelperShowModel collapsedGroups timelineWidth timelineIndex stepIndex steps precomputed timelineViewData2 diffWithIndex =
+    let
+        collapsedRanges2 : List CollapsableRange
+        collapsedRanges2 =
+            collapsedRanges collapsedGroups precomputed.collapsableGroupRanges
+
+        timelineCount : Int
+        timelineCount =
+            List.length timelineViewData2
+
+        timelineHeight : Int
+        timelineHeight =
+            (timelineCount + 1) * timelineRowHeight + timelineViewYOffset
+
+        { previousStep, currentStep } =
+            currentAndPreviousStepIndex
+                timelineIndex
+                stepIndex
+                collapsedGroups
+                steps
+                precomputed
+    in
+    timelineCss
+        :: dynamicTimelineCss timelineCount timelineIndex
+        :: [ case currentStep of
+                Just currentStep2 ->
+                    Html.div
+                        [ Html.Attributes.style "left" (px (adjustColumnIndex collapsedRanges2 currentStep2 * timelineColumnWidth))
+                        , Html.Attributes.style "width" (px timelineColumnWidth)
+                        , Html.Attributes.style "height" (px timelineHeight)
+                        , Html.Attributes.style "position" "absolute"
+                        , Html.Attributes.style "background-color" "green"
+                        , Html.Attributes.style "pointer-events" "none"
+                        ]
+                        []
+
+                _ ->
+                    Html.div [] []
+           , case maybeOr diffWithIndex previousStep of
+                Just previousStep3 ->
+                    Html.div
+                        [ Html.Attributes.style "left" (px (adjustColumnIndex collapsedRanges2 previousStep3 * timelineColumnWidth))
+                        , Html.Attributes.style "width" (px timelineColumnWidth)
+                        , Html.Attributes.style "height" (px timelineHeight)
+                        , Html.Attributes.style "position" "absolute"
+                        , Html.Attributes.style "background-color" "red"
+                        , Html.Attributes.style "pointer-events" "none"
+                        ]
+                        []
+
+                _ ->
+                    Html.div [] []
+           , Html.div
+                [ Html.Attributes.style "left" (px (adjustColumnIndex collapsedRanges2 stepIndex * timelineColumnWidth))
+                , Html.Attributes.style "width" (px timelineColumnWidth)
+                , Html.Attributes.style "height" (px timelineHeight)
+                , Html.Attributes.style "position" "absolute"
+                , Html.Attributes.style "background-color" "rgba(255,255,255,0.4)"
+                , Html.Attributes.style "pointer-events" "none"
+                ]
+                []
+           ]
+        ++ timelineEventsView timelineIndex timelineViewData2
+        |> timelineViewContainer timelineWidth timelineHeight
+
+
+timelineEventsView : Int -> List ( CurrentTimeline, TimelineViewData toBackend frontendMsg frontendModel toFrontend backendMsg backendModel ) -> List (Html (Msg toBackend frontendMsg frontendModel toFrontend backendMsg backendModel))
+timelineEventsView timelineIndex timelineViewData2 =
+    let
+        maxColumnEnd : Int
+        maxColumnEnd =
+            List.map (\( _, timeline ) -> timeline.columnEnd) timelineViewData2 |> List.maximum |> Maybe.withDefault 0
+    in
+    List.concatMap
+        (\( timelineType, timeline ) ->
+            [ horizontalLine
+                timeline.columnStart
+                (case timelineType of
+                    FrontendTimeline _ ->
+                        timeline.columnEnd
+
+                    BackendTimeline ->
+                        maxColumnEnd
+                )
+                timeline.rowIndex
+                (if timelineIndex == timeline.rowIndex then
+                    "white"
+
+                 else
+                    unselectedTimelineColor
+                )
+            , Html.div
+                [ Html.Attributes.style
+                    "color"
+                    (if timelineIndex == timeline.rowIndex then
+                        "white"
+
+                     else
+                        unselectedTimelineColor
+                    )
+                ]
+                [ Html.Lazy.lazy timelineEventsViewHelper timeline.events ]
+            ]
+        )
+        timelineViewData2
+
+
+timelineViewHelperHideModel :
+    SeqSet Int
+    -> Int
+    -> Int
+    -> Int
+    -> TestViewPrecomputed
+    -> List ( CurrentTimeline, TimelineViewData toBackend frontendMsg frontendModel toFrontend backendMsg backendModel )
+    -> Html (Msg toBackend frontendMsg frontendModel toFrontend backendMsg backendModel)
+timelineViewHelperHideModel collapsedGroups timelineWidth timelineIndex stepIndex precomputed timelineViewData2 =
+    let
+        collapsedRanges2 : List CollapsableRange
+        collapsedRanges2 =
+            collapsedRanges collapsedGroups precomputed.collapsableGroupRanges
+
+        timelineCount : Int
+        timelineCount =
+            List.length timelineViewData2
+
+        timelineHeight : Int
+        timelineHeight =
+            (timelineCount + 1) * timelineRowHeight + timelineViewYOffset
+    in
+    timelineCss
+        :: dynamicTimelineCss timelineCount timelineIndex
+        :: Html.div
+            [ Html.Attributes.style "left" (px (adjustColumnIndex collapsedRanges2 stepIndex * timelineColumnWidth))
+            , Html.Attributes.style "width" (px timelineColumnWidth)
+            , Html.Attributes.style "height" (px timelineHeight)
+            , Html.Attributes.style "position" "absolute"
+            , Html.Attributes.style "background-color" "rgba(255,255,255,0.4)"
+            , Html.Attributes.style "pointer-events" "none"
+            ]
+            []
+        :: timelineEventsView timelineIndex timelineViewData2
+        |> timelineViewContainer timelineWidth timelineHeight
 
 
 horizontalLine : Int -> Int -> Int -> String -> Html msg
@@ -6800,8 +7008,8 @@ timelineViewYOffset =
     5
 
 
-timelineEventsView : List (Html msg) -> Html msg
-timelineEventsView events =
+timelineEventsViewHelper : List (Html msg) -> Html msg
+timelineEventsViewHelper events =
     let
         _ =
             Debug.log "timelineEventsView" ()
@@ -6809,140 +7017,37 @@ timelineEventsView events =
     Html.div [] events
 
 
-{-| -}
-timelineViewHelper :
-    SeqSet Int
-    -> Int
-    -> Int
-    -> Int
-    -> Array (Event toBackend frontendMsg frontendModel toFrontend backendMsg backendModel)
-    -> TestViewPrecomputed
-    -> List ( CurrentTimeline, TimelineViewData toBackend frontendMsg frontendModel toFrontend backendMsg backendModel )
-    -> Bool
-    -> Html (Msg toBackend frontendMsg frontendModel toFrontend backendMsg backendModel)
-timelineViewHelper collapsedGroups width timelineIndex stepIndex steps precomputed timelineViewData2 showModel =
-    let
-        maxColumnEnd : Int
-        maxColumnEnd =
-            List.map (\( _, timeline ) -> timeline.columnEnd) timelineViewData2 |> List.maximum |> Maybe.withDefault 0
-
-        collapsedRanges2 : List CollapsableRange
-        collapsedRanges2 =
-            collapsedRanges collapsedGroups precomputed.collapsableGroupRanges
-
-        timelineCount : Int
-        timelineCount =
-            List.length timelineViewData2
-
-        timelineEvents : List (Html (Msg toBackend frontendMsg frontendModel toFrontend backendMsg backendModel))
-        timelineEvents =
-            List.concatMap
-                (\( timelineType, timeline ) ->
-                    [ horizontalLine
-                        timeline.columnStart
-                        (case timelineType of
-                            FrontendTimeline _ ->
-                                timeline.columnEnd
-
-                            BackendTimeline ->
-                                maxColumnEnd
-                        )
-                        timeline.rowIndex
-                        (if timelineIndex == timeline.rowIndex then
-                            "white"
-
-                         else
-                            unselectedTimelineColor
-                        )
-                    , Html.div
-                        [ Html.Attributes.style
-                            "color"
-                            (if timelineIndex == timeline.rowIndex then
-                                "white"
-
-                             else
-                                unselectedTimelineColor
-                            )
-                        ]
-                        [ Html.Lazy.lazy timelineEventsView timeline.events ]
-                    ]
-                )
-                timelineViewData2
-
-        { previousStep, currentStep } =
-            currentAndPreviousStepIndex
-                timelineIndex
-                stepIndex
-                collapsedGroups
-                steps
-                precomputed
-
-        timelineHeight : Int
-        timelineHeight =
-            (timelineCount + 1) * timelineRowHeight + timelineViewYOffset
-    in
-    timelineCss
-        :: dynamicTimelineCss timelineCount timelineIndex
-        :: (case ( currentStep, showModel ) of
-                ( Just currentStep2, True ) ->
-                    Html.div
-                        [ Html.Attributes.style "left" (px (adjustColumnIndex collapsedRanges2 currentStep2 * timelineColumnWidth))
-                        , Html.Attributes.style "width" (px timelineColumnWidth)
-                        , Html.Attributes.style "height" (px timelineHeight)
-                        , Html.Attributes.style "position" "absolute"
-                        , Html.Attributes.style "background-color" "green"
-                        , Html.Attributes.style "pointer-events" "none"
-                        ]
-                        []
-
-                _ ->
-                    Html.div [] []
-           )
-        :: (case ( previousStep, showModel ) of
-                ( Just previousStep2, True ) ->
-                    Html.div
-                        [ Html.Attributes.style "left" (px (adjustColumnIndex collapsedRanges2 previousStep2 * timelineColumnWidth))
-                        , Html.Attributes.style "width" (px timelineColumnWidth)
-                        , Html.Attributes.style "height" (px timelineHeight)
-                        , Html.Attributes.style "position" "absolute"
-                        , Html.Attributes.style "background-color" "red"
-                        , Html.Attributes.style "pointer-events" "none"
-                        ]
-                        []
-
-                _ ->
-                    Html.div [] []
-           )
-        :: Html.div
-            [ Html.Attributes.style "left" (px (adjustColumnIndex collapsedRanges2 stepIndex * timelineColumnWidth))
-            , Html.Attributes.style "width" (px timelineColumnWidth)
-            , Html.Attributes.style "height" (px timelineHeight)
-            , Html.Attributes.style "position" "absolute"
-            , Html.Attributes.style "background-color" "rgba(255,255,255,0.4)"
-            , Html.Attributes.style "pointer-events" "none"
-            ]
-            []
-        :: timelineEvents
-        |> Html.div
-            [ Html.Attributes.style "width" (px width)
-            , Html.Attributes.style "height" (px timelineHeight)
-            , Html.Attributes.style "position" "relative"
-            , Html.Attributes.style "overflow-x" "auto"
-            , Html.Attributes.style "overflow-y" "clip"
-            , Html.Events.preventDefaultOn "keydown" (decodeArrows |> Json.Decode.map (\_ -> ( NoOp, True )))
-            , Html.Attributes.tabindex -1
-            , Html.Attributes.style "display" "inline-block"
-            , Html.Attributes.id timelineContainerId
-            , Html.Attributes.style "color" unselectedTimelineColor
-            , Html.Events.on
-                "click"
-                (Json.Decode.map3
-                    PressedTimelineEvent
-                    (Json.Decode.field "x" Json.Decode.float)
-                    (Json.Decode.field "y" Json.Decode.float)
-                    (Json.Decode.at [ "target", "scrollLeft" ] Json.Decode.float)
-                )
-            ]
+timelineViewContainer : Int -> Int -> List (Html (Msg toBackend frontendMsg frontendModel toFrontend backendMsg backendModel)) -> Html (Msg toBackend frontendMsg frontendModel toFrontend backendMsg backendModel)
+timelineViewContainer timelineWidth timelineHeight items =
+    Html.div
+        [ Html.Attributes.style "width" (px timelineWidth)
+        , Html.Attributes.style "height" (px timelineHeight)
+        , Html.Attributes.style "position" "relative"
+        , Html.Attributes.style "overflow-x" "auto"
+        , Html.Attributes.style "overflow-y" "clip"
+        , Html.Events.preventDefaultOn "keydown" (decodeArrows |> Json.Decode.map (\_ -> ( NoOp, True )))
+        , Html.Attributes.tabindex -1
+        , Html.Attributes.style "display" "inline-block"
+        , Html.Attributes.id timelineContainerId
+        , Html.Attributes.style "color" unselectedTimelineColor
+        , Html.Events.on
+            "click"
+            (Json.Decode.map3
+                (PressedTimelineEvent LeftMouseButton)
+                (Json.Decode.field "x" Json.Decode.float)
+                (Json.Decode.field "y" Json.Decode.float)
+                (Json.Decode.at [ "target", "scrollLeft" ] Json.Decode.float)
+            )
+        , Html.Events.preventDefaultOn
+            "contextmenu"
+            (Json.Decode.map3
+                (\x y left -> ( PressedTimelineEvent RightMouseButton x y left, True ))
+                (Json.Decode.field "x" Json.Decode.float)
+                (Json.Decode.field "y" Json.Decode.float)
+                (Json.Decode.at [ "target", "scrollLeft" ] Json.Decode.float)
+            )
+        ]
+        items
 
 
 {-| -}
@@ -7691,6 +7796,18 @@ testView windowWidth instructions testView_ =
                     overlayHeight : Int
                     overlayHeight =
                         90 + (Array.length testView_.precomputed.timelines + 1) * timelineRowHeight + timelineViewYOffset
+
+                    timelineName : String
+                    timelineName =
+                        case getAt testView_.timelineIndex testView_.timelineViewData of
+                            Just ( BackendTimeline, _ ) ->
+                                "backend"
+
+                            Just ( FrontendTimeline clientId, _ ) ->
+                                Effect.Lamdera.clientIdToString clientId
+
+                            _ ->
+                                "<missing>"
                 in
                 [ testOverlay windowWidth testView_ currentStep
                 , Html.node
@@ -7703,10 +7820,10 @@ testView windowWidth instructions testView_ =
                         "padding"
                         (case testView_.overlayPosition of
                             Top ->
-                                px overlayHeight ++ " 4px 4px 4px"
+                                px (overlayHeight + 4) ++ " 8px 4px 8px"
 
                             Bottom ->
-                                "4px 4px " ++ px overlayHeight ++ " 4px"
+                                "8px 8px " ++ px overlayHeight ++ " 8px"
                         )
                     , defaultFontColor
                     , Html.Attributes.style "font-family" "arial"
@@ -7714,15 +7831,53 @@ testView windowWidth instructions testView_ =
                     , Html.Attributes.style "min-height" "100vh"
                     ]
                     [ case
-                        ( Maybe.andThen (\a -> Array.get a testView_.steps) currentAndPreviousStep.currentStep
-                        , Maybe.andThen (\a -> Array.get a testView_.steps) currentAndPreviousStep.previousStep
+                        ( Maybe.andThen
+                            (\a -> Array.get a testView_.steps |> Maybe.map (Tuple.pair a))
+                            currentAndPreviousStep.currentStep
+                        , Maybe.andThen
+                            (\a -> Array.get a testView_.steps |> Maybe.map (Tuple.pair a))
+                            (maybeOr testView_.diffWithIndex currentAndPreviousStep.previousStep)
                         )
                       of
-                        ( Just currentStep2, Just previousStep ) ->
-                            Html.Lazy.lazy3 modelDiffView testView_.collapsedFields currentStep2 previousStep
+                        ( Just ( currentStepIndex, currentStep2 ), Just ( previousStepIndex, previousStep ) ) ->
+                            Html.div
+                                []
+                                [ Html.div
+                                    [ Html.Attributes.style "font-size" "18px"
+                                    , Html.Attributes.style "padding-bottom" "8px"
+                                    ]
+                                    [ Html.text
+                                        ("Viewing "
+                                            ++ timelineName
+                                            ++ " model for step "
+                                        )
+                                    , Html.span
+                                        [ Html.Attributes.style "background-color" "green" ]
+                                        [ Html.text (String.fromInt (currentStepIndex + 1)) ]
+                                    , Html.text ". Diffing against step "
+                                    , Html.span
+                                        [ Html.Attributes.style "background-color" "red" ]
+                                        [ Html.text (String.fromInt (previousStepIndex + 1)) ]
+                                    , Html.text " (right click timeline to change diff)"
+                                    ]
+                                , Html.Lazy.lazy3 modelDiffView testView_.collapsedFields currentStep2 previousStep
+                                ]
 
-                        ( Just currentStep2, Nothing ) ->
-                            Html.Lazy.lazy2 modelView testView_.collapsedFields currentStep2
+                        ( Just ( currentStepIndex, currentStep2 ), Nothing ) ->
+                            Html.div
+                                []
+                                [ Html.div
+                                    [ Html.Attributes.style "font-size" "18px"
+                                    , Html.Attributes.style "padding-bottom" "8px"
+                                    ]
+                                    [ "Viewing "
+                                        ++ timelineName
+                                        ++ " model for step "
+                                        ++ String.fromInt (currentStepIndex + 1)
+                                        |> Html.text
+                                    ]
+                                , Html.Lazy.lazy2 modelView testView_.collapsedFields currentStep2
+                                ]
 
                         _ ->
                             centeredText "No model to show"
