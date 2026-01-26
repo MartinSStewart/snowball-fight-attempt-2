@@ -5947,7 +5947,12 @@ overviewContainer body =
 {-| -}
 darkBackground : Html.Attribute msg
 darkBackground =
-    Html.Attributes.style "background-color" "rgba(0,0,0,0.9)"
+    Html.Attributes.style "background-color" darkColor
+
+
+darkColor : String
+darkColor =
+    "rgba(0,0,0,0.9)"
 
 
 {-| -}
@@ -7685,9 +7690,13 @@ testView windowWidth instructions testView_ =
                 let
                     overlayHeight : Int
                     overlayHeight =
-                        90 + Array.length testView_.precomputed.timelines * timelineRowHeight
+                        90 + (Array.length testView_.precomputed.timelines + 1) * timelineRowHeight + timelineViewYOffset
                 in
                 [ testOverlay windowWidth testView_ currentStep
+                , Html.node
+                    "style"
+                    []
+                    [ Html.text ("body { background-color: " ++ darkColor ++ " }") ]
                 , Html.div
                     [ Html.Attributes.style "font-size" "14px"
                     , Html.Attributes.style
@@ -7699,7 +7708,6 @@ testView windowWidth instructions testView_ =
                             Bottom ->
                                 "4px 4px " ++ px overlayHeight ++ " 4px"
                         )
-                    , darkBackground
                     , defaultFontColor
                     , Html.Attributes.style "font-family" "arial"
                     , Html.Attributes.style "white-space" "pre"
