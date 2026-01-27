@@ -5252,13 +5252,20 @@ stepTo centerScrollView stepIndex currentTest =
                                     adjustColumnIndex
                                         (collapsedRanges currentTest.collapsedGroups currentTest.precomputed.collapsableGroupRanges)
                                         stepIndex
+
+                                x =
+                                    toFloat stepIndex2 * timelineColumnWidth + container.element.x
                             in
-                            Browser.Dom.setViewportOf
-                                timelineContainerId
-                                (toFloat stepIndex2 * timelineColumnWidth - container.element.width / 2)
-                                0
+                            if (x > container.viewport.width * 0.8) || (x < container.viewport.width * 0.2) then
+                                Browser.Dom.setViewportOf
+                                    timelineContainerId
+                                    (toFloat stepIndex2 * timelineColumnWidth - container.viewport.width / 2)
+                                    0
+
+                            else
+                                Task.succeed ()
                         )
-                        (Browser.Dom.getElement timelineContainerId)
+                        (Browser.Dom.getElement timelineInnerContainerId)
                         |> Task.attempt (\_ -> NoOp)
 
                   else
@@ -7052,10 +7059,6 @@ timelineViewYOffset =
 
 timelineEventsViewHelper : List (Html msg) -> Html msg
 timelineEventsViewHelper events =
-    let
-        _ =
-            Debug.log "timelineEventsView" ()
-    in
     Html.div [] events
 
 
@@ -7089,13 +7092,18 @@ timelineViewContainer timelineWidth timelineHeight items =
                 (Json.Decode.at [ "target", "scrollLeft" ] Json.Decode.float)
             )
         ]
-        items
+        [ Html.div [ Html.Attributes.id timelineInnerContainerId ] items ]
 
 
 {-| -}
 timelineContainerId : String
 timelineContainerId =
-    "timelineContainer123"
+    "e2e-timelineContainer"
+
+
+timelineInnerContainerId : String
+timelineInnerContainerId =
+    "e2e-timelineInnerContainer"
 
 
 {-| -}
