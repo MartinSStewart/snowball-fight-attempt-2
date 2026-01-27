@@ -4783,7 +4783,7 @@ update config msg (Model model) =
             updateCurrentTest
                 (\currentTest ->
                     ( { currentTest | showModel = False }
-                    , case Array.get currentTest.stepIndex currentTest.steps of
+                    , case Array.get (visibleStepIndex currentTest) currentTest.steps of
                         Just step ->
                             getButtonPosition step
 
@@ -4827,7 +4827,7 @@ update config msg (Model model) =
                             case
                                 nextTimelineStep
                                     False
-                                    currentTest.stepIndex
+                                    (visibleStepIndex currentTest)
                                     (currentTimeline currentTest.timelineIndex currentTest.precomputed.timelines)
                                     currentTest
                             of
@@ -4842,7 +4842,7 @@ update config msg (Model model) =
                                 previousTimelineStep
                                     True
                                     False
-                                    currentTest.stepIndex
+                                    (visibleStepIndex currentTest)
                                     (currentTimeline currentTest.timelineIndex currentTest.precomputed.timelines)
                                     currentTest.steps
                                     currentTest.collapsedGroups
@@ -4880,7 +4880,7 @@ update config msg (Model model) =
             ( Model { model | windowSize = ( width, height ) }
             , case model.currentTest of
                 Just currentTest ->
-                    case Array.get currentTest.stepIndex currentTest.steps of
+                    case Array.get (visibleStepIndex currentTest) currentTest.steps of
                         Just step ->
                             getButtonPosition step
 
@@ -4983,7 +4983,7 @@ update config msg (Model model) =
                                 test2 =
                                     { test
                                         | diffWithIndex =
-                                            if diffWithIndex == Just test.stepIndex then
+                                            if diffWithIndex == Just (visibleStepIndex test) then
                                                 Nothing
 
                                             else
@@ -5371,7 +5371,7 @@ checkCachedElmValue ( Model model, cmdA ) =
                                             case
                                                 currentStepIndex
                                                     currentTest.timelineIndex
-                                                    currentTest.stepIndex
+                                                    (visibleStepIndex currentTest)
                                                     currentTest.collapsedGroups
                                                     currentTest.steps
                                                     currentTest.precomputed
@@ -6266,10 +6266,11 @@ modelDiffView collapsedFields step previousStep =
 
 {-| -}
 currentStepText :
-    Event toBackend frontendMsg frontendModel toFrontend backendMsg backendModel
+    Int
+    -> Event toBackend frontendMsg frontendModel toFrontend backendMsg backendModel
     -> TestView toBackend frontendMsg frontendModel toFrontend backendMsg backendModel
     -> Html (Msg toBackend frontendMsg frontendModel toFrontend backendMsg backendModel)
-currentStepText currentStep testView_ =
+currentStepText stepIndex currentStep testView_ =
     let
         fullMsg : String
         fullMsg =
@@ -6470,7 +6471,7 @@ currentStepText currentStep testView_ =
     Html.div
         [ Html.Attributes.style "padding" "4px", Html.Attributes.title fullMsg ]
         [ " "
-            ++ String.fromInt (testView_.stepIndex + 1)
+            ++ String.fromInt (stepIndex + 1)
             ++ "/"
             ++ String.fromInt (Array.length testView_.steps)
             ++ (" " ++ ellipsis2 100 fullMsg)
@@ -6810,9 +6811,10 @@ collapsedRanges collapsedGroups collapsableGroupRanges =
 {-| -}
 timelineView :
     Int
+    -> Int
     -> TestView toBackend frontendMsg frontendModel toFrontend backendMsg backendModel
     -> Html (Msg toBackend frontendMsg frontendModel toFrontend backendMsg backendModel)
-timelineView windowWidth testView_ =
+timelineView windowWidth stepIndex testView_ =
     let
         sideBarWidth =
             64
@@ -6884,7 +6886,7 @@ timelineView windowWidth testView_ =
                 testView_.collapsedGroups
                 (windowWidth - sideBarWidth - 1 {- The extra minus 1 is to account for rounding errors -})
                 testView_.timelineIndex
-                testView_.stepIndex
+                stepIndex
                 testView_.precomputed
                 testView_.timelineViewData
         ]
@@ -6913,14 +6915,6 @@ timelineViewHelperShowModel collapsedGroups timelineWidth timelineIndex stepInde
         timelineHeight : Int
         timelineHeight =
             (timelineCount + 1) * timelineRowHeight + timelineViewYOffset
-
-        currentStep =
-            currentStepIndex
-                timelineIndex
-                stepIndex
-                collapsedGroups
-                steps
-                precomputed
     in
     timelineCss
         :: dynamicTimelineCss timelineCount timelineIndex
@@ -6931,36 +6925,27 @@ timelineViewHelperShowModel collapsedGroups timelineWidth timelineIndex stepInde
                         , Html.Attributes.style "width" (px timelineColumnWidth)
                         , Html.Attributes.style "height" (px timelineHeight)
                         , Html.Attributes.style "position" "absolute"
-                        , Html.Attributes.style "background-color" "red"
+                        , Effect.TreeView.oldColor
                         , Html.Attributes.style "pointer-events" "none"
                         ]
                         []
 
                 _ ->
                     Html.div [] []
-           , case currentStep of
+           , case currentStepIndex timelineIndex stepIndex collapsedGroups steps precomputed of
                 Just currentStep2 ->
                     Html.div
                         [ Html.Attributes.style "left" (px (adjustColumnIndex collapsedRanges2 currentStep2 * timelineColumnWidth))
                         , Html.Attributes.style "width" (px timelineColumnWidth)
                         , Html.Attributes.style "height" (px timelineHeight)
                         , Html.Attributes.style "position" "absolute"
-                        , Html.Attributes.style "background-color" "green"
+                        , Effect.TreeView.newColor
                         , Html.Attributes.style "pointer-events" "none"
                         ]
                         []
 
                 _ ->
                     Html.div [] []
-           , Html.div
-                [ Html.Attributes.style "left" (px (adjustColumnIndex collapsedRanges2 stepIndex * timelineColumnWidth))
-                , Html.Attributes.style "width" (px timelineColumnWidth)
-                , Html.Attributes.style "height" (px timelineHeight)
-                , Html.Attributes.style "position" "absolute"
-                , Html.Attributes.style "background-color" "rgba(255,255,255,0.4)"
-                , Html.Attributes.style "pointer-events" "none"
-                ]
-                []
            ]
         ++ timelineEventsView timelineIndex timelineViewData2
         |> timelineViewContainer timelineWidth timelineHeight
@@ -7828,6 +7813,25 @@ timelineTypeToName timeline =
             Effect.Lamdera.clientIdToString clientId
 
 
+visibleStepIndex : TestView toBackend frontendMsg frontendModel toFrontend backendMsg backendModel -> Int
+visibleStepIndex testView_ =
+    case
+        previousTimelineStep
+            False
+            False
+            (testView_.stepIndex + 1)
+            (currentTimeline testView_.timelineIndex testView_.precomputed.timelines)
+            testView_.steps
+            testView_.collapsedGroups
+            testView_.precomputed.collapsableGroupRanges
+    of
+        Just ( stepIndex2, _ ) ->
+            stepIndex2
+
+        Nothing ->
+            testView_.stepIndex
+
+
 {-| -}
 testView :
     Int
@@ -7835,17 +7839,24 @@ testView :
     -> TestView toBackend frontendMsg frontendModel toFrontend backendMsg backendModel
     -> List (Html (Msg toBackend frontendMsg frontendModel toFrontend backendMsg backendModel))
 testView windowWidth instructions testView_ =
-    case Array.get testView_.stepIndex testView_.steps of
+    let
+        stepIndex : Int
+        stepIndex =
+            visibleStepIndex testView_
+    in
+    case Array.get stepIndex testView_.steps of
         Just currentStep ->
             let
-                currentValidStep : Maybe Int
+                currentValidStep : Maybe ( Int, Event toBackend frontendMsg frontendModel toFrontend backendMsg backendModel )
                 currentValidStep =
-                    currentStepIndex
-                        testView_.timelineIndex
-                        testView_.stepIndex
-                        testView_.collapsedGroups
+                    previousTimelineStep
+                        False
+                        True
+                        (stepIndex + 1)
+                        (currentTimeline testView_.timelineIndex testView_.precomputed.timelines)
                         testView_.steps
-                        testView_.precomputed
+                        testView_.collapsedGroups
+                        testView_.precomputed.collapsableGroupRanges
             in
             if testView_.showModel then
                 let
@@ -7862,7 +7873,7 @@ testView windowWidth instructions testView_ =
                             Nothing ->
                                 "<missing>"
                 in
-                [ testOverlay windowWidth testView_ currentStep
+                [ testOverlay windowWidth testView_ stepIndex currentStep
                 , Html.node
                     "style"
                     []
@@ -7885,7 +7896,7 @@ testView windowWidth instructions testView_ =
                     ]
                     [ case
                         ( Maybe.andThen
-                            (\a -> Array.get a testView_.steps |> Maybe.map (Tuple.pair a))
+                            (\( a, _ ) -> Array.get a testView_.steps |> Maybe.map (Tuple.pair a))
                             currentValidStep
                         , Maybe.andThen
                             (\a -> Array.get a testView_.steps |> Maybe.map (Tuple.pair a))
@@ -7937,7 +7948,7 @@ testView windowWidth instructions testView_ =
                                         ++ timelineName
                                         ++ ", step "
                                         ++ String.fromInt (currentStepIndex2 + 1)
-                                        ++ " (right click timeline to change diff)"
+                                        ++ " (right click timeline to compare models)"
                                         |> Html.text
                                     ]
                                 , Html.Lazy.lazy2 modelView testView_.collapsedFields currentStep2
@@ -7949,10 +7960,10 @@ testView windowWidth instructions testView_ =
                 ]
 
             else
-                testOverlay windowWidth testView_ currentStep
+                testOverlay windowWidth testView_ stepIndex currentStep
                     :: (case currentTimeline testView_.timelineIndex testView_.precomputed.timelines of
                             FrontendTimeline clientId ->
-                                case Maybe.andThen (\a -> Array.get a testView_.steps) currentValidStep of
+                                case Maybe.andThen (\( a, _ ) -> Array.get a testView_.steps) currentValidStep of
                                     Just currentStep2 ->
                                         case SeqDict.get clientId currentStep2.frontends of
                                             Just frontend ->
@@ -8138,9 +8149,10 @@ centeredText text2 =
 testOverlay :
     Int
     -> TestView toBackend frontendMsg frontendModel toFrontend backendMsg backendModel
+    -> Int
     -> Event toBackend frontendMsg frontendModel toFrontend backendMsg backendModel
     -> Html (Msg toBackend frontendMsg frontendModel toFrontend backendMsg backendModel)
-testOverlay windowWidth testView_ currentStep =
+testOverlay windowWidth testView_ stepIndex currentStep =
     Html.div
         [ Html.Attributes.style "font-family" "arial"
         , Html.Attributes.style "font-size" "14px"
@@ -8170,118 +8182,122 @@ testOverlay windowWidth testView_ currentStep =
             , Html.div
                 [ Html.Attributes.style "display" "inline-block", Html.Attributes.style "padding" "4px" ]
                 [ Html.text testView_.testName ]
-            , Html.div
-                [ Html.Attributes.style "display" "inline-block"
-                , Html.Attributes.style "padding" "4px"
-                , Html.Attributes.style "margin-left" "auto"
-                ]
-                [ case Array.get 0 testView_.steps of
-                    Just startEvent ->
-                        let
-                            elapsed : Int
-                            elapsed =
-                                Time.posixToMillis currentStep.time - Time.posixToMillis startEvent.time
-
-                            hours : Int
-                            hours =
-                                elapsed // (1000 * 60 * 60)
-
-                            elapsedMinusHours : Int
-                            elapsedMinusHours =
-                                elapsed - (1000 * 60 * 60 * hours)
-
-                            minutes : Int
-                            minutes =
-                                elapsedMinusHours // (1000 * 60)
-
-                            elapsedMinusMinutes : Int
-                            elapsedMinusMinutes =
-                                elapsedMinusHours - (1000 * 60 * minutes)
-
-                            seconds : Int
-                            seconds =
-                                elapsedMinusMinutes // 1000
-
-                            milliseconds : Int
-                            milliseconds =
-                                elapsedMinusMinutes - (1000 * seconds)
-
-                            startText =
-                                (case Time.toMonth Time.utc startEvent.time of
-                                    Time.Jan ->
-                                        "Jan"
-
-                                    Time.Feb ->
-                                        "Feb"
-
-                                    Time.Mar ->
-                                        "Mar"
-
-                                    Time.Apr ->
-                                        "Apr"
-
-                                    Time.May ->
-                                        "May"
-
-                                    Time.Jun ->
-                                        "Jun"
-
-                                    Time.Jul ->
-                                        "Jul"
-
-                                    Time.Aug ->
-                                        "Aug"
-
-                                    Time.Sep ->
-                                        "Sep"
-
-                                    Time.Oct ->
-                                        "Oct"
-
-                                    Time.Nov ->
-                                        "Nov"
-
-                                    Time.Dec ->
-                                        "Dec"
-                                )
-                                    ++ " "
-                                    ++ String.fromInt (Time.toDay Time.utc startEvent.time)
-                                    ++ ", "
-                                    ++ String.fromInt (Time.toYear Time.utc startEvent.time)
-                                    ++ " "
-                                    ++ String.padLeft 2 '0' (String.fromInt (Time.toHour Time.utc startEvent.time))
-                                    ++ ":"
-                                    ++ String.padLeft 2 '0' (String.fromInt (Time.toMinute Time.utc startEvent.time))
-
-                            --++ ":"
-                            --++ String.padLeft 2 '0' (String.fromInt (Time.toSecond Time.utc startEvent.time))
-                            --++ "."
-                            --++ String.padLeft 4 '0' (String.fromInt (Time.toMillis Time.utc startEvent.time))
-                        in
-                        Html.text
-                            (startText
-                                ++ " + "
-                                ++ String.fromInt hours
-                                ++ ":"
-                                ++ String.padLeft 2 '0' (String.fromInt minutes)
-                                ++ ":"
-                                ++ String.padLeft 2 '0' (String.fromInt seconds)
-                                ++ "."
-                                ++ String.padLeft 4 '0' (String.fromInt milliseconds)
-                            )
-
-                    Nothing ->
-                        Html.text ""
-                ]
+            , elapsedTimeView currentStep testView_
             ]
-        , timelineView windowWidth testView_
-        , currentStepText currentStep testView_
+        , timelineView windowWidth stepIndex testView_
+        , currentStepText stepIndex currentStep testView_
         , Html.b
             [ Html.Attributes.style "color" errorColor
             , Html.Attributes.style "padding" "4px"
             , Html.Attributes.style "white-space" "pre-wrap"
             ]
             (List.map (\a -> testErrorToString a |> text) currentStep.testErrors)
+        ]
+
+
+elapsedTimeView currentStep testView_ =
+    Html.div
+        [ Html.Attributes.style "display" "inline-block"
+        , Html.Attributes.style "padding" "4px"
+        , Html.Attributes.style "margin-left" "auto"
+        ]
+        [ case Array.get 0 testView_.steps of
+            Just startEvent ->
+                let
+                    elapsed : Int
+                    elapsed =
+                        Time.posixToMillis currentStep.time - Time.posixToMillis startEvent.time
+
+                    hours : Int
+                    hours =
+                        elapsed // (1000 * 60 * 60)
+
+                    elapsedMinusHours : Int
+                    elapsedMinusHours =
+                        elapsed - (1000 * 60 * 60 * hours)
+
+                    minutes : Int
+                    minutes =
+                        elapsedMinusHours // (1000 * 60)
+
+                    elapsedMinusMinutes : Int
+                    elapsedMinusMinutes =
+                        elapsedMinusHours - (1000 * 60 * minutes)
+
+                    seconds : Int
+                    seconds =
+                        elapsedMinusMinutes // 1000
+
+                    milliseconds : Int
+                    milliseconds =
+                        elapsedMinusMinutes - (1000 * seconds)
+
+                    startText =
+                        (case Time.toMonth Time.utc startEvent.time of
+                            Time.Jan ->
+                                "Jan"
+
+                            Time.Feb ->
+                                "Feb"
+
+                            Time.Mar ->
+                                "Mar"
+
+                            Time.Apr ->
+                                "Apr"
+
+                            Time.May ->
+                                "May"
+
+                            Time.Jun ->
+                                "Jun"
+
+                            Time.Jul ->
+                                "Jul"
+
+                            Time.Aug ->
+                                "Aug"
+
+                            Time.Sep ->
+                                "Sep"
+
+                            Time.Oct ->
+                                "Oct"
+
+                            Time.Nov ->
+                                "Nov"
+
+                            Time.Dec ->
+                                "Dec"
+                        )
+                            ++ " "
+                            ++ String.fromInt (Time.toDay Time.utc startEvent.time)
+                            ++ ", "
+                            ++ String.fromInt (Time.toYear Time.utc startEvent.time)
+                            ++ " "
+                            ++ String.padLeft 2 '0' (String.fromInt (Time.toHour Time.utc startEvent.time))
+                            ++ ":"
+                            ++ String.padLeft 2 '0' (String.fromInt (Time.toMinute Time.utc startEvent.time))
+
+                    --++ ":"
+                    --++ String.padLeft 2 '0' (String.fromInt (Time.toSecond Time.utc startEvent.time))
+                    --++ "."
+                    --++ String.padLeft 4 '0' (String.fromInt (Time.toMillis Time.utc startEvent.time))
+                in
+                Html.text
+                    (startText
+                        ++ " + "
+                        ++ String.fromInt hours
+                        ++ ":"
+                        ++ String.padLeft 2 '0' (String.fromInt minutes)
+                        ++ ":"
+                        ++ String.padLeft 2 '0' (String.fromInt seconds)
+                        ++ "."
+                        ++ String.padLeft 4 '0' (String.fromInt milliseconds)
+                    )
+
+            Nothing ->
+                Html.text ""
         ]
 
 
