@@ -4832,7 +4832,7 @@ update config msg (Model model) =
                                     currentTest
                             of
                                 Just ( nextIndex, _ ) ->
-                                    stepTo nextIndex currentTest
+                                    stepTo True nextIndex currentTest
 
                                 Nothing ->
                                     ( currentTest, Cmd.none )
@@ -4849,7 +4849,7 @@ update config msg (Model model) =
                                     currentTest.precomputed.collapsableGroupRanges
                             of
                                 Just ( previousIndex, _ ) ->
-                                    stepTo previousIndex currentTest
+                                    stepTo True previousIndex currentTest
 
                                 Nothing ->
                                     ( currentTest, Cmd.none )
@@ -4953,7 +4953,7 @@ update config msg (Model model) =
                                     ( updateTimelineViewData test2, testToLocalStorage test2 )
 
                                 [] ->
-                                    stepTo stepIndex { test | diffWithIndex = Nothing }
+                                    stepTo False stepIndex { test | diffWithIndex = Nothing }
 
                         RightMouseButton ->
                             let
@@ -5219,13 +5219,14 @@ writeLocalStorage data =
 
 {-| -}
 stepTo :
-    Int
+    Bool
+    -> Int
     -> TestView toBackend frontendMsg frontendModel toFrontend backendMsg backendModel
     ->
         ( TestView toBackend frontendMsg frontendModel toFrontend backendMsg backendModel
         , Cmd (Msg toBackend frontendMsg frontendModel toFrontend backendMsg backendModel)
         )
-stepTo stepIndex currentTest =
+stepTo centerScrollView stepIndex currentTest =
     case Array.get stepIndex currentTest.steps of
         Just step ->
             let
@@ -5242,8 +5243,8 @@ stepTo stepIndex currentTest =
             ( currentTest2
             , Cmd.batch
                 [ testToLocalStorage currentTest2
-                , Browser.Dom.getElement timelineContainerId
-                    |> Task.andThen
+                , if centerScrollView then
+                    Task.andThen
                         (\container ->
                             let
                                 stepIndex2 : Int
@@ -5257,7 +5258,11 @@ stepTo stepIndex currentTest =
                                 (toFloat stepIndex2 * timelineColumnWidth - container.element.width / 2)
                                 0
                         )
-                    |> Task.attempt (\_ -> NoOp)
+                        (Browser.Dom.getElement timelineContainerId)
+                        |> Task.attempt (\_ -> NoOp)
+
+                  else
+                    Cmd.none
                 , getButtonPosition step
                 ]
             )
@@ -5357,22 +5362,20 @@ checkCachedElmValue ( Model model, cmdA ) =
                             case getAt currentTest.index tests of
                                 Just test ->
                                     let
-                                        currentAndPreviousStep : { previousStep : Maybe Int, currentStep : Maybe Int }
-                                        currentAndPreviousStep =
-                                            currentAndPreviousStepIndex
-                                                currentTest.timelineIndex
-                                                currentTest.stepIndex
-                                                currentTest.collapsedGroups
-                                                currentTest.steps
-                                                currentTest.precomputed
-
                                         state : State toBackend frontendMsg frontendModel toFrontend backendMsg backendModel
                                         state =
                                             getState test
 
                                         steps2 : Array (Event toBackend frontendMsg frontendModel toFrontend backendMsg backendModel)
                                         steps2 =
-                                            case currentAndPreviousStep.currentStep of
+                                            case
+                                                currentStepIndex
+                                                    currentTest.timelineIndex
+                                                    currentTest.stepIndex
+                                                    currentTest.collapsedGroups
+                                                    currentTest.steps
+                                                    currentTest.precomputed
+                                            of
                                                 Just currentIndex ->
                                                     updateAt
                                                         currentIndex
@@ -6911,8 +6914,8 @@ timelineViewHelperShowModel collapsedGroups timelineWidth timelineIndex stepInde
         timelineHeight =
             (timelineCount + 1) * timelineRowHeight + timelineViewYOffset
 
-        { previousStep, currentStep } =
-            currentAndPreviousStepIndex
+        currentStep =
+            currentStepIndex
                 timelineIndex
                 stepIndex
                 collapsedGroups
@@ -7763,14 +7766,14 @@ xSvg color left top =
 
 
 {-| -}
-currentAndPreviousStepIndex :
+currentStepIndex :
     Int
     -> Int
     -> SeqSet Int
     -> Array (Event toBackend frontendMsg frontendModel toFrontend backendMsg backendModel)
     -> TestViewPrecomputed
-    -> { previousStep : Maybe Int, currentStep : Maybe Int }
-currentAndPreviousStepIndex timelineIndex stepIndex collapsedGroups steps precomputed =
+    -> Maybe Int
+currentStepIndex timelineIndex stepIndex collapsedGroups steps precomputed =
     case
         previousTimelineStep
             False
@@ -7782,21 +7785,10 @@ currentAndPreviousStepIndex timelineIndex stepIndex collapsedGroups steps precom
             precomputed.collapsableGroupRanges
     of
         Just ( currentIndex, _ ) ->
-            { currentStep = Just currentIndex
-            , previousStep =
-                previousTimelineStep
-                    False
-                    True
-                    currentIndex
-                    (currentTimeline timelineIndex precomputed.timelines)
-                    steps
-                    collapsedGroups
-                    precomputed.collapsableGroupRanges
-                    |> Maybe.map Tuple.first
-            }
+            Just currentIndex
 
         Nothing ->
-            { previousStep = Nothing, currentStep = Nothing }
+            Nothing
 
 
 {-| -}
@@ -7846,9 +7838,9 @@ testView windowWidth instructions testView_ =
     case Array.get testView_.stepIndex testView_.steps of
         Just currentStep ->
             let
-                currentAndPreviousStep : { previousStep : Maybe Int, currentStep : Maybe Int }
-                currentAndPreviousStep =
-                    currentAndPreviousStepIndex
+                currentValidStep : Maybe Int
+                currentValidStep =
+                    currentStepIndex
                         testView_.timelineIndex
                         testView_.stepIndex
                         testView_.collapsedGroups
@@ -7894,13 +7886,13 @@ testView windowWidth instructions testView_ =
                     [ case
                         ( Maybe.andThen
                             (\a -> Array.get a testView_.steps |> Maybe.map (Tuple.pair a))
-                            currentAndPreviousStep.currentStep
+                            currentValidStep
                         , Maybe.andThen
                             (\a -> Array.get a testView_.steps |> Maybe.map (Tuple.pair a))
                             testView_.diffWithIndex
                         )
                       of
-                        ( Just ( currentStepIndex, currentStep2 ), Just ( previousStepIndex, previousStep ) ) ->
+                        ( Just ( currentStepIndex2, currentStep2 ), Just ( previousStepIndex, previousStep ) ) ->
                             let
                                 otherTimelineName : String
                                 otherTimelineName =
@@ -7918,7 +7910,7 @@ testView windowWidth instructions testView_ =
                                         [ Html.text
                                             (timelineName
                                                 ++ ", step "
-                                                ++ String.fromInt (currentStepIndex + 1)
+                                                ++ String.fromInt (currentStepIndex2 + 1)
                                             )
                                         ]
                                     , Html.text " with "
@@ -7934,7 +7926,7 @@ testView windowWidth instructions testView_ =
                                 , Html.Lazy.lazy3 modelDiffView testView_.collapsedFields currentStep2 previousStep
                                 ]
 
-                        ( Just ( currentStepIndex, currentStep2 ), Nothing ) ->
+                        ( Just ( currentStepIndex2, currentStep2 ), Nothing ) ->
                             Html.div
                                 []
                                 [ Html.div
@@ -7944,7 +7936,7 @@ testView windowWidth instructions testView_ =
                                     [ "Viewing "
                                         ++ timelineName
                                         ++ ", step "
-                                        ++ String.fromInt (currentStepIndex + 1)
+                                        ++ String.fromInt (currentStepIndex2 + 1)
                                         ++ " (right click timeline to change diff)"
                                         |> Html.text
                                     ]
@@ -7960,7 +7952,7 @@ testView windowWidth instructions testView_ =
                 testOverlay windowWidth testView_ currentStep
                     :: (case currentTimeline testView_.timelineIndex testView_.precomputed.timelines of
                             FrontendTimeline clientId ->
-                                case Maybe.andThen (\a -> Array.get a testView_.steps) currentAndPreviousStep.currentStep of
+                                case Maybe.andThen (\a -> Array.get a testView_.steps) currentValidStep of
                                     Just currentStep2 ->
                                         case SeqDict.get clientId currentStep2.frontends of
                                             Just frontend ->
