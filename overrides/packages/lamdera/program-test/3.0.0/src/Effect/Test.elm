@@ -4485,12 +4485,14 @@ viewTest :
     -> Int
     -> OverlayPosition
     -> List { name : String, isCollapsed : Bool }
+    -> Bool
+    -> Maybe Int
     -> Model toBackend frontendMsg frontendModel toFrontend backendMsg backendModel
     ->
         ( Model toBackend frontendMsg frontendModel toFrontend backendMsg backendModel
         , Cmd (Msg toBackend frontendMsg frontendModel toFrontend backendMsg backendModel)
         )
-viewTest test index stepIndex timelineIndex position expandedCollapsableGroups2 (Model model) =
+viewTest test index stepIndex timelineIndex position expandedCollapsableGroups2 showModel diffWithIndex (Model model) =
     let
         state : State toBackend frontendMsg frontendModel toFrontend backendMsg backendModel
         state =
@@ -4558,9 +4560,9 @@ viewTest test index stepIndex timelineIndex position expandedCollapsableGroups2 
                 }
             , timelineIndex = clamp 0 (Array.length timelines - 1) timelineIndex
             , stepIndex = stepIndex2
-            , diffWithIndex = Nothing
+            , diffWithIndex = diffWithIndex
             , overlayPosition = position
-            , showModel = False
+            , showModel = showModel
             , collapsedGroups =
                 List.foldl
                     (\range ( expanded, set ) ->
@@ -4650,7 +4652,7 @@ update config msg (Model model) =
                         Just test ->
                             let
                                 ( model2, cmds ) =
-                                    viewTest test index 0 0 Bottom [] (Model model)
+                                    viewTest test index 0 0 Bottom [] False Nothing (Model model)
                             in
                             ( model2
                             , Cmd.batch
@@ -4660,6 +4662,8 @@ update config msg (Model model) =
                                     , timelineIndex = 0
                                     , position = Bottom
                                     , collapsableGroups = []
+                                    , showModel = False
+                                    , diffWithIndex = Nothing
                                     }
                                 , cmds
                                 ]
@@ -4720,6 +4724,8 @@ update config msg (Model model) =
                                                     localStorage.timelineIndex
                                                     localStorage.position
                                                     localStorage.collapsableGroups
+                                                    localStorage.showModel
+                                                    localStorage.diffWithIndex
                                                     (Model model)
                                                     |> Just
 
@@ -4747,28 +4753,31 @@ update config msg (Model model) =
             updateCurrentTest
                 (\currentTest ->
                     let
-                        newPosition =
-                            case currentTest.overlayPosition of
-                                Top ->
-                                    Bottom
+                        currentTest2 =
+                            { currentTest
+                                | overlayPosition =
+                                    case currentTest.overlayPosition of
+                                        Top ->
+                                            Bottom
 
-                                Bottom ->
-                                    Top
+                                        Bottom ->
+                                            Top
+                            }
                     in
-                    ( { currentTest | overlayPosition = newPosition }
-                    , writeLocalStorage
-                        { testName = currentTest.testName
-                        , stepIndex = currentTest.stepIndex
-                        , timelineIndex = currentTest.timelineIndex
-                        , position = newPosition
-                        , collapsableGroups = expandedCollapsableGroups currentTest
-                        }
-                    )
+                    ( currentTest2, testToLocalStorage currentTest2 )
                 )
                 (Model model)
 
         PressedShowModel ->
-            updateCurrentTest (\currentTest -> ( { currentTest | showModel = True }, Cmd.none )) (Model model)
+            updateCurrentTest
+                (\currentTest ->
+                    let
+                        currentTest2 =
+                            { currentTest | showModel = True }
+                    in
+                    ( currentTest2, testToLocalStorage currentTest2 )
+                )
+                (Model model)
 
         PressedHideModel ->
             updateCurrentTest
@@ -4849,31 +4858,21 @@ update config msg (Model model) =
                             let
                                 timelineIndex =
                                     currentTest.timelineIndex - 1 |> max 0
+
+                                currentTest2 =
+                                    { currentTest | timelineIndex = timelineIndex, diffWithIndex = Nothing }
                             in
-                            ( { currentTest | timelineIndex = timelineIndex, diffWithIndex = Nothing }
-                            , writeLocalStorage
-                                { testName = currentTest.testName
-                                , stepIndex = currentTest.stepIndex
-                                , timelineIndex = timelineIndex
-                                , position = currentTest.overlayPosition
-                                , collapsableGroups = expandedCollapsableGroups currentTest
-                                }
-                            )
+                            ( currentTest2, testToLocalStorage currentTest2 )
 
                         ArrowDown ->
                             let
                                 timelineIndex =
                                     currentTest.timelineIndex + 1 |> min (Array.length currentTest.precomputed.timelines - 1)
+
+                                currentTest2 =
+                                    { currentTest | timelineIndex = timelineIndex, diffWithIndex = Nothing }
                             in
-                            ( { currentTest | timelineIndex = timelineIndex, diffWithIndex = Nothing }
-                            , writeLocalStorage
-                                { testName = currentTest.testName
-                                , stepIndex = currentTest.stepIndex
-                                , timelineIndex = timelineIndex
-                                , position = currentTest.overlayPosition
-                                , collapsableGroups = expandedCollapsableGroups currentTest
-                                }
-                            )
+                            ( currentTest2, testToLocalStorage currentTest2 )
                 )
                 (Model model)
 
@@ -4951,15 +4950,7 @@ update config msg (Model model) =
                                                         SeqSet.insert head.startIndex test.collapsedGroups
                                             }
                                     in
-                                    ( updateTimelineViewData test2
-                                    , writeLocalStorage
-                                        { testName = test2.testName
-                                        , stepIndex = test2.stepIndex
-                                        , timelineIndex = test2.timelineIndex
-                                        , position = test2.overlayPosition
-                                        , collapsableGroups = expandedCollapsableGroups test2
-                                        }
-                                    )
+                                    ( updateTimelineViewData test2, testToLocalStorage test2 )
 
                                 [] ->
                                     stepTo stepIndex test
@@ -5103,6 +5094,8 @@ type alias LocalStorage =
     , timelineIndex : Int
     , position : OverlayPosition
     , collapsableGroups : List { name : String, isCollapsed : Bool }
+    , showModel : Bool
+    , diffWithIndex : Maybe Int
     }
 
 
@@ -5132,17 +5125,28 @@ encodeLocalStorage localStorage =
                 )
                 localStorage.collapsableGroups
           )
+        , ( "showModel", Json.Encode.bool localStorage.showModel )
+        , ( "diffWithIndex"
+          , case localStorage.diffWithIndex of
+                Just index ->
+                    Json.Encode.int index
+
+                Nothing ->
+                    Json.Encode.null
+          )
         ]
 
 
 localStorageDecoder : Json.Decode.Decoder LocalStorage
 localStorageDecoder =
-    Json.Decode.map5 LocalStorage
+    Json.Decode.map7 LocalStorage
         (Json.Decode.field "testName" Json.Decode.string)
         (Json.Decode.field "stepIndex" Json.Decode.int)
         (Json.Decode.field "timelineIndex" Json.Decode.int)
         (Json.Decode.field "position" overlayPositionDecoder)
         (Json.Decode.field "collapsableGroups" (Json.Decode.list collapsableGroupDecoder))
+        (Json.Decode.field "showModel" Json.Decode.bool)
+        (Json.Decode.field "diffWithIndex" (Json.Decode.nullable Json.Decode.int))
 
 
 overlayPositionDecoder : Json.Decode.Decoder OverlayPosition
@@ -5169,6 +5173,26 @@ collapsableGroupDecoder =
         (Json.Decode.field "isCollapsed" Json.Decode.bool)
 
 
+testToLocalStorage : TestView toBackend frontendMsg frontendModel toFrontend backendMsg backendModel -> Cmd (Msg toBackend frontendMsg frontendModel toFrontend backendMsg backendModel)
+testToLocalStorage testView2 =
+    writeLocalStorage
+        { testName = testView2.testName
+        , stepIndex = testView2.stepIndex
+        , timelineIndex = testView2.timelineIndex
+        , position = testView2.overlayPosition
+        , collapsableGroups =
+            List.map
+                (\collapsableRange ->
+                    { name = collapsableRange.name
+                    , isCollapsed = SeqSet.member collapsableRange.startIndex testView2.collapsedGroups
+                    }
+                )
+                testView2.precomputed.collapsableGroupRanges
+        , showModel = testView2.showModel
+        , diffWithIndex = testView2.diffWithIndex
+        }
+
+
 writeLocalStorage : LocalStorage -> Cmd (Msg toBackend frontendMsg frontendModel toFrontend backendMsg backendModel)
 writeLocalStorage data =
     Task.succeed ()
@@ -5181,19 +5205,6 @@ writeLocalStorage data =
                 ()
             )
         |> Task.perform (\() -> NoOp)
-
-
-expandedCollapsableGroups :
-    TestView toBackend frontendMsg frontendModel toFrontend backendMsg backendModel
-    -> List { name : String, isCollapsed : Bool }
-expandedCollapsableGroups testView2 =
-    List.map
-        (\collapsableRange ->
-            { name = collapsableRange.name
-            , isCollapsed = SeqSet.member collapsableRange.startIndex testView2.collapsedGroups
-            }
-        )
-        testView2.precomputed.collapsableGroupRanges
 
 
 {-| -}
@@ -5214,16 +5225,13 @@ stepTo stepIndex currentTest =
 
                 timelineIndex =
                     arrayFindIndex newTimeline currentTest.precomputed.timelines |> Maybe.withDefault currentTest.timelineIndex
+
+                currentTest2 =
+                    { currentTest | stepIndex = stepIndex, timelineIndex = timelineIndex, diffWithIndex = Nothing }
             in
-            ( { currentTest | stepIndex = stepIndex, timelineIndex = timelineIndex, diffWithIndex = Nothing }
+            ( currentTest2
             , Cmd.batch
-                [ writeLocalStorage
-                    { testName = currentTest.testName
-                    , stepIndex = stepIndex
-                    , timelineIndex = timelineIndex
-                    , position = currentTest.overlayPosition
-                    , collapsableGroups = expandedCollapsableGroups currentTest
-                    }
+                [ testToLocalStorage currentTest2
                 , Browser.Dom.getElement timelineContainerId
                     |> Task.andThen
                         (\container ->
