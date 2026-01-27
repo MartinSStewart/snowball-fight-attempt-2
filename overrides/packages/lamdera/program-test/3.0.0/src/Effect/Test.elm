@@ -4953,34 +4953,44 @@ update config msg (Model model) =
                                     ( updateTimelineViewData test2, testToLocalStorage test2 )
 
                                 [] ->
-                                    stepTo stepIndex test
+                                    stepTo stepIndex { test | diffWithIndex = Nothing }
 
                         RightMouseButton ->
-                            case currentTimeline test.timelineIndex test.precomputed.timelines of
-                                FrontendTimeline _ ->
-                                    case previousFrontendTimelineStep (stepIndex + 1) test.steps of
-                                        Just stepIndex2 ->
-                                            ( { test | diffWithIndex = Just stepIndex2 }, Cmd.none )
+                            let
+                                diffWithIndex : Maybe Int
+                                diffWithIndex =
+                                    case currentTimeline test.timelineIndex test.precomputed.timelines of
+                                        FrontendTimeline _ ->
+                                            previousFrontendTimelineStep (stepIndex + 1) test.steps
 
-                                        Nothing ->
-                                            ( test, Cmd.none )
+                                        BackendTimeline ->
+                                            case
+                                                previousTimelineStep
+                                                    False
+                                                    True
+                                                    (stepIndex + 1)
+                                                    BackendTimeline
+                                                    test.steps
+                                                    test.collapsedGroups
+                                                    test.precomputed.collapsableGroupRanges
+                                            of
+                                                Just ( stepIndex2, _ ) ->
+                                                    Just stepIndex2
 
-                                BackendTimeline ->
-                                    case
-                                        previousTimelineStep
-                                            False
-                                            True
-                                            (stepIndex + 1)
-                                            BackendTimeline
-                                            test.steps
-                                            test.collapsedGroups
-                                            test.precomputed.collapsableGroupRanges
-                                    of
-                                        Just ( stepIndex2, _ ) ->
-                                            ( { test | diffWithIndex = Just stepIndex2 }, Cmd.none )
+                                                Nothing ->
+                                                    Nothing
 
-                                        Nothing ->
-                                            ( test, Cmd.none )
+                                test2 =
+                                    { test
+                                        | diffWithIndex =
+                                            if diffWithIndex == Just test.stepIndex then
+                                                Nothing
+
+                                            else
+                                                diffWithIndex
+                                    }
+                            in
+                            ( test2, testToLocalStorage test2 )
                 )
                 (Model model)
 
@@ -5227,7 +5237,7 @@ stepTo stepIndex currentTest =
                     arrayFindIndex newTimeline currentTest.precomputed.timelines |> Maybe.withDefault currentTest.timelineIndex
 
                 currentTest2 =
-                    { currentTest | stepIndex = stepIndex, timelineIndex = timelineIndex, diffWithIndex = Nothing }
+                    { currentTest | stepIndex = stepIndex, timelineIndex = timelineIndex }
             in
             ( currentTest2
             , Cmd.batch
@@ -5381,7 +5391,7 @@ checkCachedElmValue ( Model model, cmdA ) =
                                     in
                                     { currentTest
                                         | steps =
-                                            case maybeOr currentTest.diffWithIndex currentAndPreviousStep.previousStep of
+                                            case currentTest.diffWithIndex of
                                                 Just previousIndex ->
                                                     updateAt
                                                         previousIndex
@@ -6877,16 +6887,6 @@ timelineView windowWidth testView_ =
         ]
 
 
-maybeOr : Maybe a -> Maybe a -> Maybe a
-maybeOr maybeA maybeB =
-    case maybeA of
-        Just _ ->
-            maybeA
-
-        Nothing ->
-            maybeB
-
-
 timelineViewHelperShowModel :
     SeqSet Int
     -> Int
@@ -6921,7 +6921,7 @@ timelineViewHelperShowModel collapsedGroups timelineWidth timelineIndex stepInde
     in
     timelineCss
         :: dynamicTimelineCss timelineCount timelineIndex
-        :: [ case maybeOr diffWithIndex previousStep of
+        :: [ case diffWithIndex of
                 Just previousStep3 ->
                     Html.div
                         [ Html.Attributes.style "left" (px (adjustColumnIndex collapsedRanges2 previousStep3 * timelineColumnWidth))
@@ -7897,7 +7897,7 @@ testView windowWidth instructions testView_ =
                             currentAndPreviousStep.currentStep
                         , Maybe.andThen
                             (\a -> Array.get a testView_.steps |> Maybe.map (Tuple.pair a))
-                            (maybeOr testView_.diffWithIndex currentAndPreviousStep.previousStep)
+                            testView_.diffWithIndex
                         )
                       of
                         ( Just ( currentStepIndex, currentStep2 ), Just ( previousStepIndex, previousStep ) ) ->
@@ -7921,7 +7921,7 @@ testView windowWidth instructions testView_ =
                                                 ++ String.fromInt (currentStepIndex + 1)
                                             )
                                         ]
-                                    , Html.text " against "
+                                    , Html.text " with "
                                     , Html.span
                                         [ Effect.TreeView.oldColor ]
                                         [ Html.text
@@ -7930,7 +7930,6 @@ testView windowWidth instructions testView_ =
                                                 ++ String.fromInt (previousStepIndex + 1)
                                             )
                                         ]
-                                    , Html.text " (right click timeline to change diff)"
                                     ]
                                 , Html.Lazy.lazy3 modelDiffView testView_.collapsedFields currentStep2 previousStep
                                 ]
@@ -7944,8 +7943,9 @@ testView windowWidth instructions testView_ =
                                     ]
                                     [ "Viewing "
                                         ++ timelineName
-                                        ++ " model for step "
+                                        ++ ", step "
                                         ++ String.fromInt (currentStepIndex + 1)
+                                        ++ " (right click timeline to change diff)"
                                         |> Html.text
                                     ]
                                 , Html.Lazy.lazy2 modelView testView_.collapsedFields currentStep2
