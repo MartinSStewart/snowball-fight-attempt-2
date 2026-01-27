@@ -4850,7 +4850,7 @@ update config msg (Model model) =
                                 timelineIndex =
                                     currentTest.timelineIndex - 1 |> max 0
                             in
-                            ( { currentTest | timelineIndex = timelineIndex }
+                            ( { currentTest | timelineIndex = timelineIndex, diffWithIndex = Nothing }
                             , writeLocalStorage
                                 { testName = currentTest.testName
                                 , stepIndex = currentTest.stepIndex
@@ -4865,7 +4865,7 @@ update config msg (Model model) =
                                 timelineIndex =
                                     currentTest.timelineIndex + 1 |> min (Array.length currentTest.precomputed.timelines - 1)
                             in
-                            ( { currentTest | timelineIndex = timelineIndex }
+                            ( { currentTest | timelineIndex = timelineIndex, diffWithIndex = Nothing }
                             , writeLocalStorage
                                 { testName = currentTest.testName
                                 , stepIndex = currentTest.stepIndex
@@ -4965,26 +4965,31 @@ update config msg (Model model) =
                                     stepTo stepIndex test
 
                         RightMouseButton ->
-                            let
-                                currentAndPreviousStep : { previousStep : Maybe Int, currentStep : Maybe Int }
-                                currentAndPreviousStep =
-                                    currentAndPreviousStepIndex
-                                        test.timelineIndex
-                                        stepIndex
-                                        test.collapsedGroups
-                                        test.steps
-                                        test.precomputed
-                            in
-                            case currentAndPreviousStep.currentStep of
-                                Just currentStepIndex ->
-                                    ( { test
-                                        | diffWithIndex = Just currentStepIndex
-                                      }
-                                    , Cmd.none
-                                    )
+                            case currentTimeline test.timelineIndex test.precomputed.timelines of
+                                FrontendTimeline _ ->
+                                    case previousFrontendTimelineStep (stepIndex + 1) test.steps of
+                                        Just stepIndex2 ->
+                                            ( { test | diffWithIndex = Just stepIndex2 }, Cmd.none )
 
-                                Nothing ->
-                                    ( test, Cmd.none )
+                                        Nothing ->
+                                            ( test, Cmd.none )
+
+                                BackendTimeline ->
+                                    case
+                                        previousTimelineStep
+                                            False
+                                            True
+                                            (stepIndex + 1)
+                                            BackendTimeline
+                                            test.steps
+                                            test.collapsedGroups
+                                            test.precomputed.collapsableGroupRanges
+                                    of
+                                        Just ( stepIndex2, _ ) ->
+                                            ( { test | diffWithIndex = Just stepIndex2 }, Cmd.none )
+
+                                        Nothing ->
+                                            ( test, Cmd.none )
                 )
                 (Model model)
 
@@ -5210,7 +5215,7 @@ stepTo stepIndex currentTest =
                 timelineIndex =
                     arrayFindIndex newTimeline currentTest.precomputed.timelines |> Maybe.withDefault currentTest.timelineIndex
             in
-            ( { currentTest | stepIndex = stepIndex, timelineIndex = timelineIndex }
+            ( { currentTest | stepIndex = stepIndex, timelineIndex = timelineIndex, diffWithIndex = Nothing }
             , Cmd.batch
                 [ writeLocalStorage
                     { testName = currentTest.testName
@@ -5622,6 +5627,47 @@ previousTimelineStep skipCollapsedEvents skipTestEvents stepIndex timeline steps
 
                             else
                                 Continue (index - 1)
+                )
+                (Continue (stepIndex - 1))
+            |> (\a ->
+                    case a of
+                        Continue _ ->
+                            Nothing
+
+                        Done b ->
+                            Just b
+               )
+
+
+{-| Find the latest valid frontend timeline event for diffing
+-}
+previousFrontendTimelineStep :
+    Int
+    -> Array (Event toBackend frontendMsg frontendModel toFrontend backendMsg backendModel)
+    -> Maybe Int
+previousFrontendTimelineStep stepIndex steps =
+    if stepIndex <= 0 then
+        Nothing
+
+    else
+        Array.slice 0 stepIndex steps
+            |> Array.foldr
+                (\step state ->
+                    case state of
+                        Done _ ->
+                            state
+
+                        Continue index ->
+                            if isSkippable step.eventType then
+                                Continue (index - 1)
+
+                            else
+                                case eventTypeToTimelineType step.eventType of
+                                    FrontendTimeline _ ->
+                                        Done index
+
+                                    BackendTimeline ->
+                                        Continue (index - 1)
                 )
                 (Continue (stepIndex - 1))
             |> (\a ->
@@ -6867,21 +6913,7 @@ timelineViewHelperShowModel collapsedGroups timelineWidth timelineIndex stepInde
     in
     timelineCss
         :: dynamicTimelineCss timelineCount timelineIndex
-        :: [ case currentStep of
-                Just currentStep2 ->
-                    Html.div
-                        [ Html.Attributes.style "left" (px (adjustColumnIndex collapsedRanges2 currentStep2 * timelineColumnWidth))
-                        , Html.Attributes.style "width" (px timelineColumnWidth)
-                        , Html.Attributes.style "height" (px timelineHeight)
-                        , Html.Attributes.style "position" "absolute"
-                        , Html.Attributes.style "background-color" "green"
-                        , Html.Attributes.style "pointer-events" "none"
-                        ]
-                        []
-
-                _ ->
-                    Html.div [] []
-           , case maybeOr diffWithIndex previousStep of
+        :: [ case maybeOr diffWithIndex previousStep of
                 Just previousStep3 ->
                     Html.div
                         [ Html.Attributes.style "left" (px (adjustColumnIndex collapsedRanges2 previousStep3 * timelineColumnWidth))
@@ -6889,6 +6921,20 @@ timelineViewHelperShowModel collapsedGroups timelineWidth timelineIndex stepInde
                         , Html.Attributes.style "height" (px timelineHeight)
                         , Html.Attributes.style "position" "absolute"
                         , Html.Attributes.style "background-color" "red"
+                        , Html.Attributes.style "pointer-events" "none"
+                        ]
+                        []
+
+                _ ->
+                    Html.div [] []
+           , case currentStep of
+                Just currentStep2 ->
+                    Html.div
+                        [ Html.Attributes.style "left" (px (adjustColumnIndex collapsedRanges2 currentStep2 * timelineColumnWidth))
+                        , Html.Attributes.style "width" (px timelineColumnWidth)
+                        , Html.Attributes.style "height" (px timelineHeight)
+                        , Html.Attributes.style "position" "absolute"
+                        , Html.Attributes.style "background-color" "green"
                         , Html.Attributes.style "pointer-events" "none"
                         ]
                         []
@@ -7772,6 +7818,16 @@ getTimelines2 steps =
         |> Array.fromList
 
 
+timelineTypeToName : CurrentTimeline -> String
+timelineTypeToName timeline =
+    case timeline of
+        BackendTimeline ->
+            "backend"
+
+        FrontendTimeline clientId ->
+            Effect.Lamdera.clientIdToString clientId
+
+
 {-| -}
 testView :
     Int
@@ -7800,13 +7856,10 @@ testView windowWidth instructions testView_ =
                     timelineName : String
                     timelineName =
                         case getAt testView_.timelineIndex testView_.timelineViewData of
-                            Just ( BackendTimeline, _ ) ->
-                                "backend"
+                            Just ( timelineType, _ ) ->
+                                timelineTypeToName timelineType
 
-                            Just ( FrontendTimeline clientId, _ ) ->
-                                Effect.Lamdera.clientIdToString clientId
-
-                            _ ->
+                            Nothing ->
                                 "<missing>"
                 in
                 [ testOverlay windowWidth testView_ currentStep
@@ -7840,24 +7893,35 @@ testView windowWidth instructions testView_ =
                         )
                       of
                         ( Just ( currentStepIndex, currentStep2 ), Just ( previousStepIndex, previousStep ) ) ->
+                            let
+                                otherTimelineName : String
+                                otherTimelineName =
+                                    eventTypeToTimelineType previousStep.eventType |> timelineTypeToName
+                            in
                             Html.div
                                 []
                                 [ Html.div
                                     [ Html.Attributes.style "font-size" "18px"
                                     , Html.Attributes.style "padding-bottom" "8px"
                                     ]
-                                    [ Html.text
-                                        ("Viewing "
-                                            ++ timelineName
-                                            ++ " model for step "
-                                        )
+                                    [ Html.text "Comparing "
                                     , Html.span
-                                        [ Html.Attributes.style "background-color" "green" ]
-                                        [ Html.text (String.fromInt (currentStepIndex + 1)) ]
-                                    , Html.text ". Diffing against step "
+                                        [ Effect.TreeView.newColor ]
+                                        [ Html.text
+                                            (timelineName
+                                                ++ ", step "
+                                                ++ String.fromInt (currentStepIndex + 1)
+                                            )
+                                        ]
+                                    , Html.text " against "
                                     , Html.span
-                                        [ Html.Attributes.style "background-color" "red" ]
-                                        [ Html.text (String.fromInt (previousStepIndex + 1)) ]
+                                        [ Effect.TreeView.oldColor ]
+                                        [ Html.text
+                                            (otherTimelineName
+                                                ++ ", step "
+                                                ++ String.fromInt (previousStepIndex + 1)
+                                            )
+                                        ]
                                     , Html.text " (right click timeline to change diff)"
                                     ]
                                 , Html.Lazy.lazy3 modelDiffView testView_.collapsedFields currentStep2 previousStep
