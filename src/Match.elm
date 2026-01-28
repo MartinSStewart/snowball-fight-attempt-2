@@ -256,7 +256,7 @@ type PlayerMode
 
 maxInputDelay : Duration
 maxInputDelay =
-    Duration.second
+    Duration.milliseconds 300
 
 
 maxPlayers : Match -> Int
