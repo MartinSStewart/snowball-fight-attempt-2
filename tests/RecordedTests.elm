@@ -241,8 +241,9 @@ tests textures fileData =
                         (\userB ->
                             [ handleAudioPorts userB
                             , movePlayer 600 100 userA
-                            , movePlayer 600 400 userB
                             , checkPlayersInSync 0
+                            , movePlayer 600 400 userB
+                            , checkPlayersInSync 40
                             ]
                         )
                     ]

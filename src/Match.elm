@@ -334,26 +334,31 @@ joinUser userId (Match lobby) =
 
 leaveUser : Id UserId -> Match -> Maybe Match
 leaveUser userId (Match lobby) =
-    if userId == lobby.owner then
-        let
-            users =
-                SeqDict.toList lobby.users
-        in
-        case users of
-            ( newOwner, newOwnerPlayerData ) :: _ ->
-                { lobby
-                    | owner = newOwner
-                    , ownerPlayerData = newOwnerPlayerData
-                    , users = List.drop 1 users |> SeqDict.fromList
-                }
-                    |> Match
-                    |> Just
+    case lobby.matchActive of
+        Just _ ->
+            Match lobby |> Just
 
-            [] ->
-                Nothing
+        Nothing ->
+            if userId == lobby.owner then
+                let
+                    users =
+                        SeqDict.toList lobby.users
+                in
+                case users of
+                    ( newOwner, newOwnerPlayerData ) :: _ ->
+                        { lobby
+                            | owner = newOwner
+                            , ownerPlayerData = newOwnerPlayerData
+                            , users = List.drop 1 users |> SeqDict.fromList
+                        }
+                            |> Match
+                            |> Just
 
-    else
-        { lobby | users = SeqDict.remove userId lobby.users } |> Match |> Just
+                    [] ->
+                        Nothing
+
+            else
+                { lobby | users = SeqDict.remove userId lobby.users } |> Match |> Just
 
 
 matchActive : Match -> Maybe { startTime : ServerTime, timeline : Timeline TimelineEvent }
