@@ -4782,13 +4782,20 @@ update config msg (Model model) =
         PressedHideModel ->
             updateCurrentTest
                 (\currentTest ->
-                    ( { currentTest | showModel = False }
-                    , case Array.get (visibleStepIndex currentTest) currentTest.steps of
-                        Just step ->
-                            getButtonPosition step
+                    let
+                        currentTest2 =
+                            { currentTest | showModel = False }
+                    in
+                    ( currentTest2
+                    , Cmd.batch
+                        [ case Array.get (visibleStepIndex currentTest) currentTest.steps of
+                            Just step ->
+                                getButtonPosition step
 
-                        Nothing ->
-                            Cmd.none
+                            Nothing ->
+                                Cmd.none
+                        , testToLocalStorage currentTest2
+                        ]
                     )
                 )
                 (Model model)
@@ -4826,7 +4833,7 @@ update config msg (Model model) =
                         ArrowRight ->
                             case
                                 nextTimelineStep
-                                    False
+                                    currentTest.showModel
                                     (visibleStepIndex currentTest)
                                     (currentTimeline currentTest.timelineIndex currentTest.precomputed.timelines)
                                     currentTest
@@ -4841,7 +4848,7 @@ update config msg (Model model) =
                             case
                                 previousTimelineStep
                                     True
-                                    False
+                                    currentTest.showModel
                                     (visibleStepIndex currentTest)
                                     (currentTimeline currentTest.timelineIndex currentTest.precomputed.timelines)
                                     currentTest.steps
@@ -6881,7 +6888,7 @@ timelineView windowWidth stepIndex testView_ =
                 testView_.collapsedGroups
                 (windowWidth - sideBarWidth - 1 {- The extra minus 1 is to account for rounding errors -})
                 testView_.timelineIndex
-                testView_.stepIndex
+                stepIndex
                 testView_.steps
                 testView_.precomputed
                 testView_.timelineViewData
@@ -6939,20 +6946,15 @@ timelineViewHelperShowModel collapsedGroups timelineWidth timelineIndex stepInde
 
                 _ ->
                     Html.div [] []
-           , case currentStepIndex timelineIndex stepIndex collapsedGroups steps precomputed of
-                Just currentStep2 ->
-                    Html.div
-                        [ Html.Attributes.style "left" (px (adjustColumnIndex collapsedRanges2 currentStep2 * timelineColumnWidth))
-                        , Html.Attributes.style "width" (px timelineColumnWidth)
-                        , Html.Attributes.style "height" (px timelineHeight)
-                        , Html.Attributes.style "position" "absolute"
-                        , Effect.TreeView.newColor
-                        , Html.Attributes.style "pointer-events" "none"
-                        ]
-                        []
-
-                _ ->
-                    Html.div [] []
+           , Html.div
+                [ Html.Attributes.style "left" (px (adjustColumnIndex collapsedRanges2 stepIndex * timelineColumnWidth))
+                , Html.Attributes.style "width" (px timelineColumnWidth)
+                , Html.Attributes.style "height" (px timelineHeight)
+                , Html.Attributes.style "position" "absolute"
+                , Effect.TreeView.newColor
+                , Html.Attributes.style "pointer-events" "none"
+                ]
+                []
            ]
         ++ timelineEventsView timelineIndex timelineViewData2
         |> timelineViewContainer timelineWidth timelineHeight
@@ -7826,7 +7828,7 @@ visibleStepIndex testView_ =
     case
         previousTimelineStep
             False
-            False
+            testView_.showModel
             (testView_.stepIndex + 1)
             (currentTimeline testView_.timelineIndex testView_.precomputed.timelines)
             testView_.steps
