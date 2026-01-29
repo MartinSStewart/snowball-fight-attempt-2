@@ -23,12 +23,12 @@ import Effect.Browser.Navigation
 import Effect.Lamdera exposing (ClientId, SessionId)
 import Effect.Time as Time
 import Effect.WebGL.Texture as Texture exposing (Texture)
-import Id exposing (Id)
+import Id exposing (Id, MatchId)
 import Keyboard
 import Length exposing (Meters)
 import List.Nonempty exposing (Nonempty)
 import Match exposing (LobbyPreview, Match, MatchState, ServerTime, WorldCoordinate)
-import MatchPage exposing (MatchId, Mouse, PlayerPositions, ScreenCoordinate, WorldPixel)
+import MatchPage exposing (Mouse, PlayerPositions, ScreenCoordinate, WorldPixel)
 import NonemptySet exposing (NonemptySet)
 import PingData exposing (PingData)
 import Pixels exposing (Pixels)

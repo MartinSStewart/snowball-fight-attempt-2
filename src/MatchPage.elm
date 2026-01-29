@@ -1,10 +1,9 @@
 module MatchPage exposing
     ( Desync
-    , MatchId
     , MatchLocalOnly(..)
     , Model
     , Mouse
-    , Msg
+    , Msg(..)
     , PlayerPositions
     , ScreenCoordinate
     , ToBackend(..)
@@ -43,6 +42,7 @@ import Direction3d exposing (Direction3d)
 import Duration exposing (Duration)
 import Ease exposing (Easing)
 import Effect.Browser.Dom as Dom exposing (HtmlId)
+import Effect.Browser.Navigation
 import Effect.Command as Command exposing (Command, FrontendOnly)
 import Effect.Lamdera
 import Effect.Task as Task
@@ -56,7 +56,7 @@ import Geometry.Interop.LinearAlgebra.Point2d
 import Html.Attributes
 import Html.Events
 import Html.Events.Extra.Pointer
-import Id exposing (Id)
+import Id exposing (Id, MatchId)
 import Json.Decode
 import Keyboard exposing (Key)
 import KeyboardExtra as Keyboard
@@ -84,6 +84,7 @@ import Random.Extra
 import Random.List as Random
 import RasterShapes
 import Rectangle2d exposing (Rectangle2d)
+import Route exposing (Route(..))
 import SeqDict exposing (SeqDict)
 import SeqSet exposing (SeqSet)
 import Shape exposing (RenderableShape)
@@ -132,10 +133,6 @@ type Msg
     | PressedLeaveMatch
     | TypedBotCount String
     | PressedCloseMatchEnd
-
-
-type MatchId
-    = LobbyId Never
 
 
 type MatchLocalOnly
@@ -227,16 +224,20 @@ update : Config a -> Msg -> Model -> ( Model, Command FrontendOnly ToBackend Msg
 update config msg model =
     case msg of
         PressedStartMatchSetup ->
-            matchSetupUpdate config.userId (Match.StartMatch (timeToServerTime config)) model
+            matchSetupUpdate config.userId (Match.StartMatch (timeToServerTime config)) model Command.none
 
         PressedLeaveMatchSetup ->
-            matchSetupUpdate config.userId Match.LeaveMatchSetup model
+            matchSetupUpdate
+                config.userId
+                Match.LeaveMatchSetup
+                model
+                (Effect.Browser.Navigation.pushUrl config.navigationKey (Route.encode HomePageRoute))
 
         PressedCharacter character ->
-            matchSetupUpdate config.userId (Match.SetCharacter character) model
+            matchSetupUpdate config.userId (Match.SetCharacter character) model Command.none
 
         PressedPlayerMode mode ->
-            matchSetupUpdate config.userId (Match.SetPlayerMode mode) model
+            matchSetupUpdate config.userId (Match.SetPlayerMode mode) model Command.none
 
         TypedMatchName matchName ->
             ( { model
@@ -255,7 +256,7 @@ update config msg model =
             )
 
         PressedSaveMatchName matchName ->
-            matchSetupUpdate config.userId (Match.SetMatchName matchName) model
+            matchSetupUpdate config.userId (Match.SetMatchName matchName) model Command.none
 
         PressedResetMatchName ->
             ( { model
@@ -310,7 +311,7 @@ update config msg model =
                             MatchError ->
                                 MatchError
                 }
-                |> Tuple.mapSecond (\cmd -> Command.batch [ cmd, scrollToBottom ])
+                scrollToBottom
 
         TypedMaxPlayers maxPlayersText ->
             ( { model
@@ -329,7 +330,7 @@ update config msg model =
             )
 
         PressedSaveMaxPlayers maxPlayers ->
-            matchSetupUpdate config.userId (Match.SetMaxPlayers maxPlayers) model
+            matchSetupUpdate config.userId (Match.SetMaxPlayers maxPlayers) model Command.none
 
         PressedResetMaxPlayers ->
             ( { model
@@ -447,7 +448,7 @@ update config msg model =
             ( model, Command.none )
 
         PressedLeaveMatch ->
-            matchSetupUpdate config.userId Match.LeaveMatchSetup model
+            matchSetupUpdate config.userId Match.LeaveMatchSetup model Command.none
 
         TypedBotCount text ->
             let
@@ -467,7 +468,7 @@ update config msg model =
             in
             case validateBotCount text of
                 Ok botCount ->
-                    matchSetupUpdate config.userId (Match.SetBotCount botCount) model2
+                    matchSetupUpdate config.userId (Match.SetBotCount botCount) model2 Command.none
 
                 Err _ ->
                     ( model2, Command.none )
@@ -507,8 +508,8 @@ validateBotCount text =
             Err "Must be an positive integer"
 
 
-matchSetupUpdate : Id UserId -> Match.Msg -> Model -> ( Model, Command FrontendOnly ToBackend msg )
-matchSetupUpdate userId msg matchSetup =
+matchSetupUpdate : Id UserId -> Match.Msg -> Model -> Command FrontendOnly ToBackend msg -> ( Model, Command FrontendOnly ToBackend msg )
+matchSetupUpdate userId msg matchSetup cmds =
     let
         { eventId, newNetworkModel } =
             NetworkModel.updateFromUser { userId = userId, msg = msg } matchSetup.networkModel
@@ -522,7 +523,10 @@ matchSetupUpdate userId msg matchSetup =
                 matchSetup.networkModel
                 matchSetup.matchData
       }
-    , MatchRequest matchSetup.lobbyId eventId msg |> Effect.Lamdera.sendToBackend
+    , Command.batch
+        [ MatchRequest matchSetup.lobbyId eventId msg |> Effect.Lamdera.sendToBackend
+        , cmds
+        ]
     )
 
 
@@ -648,6 +652,7 @@ type alias Config a =
         , textures : Textures
         , currentUser : BackendUser
         , users : SeqDict (Id UserId) BackendUser
+        , navigationKey : Effect.Browser.Navigation.Key
     }
 
 
@@ -4895,7 +4900,7 @@ animationFrame config model =
                                     config.userId
                                     (Match.MatchInputRequest (timeToServerTime config) input)
                                     model3
-                                    |> Tuple.mapSecond (\cmd -> Command.batch [ cmd, playerPositionsCmd ])
+                                    playerPositionsCmd
                             )
                                 |> (\( matchSetupPage2, cmd ) ->
                                         let
@@ -4915,8 +4920,11 @@ animationFrame config model =
                                         in
                                         case maybeWinner of
                                             Just winner ->
-                                                matchSetupUpdate config.userId (Match.MatchFinished winner) matchSetupPage2
-                                                    |> Tuple.mapSecond (\cmd2 -> Command.batch [ cmd, cmd2, scrollToBottom ])
+                                                matchSetupUpdate
+                                                    config.userId
+                                                    (Match.MatchFinished winner)
+                                                    matchSetupPage2
+                                                    (Command.batch [ cmd, scrollToBottom ])
 
                                             Nothing ->
                                                 ( matchSetupPage2, cmd )

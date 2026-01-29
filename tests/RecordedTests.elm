@@ -9,15 +9,13 @@ import Effect.Lamdera as Lamdera exposing (ClientId, SessionId)
 import Effect.Test as T exposing (DelayInMs, FileUpload(..), HttpRequest, HttpResponse(..), MultipleFilesUpload(..))
 import Effect.WebGL.Texture exposing (Texture)
 import Frontend
-import Id exposing (Id)
+import Id exposing (Id, MatchId)
 import Json.Decode
 import Json.Encode
-import Length exposing (Meters)
 import List.Extra
 import List.Nonempty
 import Match exposing (MatchState, WorldCoordinate)
-import MatchPage exposing (MatchId, MatchLocalOnly(..))
-import Point2d exposing (Point2d)
+import MatchPage exposing (MatchLocalOnly(..))
 import Route
 import SeqDict exposing (SeqDict)
 import Sounds
@@ -28,7 +26,6 @@ import Time
 import Timeline exposing (FrameId)
 import Types exposing (BackendModel, BackendMsg, FrontendModel, FrontendModel_(..), FrontendMsg, Page(..), ToBackend, ToFrontend)
 import Url exposing (Url)
-import User exposing (UserId)
 
 
 setup : T.ViewerWith (List (T.EndToEndTest ToBackend FrontendMsg FrontendModel ToFrontend BackendMsg BackendModel))
@@ -291,6 +288,35 @@ tests textures fileData =
                 ]
             )
         ]
+    , T.start
+        "User joins and then leaves the lobby"
+        startTime
+        config
+        [ T.connectFrontend
+            100
+            sessionId0
+            "/"
+            desktopWindow
+            (\userA ->
+                [ handleAudioPorts userA
+                , T.connectFrontend
+                    100
+                    sessionId1
+                    "/"
+                    desktopWindow
+                    (\userB ->
+                        [ handleAudioPorts userB
+                        , userB.click 500 (Dom.id "createNewMatch")
+                        , userA.clickLink 500 (Route.encode (Route.InMatchRoute (Id.fromInt 0)))
+                        , userA.click 500 (Dom.id "leaveMatchSetup")
+                        , userA.checkView 100 (Test.Html.Query.has [ Test.Html.Selector.exactText "Or join existing match" ])
+                        , userB.click 100 (Dom.id "startMatchSetup")
+                        , movePlayer 500 100 userB
+                        ]
+                    )
+                ]
+            )
+        ]
     ]
 
 
@@ -321,7 +347,7 @@ handleAudioPorts user =
                     )
             )
             (List.range 0 (List.length Sounds.soundUrls - 1))
-        |> T.collapsableGroup "Loading"
+        |> T.collapsableGroup "Loading audio"
 
 
 {-| Verifies that all players in active matches are in sync by checking that
