@@ -5,12 +5,14 @@ module Match exposing
     , LobbyPreview
     , Match
     , MatchActive
+    , MatchResults
     , MatchState
     , Msg(..)
     , Particle
     , Player
     , PlayerData
     , PlayerMode(..)
+    , PlayerStats
     , PushableSnowball
     , Score
     , ServerTime(..)
@@ -89,7 +91,7 @@ type alias Match_ =
     , users : SeqDict (Id UserId) PlayerData
     , matchActive : Maybe MatchActive
     , messages : List { userId : Id UserId, message : TextMessage }
-    , previousMatch : Maybe Winner
+    , previousMatch : Maybe MatchResults
     , maxPlayers : Int
     , botCount : Int
     }
@@ -131,6 +133,21 @@ type Winner
     = BothWon
     | RedWon
     | BlueWon
+
+
+type alias PlayerStats =
+    { kills : Int
+    , survives : Int
+    , snowballsThrown : Int
+    , bigSnowballsMade : Int
+    , team : Team
+    }
+
+
+type alias MatchResults =
+    { winner : Winner
+    , playerStats : SeqDict (Id UserId) PlayerStats
+    }
 
 
 type alias Vertex =
@@ -225,7 +242,7 @@ type Msg
     | MatchInputRequest ServerTime Input
     | SetMatchName MatchName
     | SendTextMessage TextMessage
-    | MatchFinished Winner
+    | MatchFinished MatchResults
     | SetMaxPlayers Int
     | SetBotCount Int
 
@@ -473,11 +490,11 @@ setBotCount userId int (Match matchSetup) =
         Match matchSetup
 
 
-matchFinished : Winner -> Match -> Match
-matchFinished placements (Match matchSetup) =
+matchFinished : MatchResults -> Match -> Match
+matchFinished results (Match matchSetup) =
     (case matchSetup.matchActive of
         Just _ ->
-            { matchSetup | matchActive = Nothing, previousMatch = Just placements }
+            { matchSetup | matchActive = Nothing, previousMatch = Just results }
 
         Nothing ->
             matchSetup
@@ -485,7 +502,7 @@ matchFinished placements (Match matchSetup) =
         |> Match
 
 
-previousMatch : Match -> Maybe Winner
+previousMatch : Match -> Maybe MatchResults
 previousMatch (Match match) =
     match.previousMatch
 

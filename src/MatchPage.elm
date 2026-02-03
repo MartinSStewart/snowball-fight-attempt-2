@@ -64,7 +64,7 @@ import Length exposing (Length, Meters)
 import LineSegment2d exposing (LineSegment2d)
 import List.Extra as List
 import List.Nonempty exposing (Nonempty)
-import Match exposing (Action(..), Emote(..), Input, LobbyPreview, Match, MatchActive, MatchState, Particle, Player, PlayerData, PlayerMode(..), Score, ServerTime(..), Snowball, Team(..), TextureVertex, TimelineEvent, Vertex, Winner(..), WorldCoordinate)
+import Match exposing (Action(..), Emote(..), Input, LobbyPreview, Match, MatchActive, MatchResults, MatchState, Particle, Player, PlayerData, PlayerMode(..), PlayerStats, PushableSnowball, Score, ServerTime(..), Snowball, Team(..), TextureVertex, TimelineEvent, Vertex, Winner(..), WorldCoordinate)
 import MatchName exposing (MatchName)
 import Math.Matrix4 as Mat4 exposing (Mat4)
 import Math.Vector2 as Vec2 exposing (Vec2)
@@ -1173,6 +1173,127 @@ winnerText color text =
         (Ui.text text)
 
 
+highscoreScreen : MatchResults -> Ui.Element Msg
+highscoreScreen matchResults =
+    let
+        playerStatsList : List ( Id UserId, PlayerStats )
+        playerStatsList =
+            SeqDict.toList matchResults.playerStats
+
+        teamColor : Team -> Ui.Color
+        teamColor team =
+            case team of
+                RedTeam ->
+                    Ui.rgb 255 100 90
+
+                BlueTeam ->
+                    Ui.rgb 80 120 255
+
+        accuracy : PlayerStats -> String
+        accuracy stats =
+            if stats.snowballsThrown == 0 then
+                "0%"
+
+            else
+                let
+                    pct =
+                        toFloat stats.kills / toFloat stats.snowballsThrown * 100
+                in
+                String.fromInt (round pct) ++ "%"
+
+        headerCell : String -> Ui.Element msg
+        headerCell label =
+            Ui.el
+                [ Ui.Font.bold
+                , Ui.Font.size 16
+                , Ui.padding 8
+                , Ui.width (Ui.px 100)
+                ]
+                (Ui.text label)
+
+        dataCell : Team -> String -> Ui.Element msg
+        dataCell team value =
+            Ui.el
+                [ Ui.Font.size 16
+                , Ui.padding 8
+                , Ui.width (Ui.px 100)
+                , Ui.Font.color (teamColor team)
+                ]
+                (Ui.text value)
+
+        playerRow : ( Id UserId, PlayerStats ) -> Ui.Element msg
+        playerRow ( userId, stats ) =
+            Ui.row
+                [ Ui.spacing 0 ]
+                [ dataCell stats.team (playerIdToName userId)
+                , dataCell stats.team (String.fromInt stats.kills)
+                , dataCell stats.team (String.fromInt stats.survives)
+                , dataCell stats.team (accuracy stats)
+                , dataCell stats.team (String.fromInt stats.snowballsThrown)
+                , dataCell stats.team (String.fromInt stats.bigSnowballsMade)
+                ]
+
+        playerIdToName : Id UserId -> String
+        playerIdToName odUserId =
+            "Player " ++ String.fromInt (Id.toInt odUserId)
+
+        sortedPlayers =
+            playerStatsList
+                |> List.sortBy (\( _, stats ) -> -stats.kills)
+    in
+    Ui.column
+        [ Ui.centerY, Ui.centerX, Ui.spacing 24 ]
+        [ case matchResults.winner of
+            BothWon ->
+                winnerText (Ui.rgb 200 200 200) "TIED"
+
+            RedWon ->
+                winnerText (Ui.rgb 255 100 90) "RED TEAM WINS"
+
+            BlueWon ->
+                winnerText (Ui.rgb 80 120 255) "BLUE TEAM WINS"
+        , Ui.column
+            [ Ui.spacing 0
+            , Ui.background (Ui.rgba 0 0 0 0.7)
+            , Ui.rounded 8
+            , Ui.padding 16
+            ]
+            [ Ui.el
+                [ Ui.Font.size 24
+                , Ui.Font.bold
+                , Ui.centerX
+                , Ui.paddingXY 0 8
+                ]
+                (Ui.text "Match Stats")
+            , Ui.row
+                [ Ui.spacing 0
+                ]
+                [ headerCell "Player"
+                , headerCell "Kills"
+                , headerCell "Survives"
+                , headerCell "Accuracy"
+                , headerCell "Thrown"
+                , headerCell "Big"
+                ]
+            , Ui.column
+                [ Ui.spacing 0 ]
+                (List.map playerRow sortedPlayers)
+            ]
+        , Ui.el
+            [ Ui.Input.button PressedCloseMatchEnd
+            , Ui.paddingXY 32 16
+            , Ui.Font.size 20
+            , Ui.background <| Ui.rgb 230 230 230
+            , Ui.Font.color (Ui.rgb 0 0 0)
+            , Ui.Font.bold
+            , Ui.width Ui.shrink
+            , Ui.centerX
+            , Ui.rounded 4
+            ]
+            (Ui.text "Return to match lobby")
+        ]
+
+
 matchSetupView : Config a -> Match -> MatchSetupLocal_ -> PlayerData -> Ui.Element Msg
 matchSetupView config lobby matchSetupData currentPlayerData =
     let
@@ -1191,37 +1312,8 @@ matchSetupView config lobby matchSetupData currentPlayerData =
             Match.preview lobby
     in
     case ( Match.previousMatch lobby, matchSetupData.closedRoundEnd ) of
-        ( Just winner, False ) ->
-            Ui.column
-                [ Ui.centerY, Ui.spacing 32 ]
-                [ case winner of
-                    BothWon ->
-                        winnerText (Ui.rgb 200 200 200) "TIED"
-
-                    RedWon ->
-                        winnerText (Ui.rgb 255 100 90) "RED TEAM WINS"
-
-                    BlueWon ->
-                        winnerText (Ui.rgb 80 120 255) "BLUE TEAM WINS"
-                , Ui.column
-                    [ Ui.spacing 48 ]
-                    [ Ui.el
-                        [ Ui.Font.size 32, Ui.centerX ]
-                        (Ui.text "Yup, that's all folks! Happy new year!")
-                    , Ui.el
-                        [ Ui.Input.button PressedCloseMatchEnd
-                        , Ui.paddingXY 32 16
-                        , Ui.Font.size 20
-                        , Ui.background <| Ui.rgb 230 230 230
-                        , Ui.Font.color (Ui.rgb 0 0 0)
-                        , Ui.Font.bold
-                        , Ui.width Ui.shrink
-                        , Ui.centerX
-                        , Ui.rounded 4
-                        ]
-                        (Ui.text "Return to match lobby")
-                    ]
-                ]
+        ( Just matchResults, False ) ->
+            highscoreScreen matchResults
 
         _ ->
             Ui.column
@@ -5029,9 +5121,26 @@ animationFrame config model =
                                         in
                                         case maybeWinner of
                                             Just winner ->
+                                                let
+                                                    matchResults : Match.MatchResults
+                                                    matchResults =
+                                                        { winner = winner
+                                                        , playerStats =
+                                                            SeqDict.map
+                                                                (\_ player ->
+                                                                    { kills = player.killCount
+                                                                    , survives = player.surviveCount
+                                                                    , snowballsThrown = player.snowballThrowCount
+                                                                    , bigSnowballsMade = player.bigSnowballsMade
+                                                                    , team = player.team
+                                                                    }
+                                                                )
+                                                                matchState.players
+                                                        }
+                                                in
                                                 matchSetupUpdate
                                                     config.userId
-                                                    (Match.MatchFinished winner)
+                                                    (Match.MatchFinished matchResults)
                                                     matchSetupPage2
                                                     (Command.batch [ cmd, scrollToBottom ])
 
