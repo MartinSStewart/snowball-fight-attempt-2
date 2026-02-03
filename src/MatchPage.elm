@@ -64,7 +64,7 @@ import Length exposing (Length, Meters)
 import LineSegment2d exposing (LineSegment2d)
 import List.Extra as List
 import List.Nonempty exposing (Nonempty)
-import Match exposing (Action(..), Emote(..), Input, LobbyPreview, Match, MatchActive, MatchState, Particle, Player, PlayerData, PlayerMode(..), PlayerStats, Score, ServerTime(..), Snowball, Team(..), TextureVertex, TimelineEvent, Vertex, Winner(..), WorldCoordinate)
+import Match exposing (Action(..), Emote(..), Input, LobbyPreview, Match, MatchActive, MatchState, Particle, Player, PlayerData, PlayerMode(..), Score, ServerTime(..), Snowball, Team(..), TextureVertex, TimelineEvent, Vertex, Winner(..), WorldCoordinate)
 import MatchName exposing (MatchName)
 import Math.Matrix4 as Mat4 exposing (Mat4)
 import Math.Vector2 as Vec2 exposing (Vec2)
@@ -145,11 +145,12 @@ type alias Model =
     { lobbyId : Id MatchId
     , networkModel : NetworkModel { userId : Id UserId, msg : Match.Msg } Match
     , matchData : MatchLocalOnly
+    , backendUsers : SeqDict (Id UserId) BackendUser
     }
 
 
-init : Id MatchId -> Match -> Maybe ( Id FrameId, MatchState ) -> ( Model, Command FrontendOnly toMsg Msg )
-init lobbyId lobby maybeCache =
+init : Id MatchId -> SeqDict (Id UserId) BackendUser -> Match -> Maybe ( Id FrameId, MatchState ) -> ( Model, Command FrontendOnly toMsg Msg )
+init lobbyId backendUsers lobby maybeCache =
     let
         networkModel : NetworkModel { userId : Id UserId, msg : Match.Msg } Match
         networkModel =
@@ -160,7 +161,7 @@ init lobbyId lobby maybeCache =
       , matchData =
             case ( Match.matchActive lobby, maybeCache ) of
                 ( Just { startTime, timeline }, Just cache ) ->
-                    initMatchData startTime (Match.allUsersAndBots lobby) (Just cache)
+                    initMatchData startTime backendUsers (Match.allUsersAndBots lobby) (Just cache)
                         |> MatchActiveLocal
 
                 ( Nothing, Nothing ) ->
@@ -168,6 +169,7 @@ init lobbyId lobby maybeCache =
 
                 _ ->
                     MatchError
+      , backendUsers = backendUsers
       }
     , scrollToBottom
     )
@@ -205,6 +207,7 @@ type ToBackend
     = MatchRequest (Id MatchId) (Id EventId) Match.Msg
     | DesyncCheckRequest (Id MatchId) (Id Timeline.FrameId) PlayerPositions
     | CurrentCache (Id MatchId) (Id FrameId) MatchState
+    | UpdatePlayerStatsRequest (SeqDict (Id UserId) { snowballsThrown : Int, kills : Int })
 
 
 type alias PlayerPositions =
@@ -519,6 +522,7 @@ matchSetupUpdate userId msg matchSetup cmds =
         , matchData =
             updateMatchData
                 msg
+                matchSetup.backendUsers
                 newNetworkModel
                 matchSetup.networkModel
                 matchSetup.matchData
@@ -551,6 +555,7 @@ updateFromBackend msg matchSetup =
                             , matchData =
                                 updateMatchData
                                     matchSetupMsg
+                                    matchSetup.backendUsers
                                     newNetworkModel
                                     matchSetup.networkModel
                                     matchSetup.matchData
@@ -580,7 +585,7 @@ updateFromBackend msg matchSetup =
                 { matchSetup
                     | networkModel = newNetworkModel
                     , matchData =
-                        updateMatchData matchSetupMsg newNetworkModel matchSetup.networkModel matchSetup.matchData
+                        updateMatchData matchSetupMsg matchSetup.backendUsers newNetworkModel matchSetup.networkModel matchSetup.matchData
                 }
 
               else
@@ -2709,21 +2714,6 @@ snowballPushableSnowballCollision snowball pushable =
         |> Quantity.lessThan (Quantity.plus pushable.radius snowballRadius)
 
 
-updatePlayerStats : Id UserId -> (PlayerStats -> PlayerStats) -> SeqDict (Id UserId) PlayerStats -> SeqDict (Id UserId) PlayerStats
-updatePlayerStats id updateFn stats =
-    SeqDict.update
-        id
-        (\maybeStats ->
-            case maybeStats of
-                Just s ->
-                    Just (updateFn s)
-
-                Nothing ->
-                    Just (updateFn Match.initPlayerStats)
-        )
-        stats
-
-
 updatePlayer : SeqDict (Id UserId) Input -> Id FrameId -> Id UserId -> Player -> MatchState -> MatchState
 updatePlayer inputs2 frameId userId player model =
     let
@@ -2929,6 +2919,15 @@ updatePlayer inputs2 frameId userId player model =
                             Nothing ->
                                 player.isDead
                     , lastStep = lastStep
+                    , snowballsThrown =
+                        player.snowballsThrown
+                            + (if threwSnowball then
+                                1
+
+                               else
+                                0
+                              )
+                    , kills = player.kills
                 }
                 model.players
 
@@ -2968,9 +2967,22 @@ updatePlayer inputs2 frameId userId player model =
 
                 Nothing ->
                     Nothing
+
+        -- Update players with kill count for the killer
+        playersWithKills : SeqDict (Id UserId) Player
+        playersWithKills =
+            case killedBy of
+                Just killerId ->
+                    SeqDict.update
+                        killerId
+                        (Maybe.map (\killer -> { killer | kills = killer.kills + 1 }))
+                        players
+
+                Nothing ->
+                    players
     in
     { model
-        | players = players
+        | players = playersWithKills
         , snowballs =
             case ( player.clickStart, input.action ) of
                 ( Just clickStart, ClickRelease point ) ->
@@ -3086,21 +3098,6 @@ updatePlayer inputs2 frameId userId player model =
 
                 Nothing ->
                     model.snowballImpacts
-        , playerStats =
-            model.playerStats
-                |> (if threwSnowball then
-                        updatePlayerStats userId (\s -> { s | snowballsThrown = s.snowballsThrown + 1 })
-
-                    else
-                        identity
-                   )
-                |> (case killedBy of
-                        Just killerId ->
-                            updatePlayerStats killerId (\s -> { s | kills = s.kills + 1 })
-
-                        Nothing ->
-                            identity
-                   )
     }
 
 
@@ -3222,7 +3219,6 @@ gameUpdate frameId inputs model =
                 , score = model2.score
                 , roundEndTime = model2.roundEndTime
                 , snowballImpacts = snowballImpacts
-                , playerStats = model2.playerStats
                 }
 
             else
@@ -3244,7 +3240,6 @@ gameUpdate frameId inputs model =
                             { redTeam = model2.score.redTeam, blueTeam = model2.score.blueTeam + 1 }
                 , roundEndTime = Nothing
                 , snowballImpacts = []
-                , playerStats = model2.playerStats
                 }
 
         Nothing ->
@@ -3268,7 +3263,6 @@ gameUpdate frameId inputs model =
             , score = model2.score
             , roundEndTime = model2.roundEndTime
             , snowballImpacts = snowballImpacts
-            , playerStats = model2.playerStats
             }
 
 
@@ -3757,6 +3751,8 @@ updateVelocities frameId players =
                     , isDead = a.isDead
                     , team = a.team
                     , lastStep = a.lastStep
+                    , snowballsThrown = a.snowballsThrown
+                    , kills = a.kills
                     }
 
                 Nothing ->
@@ -3769,6 +3765,8 @@ updateVelocities frameId players =
                     , isDead = a.isDead
                     , team = a.team
                     , lastStep = a.lastStep
+                    , snowballsThrown = a.snowballsThrown
+                    , kills = a.kills
                     }
         )
         players
@@ -4435,15 +4433,15 @@ isBot id =
     Id.toInt id < 0
 
 
-initMatchData : ServerTime -> Nonempty ( Id UserId, PlayerData ) -> Maybe ( Id FrameId, MatchState ) -> MatchActiveLocal_
-initMatchData serverTime newUserIds maybeTimelineCache =
+initMatchData : ServerTime -> SeqDict (Id UserId) BackendUser -> Nonempty ( Id UserId, PlayerData ) -> Maybe ( Id FrameId, MatchState ) -> MatchActiveLocal_
+initMatchData serverTime backendUsers newUserIds maybeTimelineCache =
     { timelineCache =
         case maybeTimelineCache of
             Just timelineCache ->
                 { cache = List.Nonempty.singleton timelineCache } |> Ok
 
             Nothing ->
-                initMatch serverTime newUserIds |> Timeline.init |> Ok
+                initMatch serverTime backendUsers newUserIds |> Timeline.init |> Ok
     , userIds =
         List.Nonempty.toList newUserIds
             |> List.filterMap
@@ -4479,11 +4477,12 @@ initMatchData serverTime newUserIds maybeTimelineCache =
 
 updateMatchData :
     Match.Msg
+    -> SeqDict (Id UserId) BackendUser
     -> NetworkModel { userId : Id UserId, msg : Match.Msg } Match
     -> NetworkModel { userId : Id UserId, msg : Match.Msg } Match
     -> MatchLocalOnly
     -> MatchLocalOnly
-updateMatchData newMsg newNetworkModel oldNetworkModel oldMatchData =
+updateMatchData newMsg backendUsers newNetworkModel oldNetworkModel oldMatchData =
     let
         newMatchState : Match
         newMatchState =
@@ -4511,13 +4510,13 @@ updateMatchData newMsg newNetworkModel oldNetworkModel oldMatchData =
                             MatchActiveLocal matchData
 
                 MatchSetupLocal _ ->
-                    initMatchData newMatch.startTime (Match.allUsersAndBots newMatchState) Nothing |> MatchActiveLocal
+                    initMatchData newMatch.startTime backendUsers (Match.allUsersAndBots newMatchState) Nothing |> MatchActiveLocal
 
                 MatchError ->
                     MatchError
 
         ( Just newMatch, Nothing ) ->
-            initMatchData newMatch.startTime (Match.allUsersAndBots newMatchState) Nothing |> MatchActiveLocal
+            initMatchData newMatch.startTime backendUsers (Match.allUsersAndBots newMatchState) Nothing |> MatchActiveLocal
 
         ( Nothing, Just _ ) ->
             initMatchSetupData newMatchState |> MatchSetupLocal
@@ -4531,8 +4530,8 @@ actualTime { time, debugTimeOffset } =
     Duration.addTo time debugTimeOffset
 
 
-initMatch : ServerTime -> Nonempty ( Id UserId, PlayerData ) -> MatchState
-initMatch startTime users =
+initMatch : ServerTime -> SeqDict (Id UserId) BackendUser -> Nonempty ( Id UserId, PlayerData ) -> MatchState
+initMatch startTime backendUsers users =
     let
         playerIds =
             List.Nonempty.toList users
@@ -4563,10 +4562,19 @@ initMatch startTime users =
         blueTeamPlayers : List (Id UserId)
         blueTeamPlayers =
             List.drop halfCount shuffledPlayers
+
+        getStats : Id UserId -> ( Int, Int )
+        getStats userId =
+            case SeqDict.get userId backendUsers of
+                Just user ->
+                    ( user.snowballsThrown, user.kills )
+
+                Nothing ->
+                    ( 0, 0 )
     in
     { players =
-        List.map (\userId -> ( userId, initPlayer RedTeam )) redTeamPlayers
-            ++ List.map (\userId -> ( userId, initPlayer BlueTeam )) blueTeamPlayers
+        List.map (\userId -> ( userId, initPlayer RedTeam (getStats userId |> Tuple.first) (getStats userId |> Tuple.second) )) redTeamPlayers
+            ++ List.map (\userId -> ( userId, initPlayer BlueTeam (getStats userId |> Tuple.first) (getStats userId |> Tuple.second) )) blueTeamPlayers
             |> SeqDict.fromList
             |> initPlayerPosition
     , snowballs = []
@@ -4577,9 +4585,6 @@ initMatch startTime users =
     , score = { redTeam = 0, blueTeam = 0 }
     , roundEndTime = Nothing
     , snowballImpacts = []
-    , playerStats =
-        List.map (\userId -> ( userId, Match.initPlayerStats )) shuffledPlayers
-            |> SeqDict.fromList
     }
 
 
@@ -4671,8 +4676,8 @@ initPlayerPosition players =
         |> (\( a, _, _ ) -> a)
 
 
-initPlayer : Team -> Player
-initPlayer team =
+initPlayer : Team -> Int -> Int -> Player
+initPlayer team snowballsThrown kills =
     { position = Point2d.origin
     , targetPosition = Nothing
     , velocity = Vector2d.zero
@@ -4682,6 +4687,8 @@ initPlayer team =
     , isDead = Nothing
     , team = team
     , lastStep = { position = Point2d.origin, time = Id.fromInt -999, stepCount = 0 }
+    , snowballsThrown = snowballsThrown
+    , kills = kills
     }
 
 
@@ -4993,11 +5000,23 @@ animationFrame config model =
                                         in
                                         case maybeWinner of
                                             Just winner ->
+                                                let
+                                                    playerStatsCmd =
+                                                        matchState.players
+                                                            |> SeqDict.map
+                                                                (\_ player ->
+                                                                    { snowballsThrown = player.snowballsThrown
+                                                                    , kills = player.kills
+                                                                    }
+                                                                )
+                                                            |> UpdatePlayerStatsRequest
+                                                            |> Effect.Lamdera.sendToBackend
+                                                in
                                                 matchSetupUpdate
                                                     config.userId
                                                     (Match.MatchFinished winner)
                                                     matchSetupPage2
-                                                    (Command.batch [ cmd, scrollToBottom ])
+                                                    (Command.batch [ cmd, scrollToBottom, playerStatsCmd ])
 
                                             Nothing ->
                                                 ( matchSetupPage2, cmd )

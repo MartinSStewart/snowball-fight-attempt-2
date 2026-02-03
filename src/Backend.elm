@@ -157,7 +157,10 @@ getLobbyData userId user model =
 
 initUser : Id UserId -> BackendUser
 initUser userId =
-    { name = "User " ++ Id.toString userId }
+    { name = "User " ++ Id.toString userId
+    , snowballsThrown = 0
+    , kills = 0
+    }
 
 
 getUserFromSessionId : SessionId -> BackendModel -> Maybe ( Id UserId, BackendUser )
@@ -264,6 +267,28 @@ updateMatchPageToBackend userId user sessionId clientId msg model time =
 
                 _ ->
                     ( model, Command.none )
+
+        MatchPage.UpdatePlayerStatsRequest playerStats ->
+            let
+                updatedUsers =
+                    SeqDict.foldl
+                        (\odUserId stats users ->
+                            SeqDict.update
+                                odUserId
+                                (Maybe.map
+                                    (\u ->
+                                        { u
+                                            | snowballsThrown = stats.snowballsThrown
+                                            , kills = stats.kills
+                                        }
+                                    )
+                                )
+                                users
+                        )
+                        model.users
+                        playerStats
+            in
+            ( { model | users = updatedUsers }, Command.none )
 
 
 updateFromFrontendWithTime :

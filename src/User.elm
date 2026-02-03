@@ -13,7 +13,10 @@ type UserId
 
 
 type alias BackendUser =
-    { name : String }
+    { name : String
+    , snowballsThrown : Int
+    , kills : Int
+    }
 
 
 getUser : { a | userId : Id UserId, currentUser : BackendUser, users : SeqDict (Id UserId) BackendUser } -> Id UserId -> Maybe BackendUser
