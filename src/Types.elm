@@ -23,12 +23,12 @@ import Effect.Browser.Navigation
 import Effect.Lamdera exposing (ClientId, SessionId)
 import Effect.Time as Time
 import Effect.WebGL.Texture as Texture exposing (Texture)
-import Id exposing (Id)
+import Id exposing (Id, MatchId)
 import Keyboard
 import Length exposing (Meters)
 import List.Nonempty exposing (Nonempty)
 import Match exposing (LobbyPreview, Match, MatchState, ServerTime, WorldCoordinate)
-import MatchPage exposing (MatchId, Mouse, ScreenCoordinate, WorldPixel)
+import MatchPage exposing (Mouse, PlayerPositions, ScreenCoordinate, WorldPixel)
 import NonemptySet exposing (NonemptySet)
 import PingData exposing (PingData)
 import Pixels exposing (Pixels)
@@ -117,7 +117,7 @@ type alias BackendModel =
     , lobbies : SeqDict (Id MatchId) Match
     , joiningActiveMatch : SeqDict ( Id MatchId, Id FrameId ) (NonemptySet ClientId)
     , counter : Int
-    , playerPositions : SeqDict (Id MatchId) (SeqDict (Id FrameId) (SeqDict (Id UserId) (Point2d Meters WorldCoordinate)))
+    , playerPositions : SeqDict (Id MatchId) (SeqDict (Id FrameId) (SeqDict PlayerPositions (NonemptySet (Id UserId))))
     }
 
 

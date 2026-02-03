@@ -9,15 +9,13 @@ import Effect.Lamdera as Lamdera exposing (ClientId, SessionId)
 import Effect.Test as T exposing (DelayInMs, FileUpload(..), HttpRequest, HttpResponse(..), MultipleFilesUpload(..))
 import Effect.WebGL.Texture exposing (Texture)
 import Frontend
-import Id exposing (Id)
+import Id exposing (Id, MatchId)
 import Json.Decode
 import Json.Encode
-import Length exposing (Meters)
 import List.Extra
 import List.Nonempty
 import Match exposing (MatchState, WorldCoordinate)
-import MatchPage exposing (MatchId, MatchLocalOnly(..))
-import Point2d exposing (Point2d)
+import MatchPage exposing (MatchLocalOnly(..))
 import Route
 import SeqDict exposing (SeqDict)
 import Sounds
@@ -28,20 +26,12 @@ import Time
 import Timeline exposing (FrameId)
 import Types exposing (BackendModel, BackendMsg, FrontendModel, FrontendModel_(..), FrontendMsg, Page(..), ToBackend, ToFrontend)
 import Url exposing (Url)
-import User exposing (UserId)
 
 
 setup : T.ViewerWith (List (T.EndToEndTest ToBackend FrontendMsg FrontendModel ToFrontend BackendMsg BackendModel))
 setup =
     T.viewerWith tests
-        |> T.addTextureWithOptions Textures.textureOptions "/vignette.png"
-        |> T.addTextureWithOptions Textures.textureOptions "/video0.png"
-        |> T.addTextureWithOptions Textures.textureOptions "/video1.png"
-        |> T.addTextureWithOptions Textures.textureOptions "/video2.png"
-        |> T.addTextureWithOptions Textures.textureOptions "/bones/base.png"
-        |> T.addTextureWithOptions Textures.textureOptions "/bones/shadow.png"
-        |> T.addTextureWithOptions Textures.textureOptions "/charlotte/base.png"
-        |> T.addTextureWithOptions Textures.textureOptions "/charlotte/shadow.png"
+        |> T.addTexturesWithOptions Textures.textureOptions Textures.textureUrls
         |> T.addBytesFiles (Dict.values fileRequests)
 
 
@@ -159,17 +149,10 @@ hasNotText user texts =
 
 
 tests :
-    Texture
-    -> Texture
-    -> Texture
-    -> Texture
-    -> Texture
-    -> Texture
-    -> Texture
-    -> Texture
+    Dict String Texture
     -> Dict String Bytes
     -> List (T.EndToEndTest ToBackend FrontendMsg FrontendModel ToFrontend BackendMsg BackendModel)
-tests vignette video0 video1 video2 bonesBase bonesShadow charlotteBase charlotteShadow fileData =
+tests textures fileData =
     let
         handleHttpRequests : Dict String String -> { currentRequest : HttpRequest, data : T.Data FrontendModel BackendModel } -> HttpResponse
         handleHttpRequests overrides requestAndData =
@@ -190,32 +173,11 @@ tests vignette video0 video1 video2 bonesBase bonesShadow charlotteBase charlott
                         Nothing ->
                             UnhandledHttpRequest
             in
-            case key of
-                "GET_/vignette.png" ->
-                    TextureHttpResponse okMetadata vignette
+            case Dict.get requestAndData.currentRequest.url textures of
+                Just texture ->
+                    TextureHttpResponse okMetadata texture
 
-                "GET_/video0.png" ->
-                    TextureHttpResponse okMetadata video0
-
-                "GET_/video1.png" ->
-                    TextureHttpResponse okMetadata video1
-
-                "GET_/video2.png" ->
-                    TextureHttpResponse okMetadata video2
-
-                "GET_/bones/base.png" ->
-                    TextureHttpResponse okMetadata bonesBase
-
-                "GET_/bones/shadow.png" ->
-                    TextureHttpResponse okMetadata bonesShadow
-
-                "GET_/charlotte/base.png" ->
-                    TextureHttpResponse okMetadata charlotteBase
-
-                "GET_/charlotte/shadow.png" ->
-                    TextureHttpResponse okMetadata charlotteShadow
-
-                _ ->
+                Nothing ->
                     case ( Dict.get key overrides, Dict.get key fileRequests ) of
                         ( Just path, _ ) ->
                             getData path
@@ -246,34 +208,42 @@ tests vignette video0 video1 video2 bonesBase bonesShadow charlotteBase charlott
             "/"
             desktopWindow
             (\userA ->
-                [ handleAudioPorts userA
+                [ userA.setNetworkLatency 0 { toBackendLatency = 50, toFrontendLatency = 50 }
+                , handleAudioPorts userA
                 , userA.click 500 (Dom.id "createNewMatch")
-                , T.connectFrontend
-                    100
-                    sessionId1
-                    "/"
-                    desktopWindow
-                    (\userB ->
-                        [ handleAudioPorts userB
-                        , userB.clickLink 500 (Route.encode (Route.InMatchRoute (Id.fromInt 0)))
-                        , userA.click 100 (Dom.id "startMatchSetup")
-                        , userA.pointerDown 100 (Dom.id "canvas") ( 500, 100 ) []
-                        , userA.pointerUp 100 (Dom.id "canvas") ( 500, 100 ) []
-                        , userB.pointerDown 100 (Dom.id "canvas") ( 500, 400 ) []
-                        , userB.pointerUp 100 (Dom.id "canvas") ( 500, 400 ) []
-                        , checkPlayersInSync 5000
-                        ]
-                    )
-                , T.connectFrontend
-                    100
-                    sessionId1
-                    (Route.encode (Route.InMatchRoute (Id.fromInt 0)))
-                    desktopWindow
-                    (\userB ->
-                        [ handleAudioPorts userB
-                        , checkPlayersInSync 500
-                        ]
-                    )
+                , T.collapsableGroup
+                    "Second player"
+                    [ T.connectFrontend
+                        100
+                        sessionId1
+                        "/"
+                        desktopWindow
+                        (\userB ->
+                            [ handleAudioPorts userB
+                            , userB.clickLink 500 (Route.encode (Route.InMatchRoute (Id.fromInt 0)))
+                            , userA.click 100 (Dom.id "startMatchSetup")
+                            , movePlayer 100 500 100 userA
+                            , movePlayer 100 500 400 userB
+                            , T.collapsableGroup "5 seconds of gameplay" [ checkPlayersInSync 5000 ]
+                            ]
+                        )
+                    ]
+                , T.collapsableGroup
+                    "Second player reconnect"
+                    [ T.connectFrontend
+                        100
+                        sessionId1
+                        (Route.encode (Route.InMatchRoute (Id.fromInt 0)))
+                        desktopWindow
+                        (\userB ->
+                            [ handleAudioPorts userB
+                            , movePlayer 100 600 100 userA
+                            , checkPlayersInSync 0
+                            , movePlayer 100 600 400 userB
+                            , checkPlayersInSync 40
+                            ]
+                        )
+                    ]
                 ]
             )
         ]
@@ -298,10 +268,8 @@ tests vignette video0 video1 video2 bonesBase bonesShadow charlotteBase charlott
                         , userB.click 500 (Dom.id "createNewMatch")
                         , userA.clickLink 500 (Route.encode (Route.InMatchRoute (Id.fromInt 0)))
                         , userB.click 100 (Dom.id "startMatchSetup")
-                        , userA.pointerDown 100 (Dom.id "canvas") ( 500, 100 ) []
-                        , userA.pointerUp 100 (Dom.id "canvas") ( 500, 100 ) []
-                        , userB.pointerDown 100 (Dom.id "canvas") ( 500, 400 ) []
-                        , userB.pointerUp 100 (Dom.id "canvas") ( 500, 400 ) []
+                        , movePlayer 100 500 100 userA
+                        , movePlayer 100 500 400 userB
                         , checkPlayersInSync 5000
                         ]
                     )
@@ -312,6 +280,68 @@ tests vignette video0 video1 video2 bonesBase bonesShadow charlotteBase charlott
                     desktopWindow
                     (\userB ->
                         [ handleAudioPorts userB
+                        , movePlayer 100 600 100 userA
+                        , movePlayer 100 600 400 userB
+                        , checkPlayersInSync 500
+                        ]
+                    )
+                ]
+            )
+        ]
+    , T.start
+        "User joins and then leaves the lobby"
+        startTime
+        config
+        [ T.connectFrontend
+            100
+            sessionId0
+            "/"
+            desktopWindow
+            (\userA ->
+                [ handleAudioPorts userA
+                , T.connectFrontend
+                    100
+                    sessionId1
+                    "/"
+                    desktopWindow
+                    (\userB ->
+                        [ handleAudioPorts userB
+                        , userB.click 500 (Dom.id "createNewMatch")
+                        , userA.clickLink 500 (Route.encode (Route.InMatchRoute (Id.fromInt 0)))
+                        , userA.click 500 (Dom.id "leaveMatchSetup")
+                        , userA.checkView 100 (Test.Html.Query.has [ Test.Html.Selector.exactText "Or join existing match" ])
+                        , userB.click 100 (Dom.id "startMatchSetup")
+                        , movePlayer 100 500 100 userB
+                        ]
+                    )
+                ]
+            )
+        ]
+    , T.start
+        "Handle delay duration startup"
+        startTime
+        config
+        [ T.connectFrontend
+            100
+            sessionId0
+            "/"
+            desktopWindow
+            (\userA ->
+                [ handleAudioPorts userA
+                , userA.setNetworkLatency 0 { toBackendLatency = 300, toFrontendLatency = 300 }
+                , T.connectFrontend
+                    100
+                    sessionId1
+                    "/"
+                    desktopWindow
+                    (\userB ->
+                        [ handleAudioPorts userB
+                        , userB.click 25000 (Dom.id "createNewMatch")
+                        , userA.clickLink 2500 (Route.encode (Route.InMatchRoute (Id.fromInt 0)))
+                        , userB.click 2500 (Dom.id "startMatchSetup")
+                        , movePlayer 2500 500 100 userB
+                        , movePlayer 2500 500 100 userA
+                        , movePlayer 2500 500 500 userB
                         , checkPlayersInSync 500
                         ]
                     )
@@ -321,12 +351,20 @@ tests vignette video0 video1 video2 bonesBase bonesShadow charlotteBase charlott
     ]
 
 
+movePlayer : DelayInMs -> Float -> Float -> T.FrontendActions toBackend frontendMsg frontendModel toFrontend backendMsg backendModel -> T.Action toBackend frontendMsg frontendModel toFrontend backendMsg backendModel
+movePlayer delay x y userA =
+    T.group
+        [ userA.pointerDown delay (Dom.id "canvas") ( x, y ) []
+        , userA.pointerUp 100 (Dom.id "canvas") ( x, y ) []
+        ]
+
+
 handleAudioPorts :
     T.FrontendActions toBackend frontendMsg frontendModel toFrontend backendMsg backendModel
     -> T.Action toBackend frontendMsg frontendModel toFrontend backendMsg backendModel
 handleAudioPorts user =
-    [ user.portEvent 100 "audioPortFromJS" (stringToJson """{"type":2,"samplesPerSecond":48000}""") ]
-        ++ List.map
+    user.portEvent 100 "audioPortFromJS" (stringToJson """{"type":2,"samplesPerSecond":48000}""")
+        :: List.map
             (\index ->
                 user.portEvent
                     10
@@ -340,7 +378,7 @@ handleAudioPorts user =
                     )
             )
             (List.range 0 (List.length Sounds.soundUrls - 1))
-        |> T.group
+        |> T.collapsableGroup "Loading audio"
 
 
 {-| Verifies that all players in active matches are in sync by checking that
@@ -370,7 +408,7 @@ checkPlayersInSync delay =
                                                                     (\( frameId, state ) ->
                                                                         { matchId = matchPage.lobbyId
                                                                         , frameId = frameId
-                                                                        , state = state
+                                                                        , state = { state | footsteps = [], mergedFootsteps = [] }
                                                                         }
                                                                     )
                                                                     (List.Nonempty.toList cache.cache)
@@ -391,12 +429,24 @@ checkPlayersInSync delay =
                                         []
                             )
             in
-            if
-                List.Extra.gatherEqualsBy (\a -> ( a.matchId, a.frameId )) frontendMatchData
-                    |> List.all (\( head, rest ) -> List.all (\a -> a == head) rest)
-            then
-                Ok ()
+            case
+                List.filterMap
+                    (\( head, rest ) ->
+                        if List.all (\a -> a == head) rest then
+                            Nothing
 
-            else
-                Err "Players are no longer in sync"
+                        else
+                            Just (Id.toString head.frameId)
+                    )
+                    (List.Extra.gatherEqualsBy (\a -> ( a.matchId, a.frameId )) frontendMatchData)
+            of
+                [] ->
+                    Ok ()
+
+                rest ->
+                    "The "
+                        ++ String.fromInt (SeqDict.size data.frontends)
+                        ++ " connected players are no longer in sync for frames "
+                        ++ String.join ", " rest
+                        |> Err
         )

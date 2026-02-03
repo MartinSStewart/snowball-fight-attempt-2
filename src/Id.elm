@@ -1,8 +1,12 @@
-module Id exposing (Id, decrement, fromInt, increment, toInt, toString)
+module Id exposing (Id, MatchId, decrement, fromInt, increment, toInt, toString)
 
 
 type Id idType
     = Id Int
+
+
+type MatchId
+    = LobbyId Never
 
 
 fromInt : Int -> Id idType

@@ -5,8 +5,7 @@ module Route exposing
     )
 
 import AppUrl
-import Id exposing (Id)
-import MatchPage exposing (MatchId)
+import Id exposing (Id, MatchId)
 import Url exposing (Url)
 import Url.Builder
 

@@ -5,7 +5,7 @@ module NonemptyDict exposing
     , updateIfExists
     , keys, values, fromNonemptyList, toNonemptyList, toList, fromList
     , map, toSeqDict, fromSeqDict
-    , any, foldl, foldr, head, insert, merge, updateOrInsert
+    , any, foldl, foldr, head, insert, merge, union, updateOrInsert
     )
 
 {-| A dictionary mapping unique keys to values.
@@ -45,6 +45,7 @@ Insert, remove, and query operations all take _O(log n)_ time.
 -}
 
 import List.Nonempty exposing (Nonempty(..))
+import NonemptySet exposing (NonemptySet)
 import SeqDict exposing (SeqDict)
 
 
@@ -235,3 +236,11 @@ merge :
     -> result
 merge left both right dict1 dict2 result =
     SeqDict.merge left both right (toSeqDict dict1) (toSeqDict dict2) result
+
+
+{-| Combine two dictionaries. If there is a collision, preference is given
+to the first dictionary.
+-}
+union : NonemptyDict k v -> NonemptyDict k v -> NonemptyDict k v
+union a b =
+    foldl (\key value dict -> updateOrInsert key (Maybe.withDefault value) dict) a b

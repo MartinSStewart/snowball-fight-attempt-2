@@ -1,24 +1,19 @@
 module Backend exposing (app, app_)
 
-import Duration
 import Effect.Command as Command exposing (BackendOnly, Command)
 import Effect.Lamdera exposing (ClientId, SessionId)
 import Effect.Subscription as Subscription exposing (Subscription)
 import Effect.Task as Task
 import Effect.Time
-import Id exposing (Id)
+import Id exposing (Id, MatchId)
 import Lamdera
-import Length exposing (Meters)
-import List.Extra
 import List.Nonempty
 import Match exposing (Match, Msg(..), ServerTime(..), WorldCoordinate)
-import MatchPage exposing (MatchId)
+import MatchPage exposing (PlayerPositions)
 import NetworkModel exposing (EventId)
-import NonemptySet
-import Point2d exposing (Point2d)
+import NonemptySet exposing (NonemptySet)
 import Quantity
 import SeqDict exposing (SeqDict)
-import SeqSet
 import Timeline exposing (FrameId, Timeline)
 import Types exposing (..)
 import User exposing (BackendUser, UserId)
@@ -208,32 +203,48 @@ updateMatchPageToBackend userId user sessionId clientId msg model time =
             case SeqDict.get lobbyId model.lobbies of
                 Just match ->
                     let
-                        playerPositions : SeqDict (Id FrameId) (SeqDict (Id UserId) (Point2d Meters WorldCoordinate))
+                        playerPositions : SeqDict (Id FrameId) (SeqDict PlayerPositions (NonemptySet (Id UserId)))
                         playerPositions =
                             SeqDict.get lobbyId model.playerPositions |> Maybe.withDefault SeqDict.empty
-                    in
-                    case SeqDict.get frameId playerPositions of
-                        Just playerPositions2 ->
-                            if playerPositions2 == positions then
-                                ( model, Command.none )
 
-                            else
-                                ( model
-                                , broadcastToMatch match (MatchPage.DesyncBroadcast lobbyId frameId) model
+                        playerPosition : SeqDict PlayerPositions (NonemptySet (Id UserId))
+                        playerPosition =
+                            SeqDict.update
+                                positions
+                                (\maybeSet ->
+                                    case maybeSet of
+                                        Just set ->
+                                            NonemptySet.insert userId set |> Just
+
+                                        Nothing ->
+                                            NonemptySet.singleton userId |> Just
                                 )
+                                (SeqDict.get frameId playerPositions |> Maybe.withDefault SeqDict.empty)
 
-                        Nothing ->
-                            ( { model
+                        model2 =
+                            { model
                                 | playerPositions =
                                     SeqDict.insert
                                         lobbyId
-                                        (SeqDict.insert frameId positions playerPositions
-                                            |> SeqDict.remove (Id.toInt frameId - 30 |> Id.fromInt)
-                                        )
+                                        (SeqDict.insert frameId playerPosition playerPositions)
                                         model.playerPositions
-                              }
-                            , Command.none
+                            }
+                    in
+                    case SeqDict.toList playerPosition of
+                        ( _, first ) :: ( _, second ) :: rest ->
+                            ( model2
+                            , broadcastToMatch
+                                match
+                                (MatchPage.DesyncBroadcast
+                                    lobbyId
+                                    frameId
+                                    { first = first, second = second, rest = List.map Tuple.second rest }
+                                )
+                                model2
                             )
+
+                        _ ->
+                            ( model2, Command.none )
 
                 Nothing ->
                     ( model, Command.none )

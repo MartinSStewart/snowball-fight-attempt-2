@@ -1,9 +1,10 @@
 module MatchPage exposing
-    ( MatchId
+    ( Desync
     , MatchLocalOnly(..)
     , Model
     , Mouse
-    , Msg
+    , Msg(..)
+    , PlayerPositions
     , ScreenCoordinate
     , ToBackend(..)
     , ToFrontend(..)
@@ -41,6 +42,7 @@ import Direction3d exposing (Direction3d)
 import Duration exposing (Duration)
 import Ease exposing (Easing)
 import Effect.Browser.Dom as Dom exposing (HtmlId)
+import Effect.Browser.Navigation
 import Effect.Command as Command exposing (Command, FrontendOnly)
 import Effect.Lamdera
 import Effect.Task as Task
@@ -54,7 +56,7 @@ import Geometry.Interop.LinearAlgebra.Point2d
 import Html.Attributes
 import Html.Events
 import Html.Events.Extra.Pointer
-import Id exposing (Id)
+import Id exposing (Id, MatchId)
 import Json.Decode
 import Keyboard exposing (Key)
 import KeyboardExtra as Keyboard
@@ -62,7 +64,7 @@ import Length exposing (Length, Meters)
 import LineSegment2d exposing (LineSegment2d)
 import List.Extra as List
 import List.Nonempty exposing (Nonempty)
-import Match exposing (Action(..), Emote(..), Input, LobbyPreview, Match, MatchActive, MatchState, Particle, Player, PlayerData, PlayerMode(..), ServerTime(..), Snowball, Team(..), TextureVertex, TimelineEvent, Vertex, Winner(..), WorldCoordinate)
+import Match exposing (Action(..), Emote(..), Input, LobbyPreview, Match, MatchActive, MatchState, Particle, Player, PlayerData, PlayerMode(..), Score, ServerTime(..), Snowball, Team(..), TextureVertex, TimelineEvent, Vertex, Winner(..), WorldCoordinate)
 import MatchName exposing (MatchName)
 import Math.Matrix4 as Mat4 exposing (Mat4)
 import Math.Vector2 as Vec2 exposing (Vec2)
@@ -70,6 +72,7 @@ import Math.Vector3 as Vec3 exposing (Vec3)
 import Math.Vector4 exposing (Vec4)
 import MyUi
 import NetworkModel exposing (EventId, NetworkModel)
+import NonemptySet exposing (NonemptySet)
 import PingData exposing (PingData)
 import Pixels exposing (Pixels)
 import Point2d exposing (Point2d)
@@ -81,6 +84,7 @@ import Random.Extra
 import Random.List as Random
 import RasterShapes
 import Rectangle2d exposing (Rectangle2d)
+import Route exposing (Route(..))
 import SeqDict exposing (SeqDict)
 import SeqSet exposing (SeqSet)
 import Shape exposing (RenderableShape)
@@ -129,10 +133,6 @@ type Msg
     | PressedLeaveMatch
     | TypedBotCount String
     | PressedCloseMatchEnd
-
-
-type MatchId
-    = LobbyId Never
 
 
 type MatchLocalOnly
@@ -189,21 +189,34 @@ type alias MatchActiveLocal_ =
     , previousTouchPosition : Maybe (Point2d Pixels ScreenCoordinate)
     , primaryDown : Maybe Time.Posix
     , previousPrimaryDown : Maybe Time.Posix
-    , desyncedAtFrame : Maybe (Id FrameId)
+    , desync : SeqDict (Id FrameId) Desync
     , footstepMesh : List (Mesh Vertex)
+    }
+
+
+type alias Desync =
+    { first : NonemptySet (Id UserId)
+    , second : NonemptySet (Id UserId)
+    , rest : List (NonemptySet (Id UserId))
     }
 
 
 type ToBackend
     = MatchRequest (Id MatchId) (Id EventId) Match.Msg
-    | DesyncCheckRequest (Id MatchId) (Id Timeline.FrameId) (SeqDict (Id UserId) (Point2d Meters WorldCoordinate))
+    | DesyncCheckRequest (Id MatchId) (Id Timeline.FrameId) PlayerPositions
     | CurrentCache (Id MatchId) (Id FrameId) MatchState
+
+
+type alias PlayerPositions =
+    { positions : SeqDict (Id UserId) (Point2d Meters WorldCoordinate)
+    , score : Score
+    }
 
 
 type ToFrontend
     = MatchSetupBroadcast (Id MatchId) (Id UserId) Match.Msg
     | MatchSetupResponse (Id MatchId) (Id UserId) Match.Msg (Id EventId)
-    | DesyncBroadcast (Id MatchId) (Id FrameId)
+    | DesyncBroadcast (Id MatchId) (Id FrameId) Desync
     | NeedCurrentCacheBroadcast (Id MatchId) (Id FrameId)
 
 
@@ -211,16 +224,20 @@ update : Config a -> Msg -> Model -> ( Model, Command FrontendOnly ToBackend Msg
 update config msg model =
     case msg of
         PressedStartMatchSetup ->
-            matchSetupUpdate config.userId (Match.StartMatch (timeToServerTime config)) model
+            matchSetupUpdate config.userId (Match.StartMatch (timeToServerTime config)) model Command.none
 
         PressedLeaveMatchSetup ->
-            matchSetupUpdate config.userId Match.LeaveMatchSetup model
+            matchSetupUpdate
+                config.userId
+                Match.LeaveMatchSetup
+                model
+                (Effect.Browser.Navigation.pushUrl config.navigationKey (Route.encode HomePageRoute))
 
         PressedCharacter character ->
-            matchSetupUpdate config.userId (Match.SetCharacter character) model
+            matchSetupUpdate config.userId (Match.SetCharacter character) model Command.none
 
         PressedPlayerMode mode ->
-            matchSetupUpdate config.userId (Match.SetPlayerMode mode) model
+            matchSetupUpdate config.userId (Match.SetPlayerMode mode) model Command.none
 
         TypedMatchName matchName ->
             ( { model
@@ -239,7 +256,7 @@ update config msg model =
             )
 
         PressedSaveMatchName matchName ->
-            matchSetupUpdate config.userId (Match.SetMatchName matchName) model
+            matchSetupUpdate config.userId (Match.SetMatchName matchName) model Command.none
 
         PressedResetMatchName ->
             ( { model
@@ -294,7 +311,7 @@ update config msg model =
                             MatchError ->
                                 MatchError
                 }
-                |> Tuple.mapSecond (\cmd -> Command.batch [ cmd, scrollToBottom ])
+                scrollToBottom
 
         TypedMaxPlayers maxPlayersText ->
             ( { model
@@ -313,7 +330,7 @@ update config msg model =
             )
 
         PressedSaveMaxPlayers maxPlayers ->
-            matchSetupUpdate config.userId (Match.SetMaxPlayers maxPlayers) model
+            matchSetupUpdate config.userId (Match.SetMaxPlayers maxPlayers) model Command.none
 
         PressedResetMaxPlayers ->
             ( { model
@@ -431,7 +448,7 @@ update config msg model =
             ( model, Command.none )
 
         PressedLeaveMatch ->
-            matchSetupUpdate config.userId Match.LeaveMatchSetup model
+            matchSetupUpdate config.userId Match.LeaveMatchSetup model Command.none
 
         TypedBotCount text ->
             let
@@ -451,7 +468,7 @@ update config msg model =
             in
             case validateBotCount text of
                 Ok botCount ->
-                    matchSetupUpdate config.userId (Match.SetBotCount botCount) model2
+                    matchSetupUpdate config.userId (Match.SetBotCount botCount) model2 Command.none
 
                 Err _ ->
                     ( model2, Command.none )
@@ -491,8 +508,8 @@ validateBotCount text =
             Err "Must be an positive integer"
 
 
-matchSetupUpdate : Id UserId -> Match.Msg -> Model -> ( Model, Command FrontendOnly ToBackend msg )
-matchSetupUpdate userId msg matchSetup =
+matchSetupUpdate : Id UserId -> Match.Msg -> Model -> Command FrontendOnly ToBackend msg -> ( Model, Command FrontendOnly ToBackend msg )
+matchSetupUpdate userId msg matchSetup cmds =
     let
         { eventId, newNetworkModel } =
             NetworkModel.updateFromUser { userId = userId, msg = msg } matchSetup.networkModel
@@ -506,7 +523,10 @@ matchSetupUpdate userId msg matchSetup =
                 matchSetup.networkModel
                 matchSetup.matchData
       }
-    , MatchRequest matchSetup.lobbyId eventId msg |> Effect.Lamdera.sendToBackend
+    , Command.batch
+        [ MatchRequest matchSetup.lobbyId eventId msg |> Effect.Lamdera.sendToBackend
+        , cmds
+        ]
     )
 
 
@@ -568,13 +588,13 @@ updateFromBackend msg matchSetup =
             , Command.none
             )
 
-        DesyncBroadcast lobbyId frameId ->
+        DesyncBroadcast lobbyId time desync ->
             ( if lobbyId == matchSetup.lobbyId then
                 { matchSetup
                     | matchData =
                         case matchSetup.matchData of
                             MatchActiveLocal matchData ->
-                                { matchData | desyncedAtFrame = Just frameId }
+                                { matchData | desync = SeqDict.insert time desync matchData.desync }
                                     |> MatchActiveLocal
 
                             MatchSetupLocal _ ->
@@ -632,6 +652,7 @@ type alias Config a =
         , textures : Textures
         , currentUser : BackendUser
         , users : SeqDict (Id UserId) BackendUser
+        , navigationKey : Effect.Browser.Navigation.Key
     }
 
 
@@ -1087,7 +1108,11 @@ view config model =
         ( Just match, MatchActiveLocal matchData, _ ) ->
             case matchData.timelineCache of
                 Ok cache ->
-                    case Timeline.getStateAt gameUpdate (timeToFrameId config match) cache match.timeline of
+                    let
+                        currentFrameId =
+                            timeToFrameId config match
+                    in
+                    case Timeline.getStateAt gameUpdate currentFrameId cache match.timeline of
                         Ok ( _, matchState ) ->
                             Ui.el
                                 (Ui.height Ui.fill
@@ -1095,7 +1120,7 @@ view config model =
                                     :: Ui.htmlAttribute (Html.Events.Extra.Pointer.onUp PointerUp)
                                     :: Ui.htmlAttribute (Html.Events.Extra.Pointer.onLeave PointerLeave)
                                     :: Ui.id "canvas"
-                                    :: Ui.inFront (desyncWarning matchData.desyncedAtFrame)
+                                    :: Ui.inFront (desyncWarning config currentFrameId matchData.desync)
                                     --:: Ui.inFront
                                     --    (Ui.el
                                     --        [ Ui.width Ui.shrink
@@ -1376,7 +1401,7 @@ matchSetupView config lobby matchSetupData currentPlayerData =
                                             List.filterMap
                                                 (\( userId, data ) ->
                                                     if data.character == character && data.mode == PlayerMode then
-                                                        case User.getUser userId config of
+                                                        case User.getUser config userId of
                                                             Just user ->
                                                                 Ui.el
                                                                     [ Ui.alignRight
@@ -4377,7 +4402,7 @@ initMatchData serverTime newUserIds maybeTimelineCache =
     , previousTouchPosition = Nothing
     , primaryDown = Nothing
     , previousPrimaryDown = Nothing
-    , desyncedAtFrame = Nothing
+    , desync = SeqDict.empty
     , footstepMesh = []
     }
 
@@ -4683,10 +4708,59 @@ scrollToBottom =
         |> Task.attempt (\_ -> ScrolledToBottom)
 
 
-desyncWarning : Maybe (Id FrameId) -> Ui.Element msg
-desyncWarning maybeDesyncFrame =
-    case maybeDesyncFrame of
-        Just _ ->
+hasMajority : List (NonemptySet a) -> { majority : Maybe (NonemptySet a), minorities : List (NonemptySet a) }
+hasMajority nonempty =
+    let
+        total =
+            List.foldl (\set count -> NonemptySet.size set + count) 0 nonempty
+    in
+    List.foldl
+        (\set { majority, minorities } ->
+            if NonemptySet.size set > total // 2 then
+                { majority = Just set, minorities = minorities }
+
+            else
+                { majority = majority, minorities = set :: minorities }
+        )
+        { majority = Nothing, minorities = [] }
+        nonempty
+
+
+desyncWarning : Config a -> Id FrameId -> SeqDict (Id FrameId) Desync -> Ui.Element msg
+desyncWarning model currentFrame desyncFrame =
+    let
+        desyncedPlayers2 : List String
+        desyncedPlayers2 =
+            List.filterMap
+                (\( frameId, data ) ->
+                    if frameTimeElapsed frameId currentFrame |> Quantity.lessThan Duration.second then
+                        Nothing
+
+                    else
+                        (hasMajority (data.first :: data.second :: data.rest)).minorities
+                            |> List.map NonemptySet.toSeqSet
+                            |> List.foldl SeqSet.union SeqSet.empty
+                            |> Just
+                )
+                (SeqDict.toList desyncFrame)
+                |> List.foldl SeqSet.union SeqSet.empty
+                |> SeqSet.toList
+                |> List.filterMap
+                    (\userId ->
+                        case User.getUser model userId of
+                            Just user ->
+                                if userId == model.userId then
+                                    Just (user.name ++ " (you)")
+
+                                else
+                                    Just user.name
+
+                            Nothing ->
+                                Nothing
+                    )
+    in
+    case desyncedPlayers2 of
+        first :: rest ->
             Ui.column
                 [ Ui.width Ui.shrink
                 , Ui.alignTop
@@ -4712,13 +4786,22 @@ desyncWarning maybeDesyncFrame =
                     , Ui.Font.color (Ui.rgb 255 255 255)
                     , Ui.centerX
                     ]
-                    (Ui.text "One or more players have desynced")
+                    (Ui.text
+                        (case rest of
+                            [] ->
+                                first ++ " has desynced"
+
+                            second :: rest2 ->
+                                String.join ", " (first :: rest2) ++ " and " ++ second ++ " have desynced"
+                        )
+                    )
                 ]
 
-        Nothing ->
+        [] ->
             Ui.none
 
 
+noPointerEvents : Ui.Attribute msg
 noPointerEvents =
     Ui.htmlAttribute (Html.Attributes.style "pointer-events" "none")
 
@@ -4801,7 +4884,9 @@ animationFrame config model =
                                         DesyncCheckRequest
                                             model.lobbyId
                                             oldestFrameId
-                                            (SeqDict.map (\_ player -> player.position) oldestState.players)
+                                            { positions = SeqDict.map (\_ player -> player.position) oldestState.players
+                                            , score = oldestState.score
+                                            }
                                             |> Effect.Lamdera.sendToBackend
 
                                     else
@@ -4815,7 +4900,7 @@ animationFrame config model =
                                     config.userId
                                     (Match.MatchInputRequest (timeToServerTime config) input)
                                     model3
-                                    |> Tuple.mapSecond (\cmd -> Command.batch [ cmd, playerPositionsCmd ])
+                                    playerPositionsCmd
                             )
                                 |> (\( matchSetupPage2, cmd ) ->
                                         let
@@ -4835,8 +4920,11 @@ animationFrame config model =
                                         in
                                         case maybeWinner of
                                             Just winner ->
-                                                matchSetupUpdate config.userId (Match.MatchFinished winner) matchSetupPage2
-                                                    |> Tuple.mapSecond (\cmd2 -> Command.batch [ cmd, cmd2, scrollToBottom ])
+                                                matchSetupUpdate
+                                                    config.userId
+                                                    (Match.MatchFinished winner)
+                                                    matchSetupPage2
+                                                    (Command.batch [ cmd, scrollToBottom ])
 
                                             Nothing ->
                                                 ( matchSetupPage2, cmd )

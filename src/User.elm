@@ -16,8 +16,8 @@ type alias BackendUser =
     { name : String }
 
 
-getUser : Id UserId -> { a | userId : Id UserId, currentUser : BackendUser, users : SeqDict (Id UserId) BackendUser } -> Maybe BackendUser
-getUser userId record =
+getUser : { a | userId : Id UserId, currentUser : BackendUser, users : SeqDict (Id UserId) BackendUser } -> Id UserId -> Maybe BackendUser
+getUser record userId =
     if record.userId == userId then
         Just record.currentUser
 

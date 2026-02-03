@@ -4,7 +4,7 @@ module NonemptySet exposing
     , member, size
     , fromNonemptyList, toNonemptyList, toList, fromList
     , map, toSeqSet, fromSeqSet
-    , head, insert
+    , foldl, foldr, head, insert, union
     )
 
 {-| A nonempty Set of unique values
@@ -150,3 +150,24 @@ size (NonemptySet _ set) =
 head : NonemptySet id -> id
 head (NonemptySet a _) =
     a
+
+
+{-| Fold over the values in a set.
+-}
+foldl : (k -> acc -> acc) -> acc -> NonemptySet k -> acc
+foldl f acc (NonemptySet k1 dict) =
+    SeqSet.foldl f (f k1 acc) dict
+
+
+{-| Fold over the values in a set.
+-}
+foldr : (k -> acc -> acc) -> acc -> NonemptySet k -> acc
+foldr f acc (NonemptySet k1 dict) =
+    f k1 (SeqSet.foldr f acc dict)
+
+
+{-| Get the union of two sets. Keep all values.
+-}
+union : NonemptySet a -> NonemptySet a -> NonemptySet a
+union a b =
+    foldl insert a b

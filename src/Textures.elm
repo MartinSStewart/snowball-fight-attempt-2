@@ -1,4 +1,4 @@
-module Textures exposing (CharacterTextures, Textures, loadingFinished, requestTextures, textureOptions)
+module Textures exposing (CharacterTextures, Textures, loadingFinished, requestTextures, textureOptions, textureUrls)
 
 import Character exposing (Character)
 import Effect.Command as Command exposing (Command, FrontendOnly)

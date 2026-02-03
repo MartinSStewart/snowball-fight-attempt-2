@@ -15,14 +15,14 @@ import Effect.Subscription as Subscription exposing (Subscription)
 import Effect.Task as Task
 import Effect.Time
 import Html exposing (Html)
-import Id exposing (Id)
+import Id exposing (Id, MatchId)
 import Json.Decode
 import Keyboard
 import Lamdera
 import List.Extra as List
 import Match exposing (LobbyPreview)
 import MatchName
-import MatchPage exposing (MatchId, WorldPixel)
+import MatchPage exposing (WorldPixel)
 import MyUi
 import Pixels exposing (Pixels)
 import Point2d
@@ -216,7 +216,8 @@ routeChanged route model =
                 [ MatchPage.MatchRequest matchId (Id.fromInt -1) Match.JoinMatchSetup
                     |> MatchPageToBackend
                     |> Effect.Lamdera.sendToBackend
-                , Effect.Process.sleep (Duration.seconds 5) |> Task.perform (\() -> RejoinMatchTimedOut matchId)
+
+                --, Effect.Process.sleep (Duration.seconds 5) |> Task.perform (\() -> RejoinMatchTimedOut matchId)
                 ]
             )
 
@@ -506,9 +507,11 @@ updateLoadedFromBackend msg model =
                     let
                         keepPinging =
                             (pingCount < 5)
-                                || (newHighEstimate
+                                || -- Try a few more times if the round trip time is long
+                                   (newHighEstimate
                                         |> Quantity.minus newLowEstimate
-                                        |> Quantity.greaterThan (Duration.milliseconds 200)
+                                        |> Quantity.greaterThan (Duration.seconds 0.5)
+                                        |> (&&) (pingCount < 10)
                                    )
 
                         {- The time stored in the model is potentially out of date by an animation frame. We want to make sure our high estimate overestimates rather than underestimates the true time so we add an extra animation frame here. -}
@@ -692,7 +695,7 @@ loadedView model =
                                                 [ Ui.centerX
                                                 , Ui.width Ui.shrink
                                                 , Ui.padding 16
-                                                , Ui.background (Ui.rgb 255 255 255)
+                                                , Ui.background (Ui.rgb 50 50 50)
                                                 , Ui.border 1
                                                 , Ui.rounded 4
                                                 , Ui.move { x = 0, y = 8, z = 0 }
