@@ -177,6 +177,11 @@ type alias Player =
     , isDead : Maybe { time : Id FrameId, fallDirection : Direction2d WorldCoordinate }
     , team : Team
     , lastStep : { position : Point2d Meters WorldCoordinate, time : Id FrameId, stepCount : Int }
+    , killCount : Int
+    , stepCount : Int
+    , snowballThrowCount : Int
+    , bigSnowballsMade : Int
+    , surviveCount : Int
     }
 
 
