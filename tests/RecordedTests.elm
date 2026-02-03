@@ -222,8 +222,8 @@ tests textures fileData =
                             [ handleAudioPorts userB
                             , userB.clickLink 500 (Route.encode (Route.InMatchRoute (Id.fromInt 0)))
                             , userA.click 100 (Dom.id "startMatchSetup")
-                            , movePlayer 500 100 userA
-                            , movePlayer 500 400 userB
+                            , movePlayer 100 500 100 userA
+                            , movePlayer 100 500 400 userB
                             , T.collapsableGroup "5 seconds of gameplay" [ checkPlayersInSync 5000 ]
                             ]
                         )
@@ -237,9 +237,9 @@ tests textures fileData =
                         desktopWindow
                         (\userB ->
                             [ handleAudioPorts userB
-                            , movePlayer 600 100 userA
+                            , movePlayer 100 600 100 userA
                             , checkPlayersInSync 0
-                            , movePlayer 600 400 userB
+                            , movePlayer 100 600 400 userB
                             , checkPlayersInSync 40
                             ]
                         )
@@ -268,8 +268,8 @@ tests textures fileData =
                         , userB.click 500 (Dom.id "createNewMatch")
                         , userA.clickLink 500 (Route.encode (Route.InMatchRoute (Id.fromInt 0)))
                         , userB.click 100 (Dom.id "startMatchSetup")
-                        , movePlayer 500 100 userA
-                        , movePlayer 500 400 userB
+                        , movePlayer 100 500 100 userA
+                        , movePlayer 100 500 400 userB
                         , checkPlayersInSync 5000
                         ]
                     )
@@ -280,8 +280,8 @@ tests textures fileData =
                     desktopWindow
                     (\userB ->
                         [ handleAudioPorts userB
-                        , movePlayer 600 100 userA
-                        , movePlayer 600 400 userB
+                        , movePlayer 100 600 100 userA
+                        , movePlayer 100 600 400 userB
                         , checkPlayersInSync 500
                         ]
                     )
@@ -311,7 +311,7 @@ tests textures fileData =
                         , userA.click 500 (Dom.id "leaveMatchSetup")
                         , userA.checkView 100 (Test.Html.Query.has [ Test.Html.Selector.exactText "Or join existing match" ])
                         , userB.click 100 (Dom.id "startMatchSetup")
-                        , movePlayer 500 100 userB
+                        , movePlayer 100 500 100 userB
                         ]
                     )
                 ]
@@ -339,8 +339,10 @@ tests textures fileData =
                         , userB.click 25000 (Dom.id "createNewMatch")
                         , userA.clickLink 2500 (Route.encode (Route.InMatchRoute (Id.fromInt 0)))
                         , userB.click 2500 (Dom.id "startMatchSetup")
-                        , movePlayer 2500 100 userB
-                        , movePlayer 2500 100 userA
+                        , movePlayer 2500 500 100 userB
+                        , movePlayer 2500 500 100 userA
+                        , movePlayer 2500 500 500 userB
+                        , checkPlayersInSync 500
                         ]
                     )
                 ]
@@ -349,10 +351,10 @@ tests textures fileData =
     ]
 
 
-movePlayer : Float -> Float -> T.FrontendActions toBackend frontendMsg frontendModel toFrontend backendMsg backendModel -> T.Action toBackend frontendMsg frontendModel toFrontend backendMsg backendModel
-movePlayer x y userA =
+movePlayer : DelayInMs -> Float -> Float -> T.FrontendActions toBackend frontendMsg frontendModel toFrontend backendMsg backendModel -> T.Action toBackend frontendMsg frontendModel toFrontend backendMsg backendModel
+movePlayer delay x y userA =
     T.group
-        [ userA.pointerDown 100 (Dom.id "canvas") ( x, y ) []
+        [ userA.pointerDown delay (Dom.id "canvas") ( x, y ) []
         , userA.pointerUp 100 (Dom.id "canvas") ( x, y ) []
         ]
 
