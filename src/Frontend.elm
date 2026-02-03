@@ -507,9 +507,11 @@ updateLoadedFromBackend msg model =
                     let
                         keepPinging =
                             (pingCount < 5)
-                                || (newHighEstimate
+                                || -- Try a few more times if the round trip time is long
+                                   (newHighEstimate
                                         |> Quantity.minus newLowEstimate
-                                        |> Quantity.greaterThan (Duration.milliseconds 200)
+                                        |> Quantity.greaterThan (Duration.seconds 0.5)
+                                        |> (&&) (pingCount < 10)
                                    )
 
                         {- The time stored in the model is potentially out of date by an animation frame. We want to make sure our high estimate overestimates rather than underestimates the true time so we add an extra animation frame here. -}

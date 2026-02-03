@@ -317,6 +317,35 @@ tests textures fileData =
                 ]
             )
         ]
+    , T.start
+        "Handle delay duration startup"
+        startTime
+        config
+        [ T.connectFrontend
+            100
+            sessionId0
+            "/"
+            desktopWindow
+            (\userA ->
+                [ handleAudioPorts userA
+                , userA.setNetworkLatency 0 { toBackendLatency = 300, toFrontendLatency = 300 }
+                , T.connectFrontend
+                    100
+                    sessionId1
+                    "/"
+                    desktopWindow
+                    (\userB ->
+                        [ handleAudioPorts userB
+                        , userB.click 25000 (Dom.id "createNewMatch")
+                        , userA.clickLink 2500 (Route.encode (Route.InMatchRoute (Id.fromInt 0)))
+                        , userB.click 2500 (Dom.id "startMatchSetup")
+                        , movePlayer 2500 100 userB
+                        , movePlayer 2500 100 userA
+                        ]
+                    )
+                ]
+            )
+        ]
     ]
 
 
