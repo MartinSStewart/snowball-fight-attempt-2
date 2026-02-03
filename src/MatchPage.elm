@@ -64,7 +64,7 @@ import Length exposing (Length, Meters)
 import LineSegment2d exposing (LineSegment2d)
 import List.Extra as List
 import List.Nonempty exposing (Nonempty)
-import Match exposing (Action(..), Emote(..), Input, LobbyPreview, Match, MatchActive, MatchState, Particle, Player, PlayerData, PlayerMode(..), Score, ServerTime(..), Snowball, Team(..), TextureVertex, TimelineEvent, Vertex, Winner(..), WorldCoordinate)
+import Match exposing (Action(..), Emote(..), Input, LobbyPreview, Match, MatchActive, MatchState, Particle, Player, PlayerData, PlayerMode(..), PlayerStats, Score, ServerTime(..), Snowball, Team(..), TextureVertex, TimelineEvent, Vertex, Winner(..), WorldCoordinate)
 import MatchName exposing (MatchName)
 import Math.Matrix4 as Mat4 exposing (Mat4)
 import Math.Vector2 as Vec2 exposing (Vec2)
@@ -2709,6 +2709,21 @@ snowballPushableSnowballCollision snowball pushable =
         |> Quantity.lessThan (Quantity.plus pushable.radius snowballRadius)
 
 
+updatePlayerStats : Id UserId -> (PlayerStats -> PlayerStats) -> SeqDict (Id UserId) PlayerStats -> SeqDict (Id UserId) PlayerStats
+updatePlayerStats id updateFn stats =
+    SeqDict.update
+        id
+        (\maybeStats ->
+            case maybeStats of
+                Just s ->
+                    Just (updateFn s)
+
+                Nothing ->
+                    Just (updateFn Match.initPlayerStats)
+        )
+        stats
+
+
 updatePlayer : SeqDict (Id UserId) Input -> Id FrameId -> Id UserId -> Player -> MatchState -> MatchState
 updatePlayer inputs2 frameId userId player model =
     let
@@ -2916,6 +2931,43 @@ updatePlayer inputs2 frameId userId player model =
                     , lastStep = lastStep
                 }
                 model.players
+
+        -- Track if this player threw a snowball
+        threwSnowball : Bool
+        threwSnowball =
+            case ( player.clickStart, input.action ) of
+                ( Just clickStart, ClickRelease _ ) ->
+                    let
+                        elapsed =
+                            frameTimeElapsed clickStart.time frameId
+                    in
+                    (elapsed |> Quantity.greaterThanOrEqualTo clickMoveMaxDelay)
+                        && (elapsed |> Quantity.lessThan clickTotalDelay)
+
+                ( Just clickStart, _ ) ->
+                    frameTimeElapsed clickStart.time frameId |> Quantity.greaterThanOrEqualTo clickTotalDelay
+
+                _ ->
+                    False
+
+        -- Track who killed this player (if killed by enemy)
+        killedBy : Maybe (Id UserId)
+        killedBy =
+            case hitBySnowball of
+                Just snowball ->
+                    case SeqDict.get snowball.thrownBy model.players of
+                        Just thrower ->
+                            if thrower.team /= player.team && player.isDead == Nothing then
+                                Just snowball.thrownBy
+
+                            else
+                                Nothing
+
+                        Nothing ->
+                            Nothing
+
+                Nothing ->
+                    Nothing
     in
     { model
         | players = players
@@ -3034,6 +3086,21 @@ updatePlayer inputs2 frameId userId player model =
 
                 Nothing ->
                     model.snowballImpacts
+        , playerStats =
+            model.playerStats
+                |> (if threwSnowball then
+                        updatePlayerStats userId (\s -> { s | snowballsThrown = s.snowballsThrown + 1 })
+
+                    else
+                        identity
+                   )
+                |> (case killedBy of
+                        Just killerId ->
+                            updatePlayerStats killerId (\s -> { s | kills = s.kills + 1 })
+
+                        Nothing ->
+                            identity
+                   )
     }
 
 
@@ -3155,6 +3222,7 @@ gameUpdate frameId inputs model =
                 , score = model2.score
                 , roundEndTime = model2.roundEndTime
                 , snowballImpacts = snowballImpacts
+                , playerStats = model2.playerStats
                 }
 
             else
@@ -3176,6 +3244,7 @@ gameUpdate frameId inputs model =
                             { redTeam = model2.score.redTeam, blueTeam = model2.score.blueTeam + 1 }
                 , roundEndTime = Nothing
                 , snowballImpacts = []
+                , playerStats = model2.playerStats
                 }
 
         Nothing ->
@@ -3199,6 +3268,7 @@ gameUpdate frameId inputs model =
             , score = model2.score
             , roundEndTime = model2.roundEndTime
             , snowballImpacts = snowballImpacts
+            , playerStats = model2.playerStats
             }
 
 
@@ -4507,6 +4577,9 @@ initMatch startTime users =
     , score = { redTeam = 0, blueTeam = 0 }
     , roundEndTime = Nothing
     , snowballImpacts = []
+    , playerStats =
+        List.map (\userId -> ( userId, Match.initPlayerStats )) shuffledPlayers
+            |> SeqDict.fromList
     }
 
 

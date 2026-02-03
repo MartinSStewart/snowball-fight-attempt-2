@@ -11,6 +11,7 @@ module Match exposing
     , Player
     , PlayerData
     , PlayerMode(..)
+    , PlayerStats
     , PushableSnowball
     , Score
     , ServerTime(..)
@@ -29,6 +30,7 @@ module Match exposing
     , frameDuration
     , framesPerSecond
     , init
+    , initPlayerStats
     , isOwner
     , joinUser
     , leaveUser
@@ -120,11 +122,21 @@ type alias MatchState =
     , score : Score
     , roundEndTime : Maybe { winner : Winner, time : Id FrameId }
     , snowballImpacts : List (Id FrameId)
+    , playerStats : SeqDict (Id UserId) PlayerStats
     }
 
 
 type alias Score =
     { redTeam : Int, blueTeam : Int }
+
+
+type alias PlayerStats =
+    { snowballsThrown : Int, kills : Int }
+
+
+initPlayerStats : PlayerStats
+initPlayerStats =
+    { snowballsThrown = 0, kills = 0 }
 
 
 type Winner
