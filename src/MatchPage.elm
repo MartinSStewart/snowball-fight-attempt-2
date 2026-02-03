@@ -2779,6 +2779,56 @@ updatePlayer inputs2 frameId userId player model =
             else
                 ( player.lastStep, model.footsteps, model.mergedFootsteps )
 
+        tookStep : Bool
+        tookStep =
+            lastStep /= player.lastStep
+
+        -- Detect if a throw will happen this frame
+        ( willThrowNormal, willThrowOvercharge ) =
+            case ( player.clickStart, input.action, player.isDead ) of
+                ( Just clickStart, ClickRelease _, Nothing ) ->
+                    let
+                        elapsed =
+                            frameTimeElapsed clickStart.time frameId
+                    in
+                    if
+                        (elapsed |> Quantity.greaterThanOrEqualTo clickMoveMaxDelay)
+                            && (elapsed |> Quantity.lessThan clickTotalDelay)
+                    then
+                        ( True, False )
+
+                    else
+                        ( False, False )
+
+                ( Just clickStart, _, Nothing ) ->
+                    if frameTimeElapsed clickStart.time frameId |> Quantity.greaterThanOrEqualTo clickTotalDelay then
+                        ( False, True )
+
+                    else
+                        ( False, False )
+
+                _ ->
+                    ( False, False )
+
+        -- Determine if a kill happened (this player was killed by another player's snowball)
+        killerUserId : Maybe (Id UserId)
+        killerUserId =
+            case hitBySnowball of
+                Just snowball ->
+                    case SeqDict.get snowball.thrownBy model.players of
+                        Just thrower ->
+                            if thrower.team /= player.team && player.isDead == Nothing then
+                                Just snowball.thrownBy
+
+                            else
+                                Nothing
+
+                        Nothing ->
+                            Nothing
+
+                Nothing ->
+                    Nothing
+
         players : SeqDict (Id UserId) Player
         players =
             SeqDict.insert
@@ -2914,8 +2964,39 @@ updatePlayer inputs2 frameId userId player model =
                             Nothing ->
                                 player.isDead
                     , lastStep = lastStep
+                    , stepCount =
+                        if tookStep then
+                            player.stepCount + 1
+
+                        else
+                            player.stepCount
+                    , snowballThrowCount =
+                        if willThrowNormal || willThrowOvercharge then
+                            player.snowballThrowCount + 1
+
+                        else
+                            player.snowballThrowCount
+                    , bigSnowballsMade =
+                        if willThrowOvercharge then
+                            player.bigSnowballsMade + 1
+
+                        else
+                            player.bigSnowballsMade
+                    , killCount = player.killCount
+                    , surviveCount = player.surviveCount
                 }
                 model.players
+                |> (\playersDict ->
+                        -- Update killer's killCount if a kill happened
+                        case killerUserId of
+                            Just killerId ->
+                                SeqDict.update killerId
+                                    (Maybe.map (\killer -> { killer | killCount = killer.killCount + 1 }))
+                                    playersDict
+
+                            Nothing ->
+                                playersDict
+                   )
     in
     { model
         | players = players
@@ -3158,7 +3239,20 @@ gameUpdate frameId inputs model =
                 }
 
             else
-                { players = initPlayerPosition model2.players
+                let
+                    -- Increment surviveCount for players who survived (not dead)
+                    playersWithSurviveCounts =
+                        SeqDict.map
+                            (\_ p ->
+                                if p.isDead == Nothing then
+                                    { p | surviveCount = p.surviveCount + 1 }
+
+                                else
+                                    p
+                            )
+                            model2.players
+                in
+                { players = initPlayerPosition playersWithSurviveCounts
                 , snowballs = []
                 , pushableSnowballs = model2.pushableSnowballs
                 , particles = []
@@ -3687,6 +3781,11 @@ updateVelocities frameId players =
                     , isDead = a.isDead
                     , team = a.team
                     , lastStep = a.lastStep
+                    , killCount = a.killCount
+                    , stepCount = a.stepCount
+                    , snowballThrowCount = a.snowballThrowCount
+                    , bigSnowballsMade = a.bigSnowballsMade
+                    , surviveCount = a.surviveCount
                     }
 
                 Nothing ->
@@ -3699,6 +3798,11 @@ updateVelocities frameId players =
                     , isDead = a.isDead
                     , team = a.team
                     , lastStep = a.lastStep
+                    , killCount = a.killCount
+                    , stepCount = a.stepCount
+                    , snowballThrowCount = a.snowballThrowCount
+                    , bigSnowballsMade = a.bigSnowballsMade
+                    , surviveCount = a.surviveCount
                     }
         )
         players
@@ -4609,6 +4713,11 @@ initPlayer team =
     , isDead = Nothing
     , team = team
     , lastStep = { position = Point2d.origin, time = Id.fromInt -999, stepCount = 0 }
+    , killCount = 0
+    , stepCount = 0
+    , snowballThrowCount = 0
+    , bigSnowballsMade = 0
+    , surviveCount = 0
     }
 
 
